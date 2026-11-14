@@ -51,7 +51,7 @@ flow "load" {
 <a id="local-start"></a>
 ## 本机启动
 
-需要 Node.js 24.18 及以上的 24.x 版本。不需要 Docker、Redis，也不需要全局安装任何包。
+需要 Node.js 24.18 及以上的 24 或 26 版本线。不需要 Docker、Redis，也不需要全局安装任何包。
 
 ```sh
 npm ci --omit=optional --ignore-scripts

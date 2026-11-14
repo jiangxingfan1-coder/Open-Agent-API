@@ -18,11 +18,11 @@ Docker image are attached to releases published after 0.0.64; 0.0.64 itself has 
 | [Windows zip](#windows) | Windows 10+, x64 | you want the desktop launcher | servers |
 | [Linux tar.gz / `install.sh`](#linux) | glibc 2.28+ (x64 or arm64) | a Linux workstation or server, no root, no Docker | Alpine / musl |
 | [Docker](#docker) | Docker with Compose v2 | a server, an isolated gateway, built-in or remote agents | using the Codex / Claude Code CLIs of the host |
-| [npm tarball](#npm) | Node.js 24.18 to 24.x | you already live in Node and want `oaa` on your PATH | machines without Node |
-| [Source](#source) | Node.js 24.18 to 24.x, git | developing Open Agent API itself | everyone else |
+| [npm tarball](#npm) | Node.js 24.18+ (24 or 26 line) | you already live in Node and want `oaa` on your PATH | machines without Node |
+| [Source](#source) | Node.js 24.18+ (24 or 26 line), git | developing Open Agent API itself | everyone else |
 
 The macOS, Windows and Linux packages ship their own Node.js runtime. The npm and source routes use the Node.js on
-your machine (`engines` in `package.json`: `>=24.18.0 <25`).
+your machine (`engines` in `package.json`: `>=24.18.0 <27`).
 
 **The Claude native engine** needs Anthropic's `@anthropic-ai/claude-agent-sdk`, which is under Anthropic's own terms
 and is therefore not part of any package or image. Without it that one engine answers `adapter_unavailable` with the

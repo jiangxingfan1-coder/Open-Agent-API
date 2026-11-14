@@ -48,7 +48,7 @@ This is allowed only on tools where repeating the call is harmless; using it on 
 
 ## Local start
 
-Requires Node.js 24.18+ (24.x). No Docker, Redis, or global package installation is required.
+Requires Node.js 24.18 or newer on the 24 or 26 line. No Docker, Redis, or global package installation is required.
 
 ```sh
 npm ci --omit=optional --ignore-scripts

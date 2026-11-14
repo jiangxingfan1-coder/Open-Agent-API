@@ -18,7 +18,7 @@ Commands are defined in `scripts` of `package.json`.
 | `npm test` | Build first, then run all `dist/test/*.test.js` tests, which briefly listen on random ports on 127.0.0.1 |
 | `npm run verify` | `check` + `format:check` + `test`, one-step verification; this is what CI runs |
 
-CI (`.github/workflows/ci.yml`) runs `npm ci --omit=optional --ignore-scripts` and `npm run verify` on push and pull request, with Node 24 (the latest 24.x) on Ubuntu and macOS. The Windows job runs only the type check, the format check and the packaging-related tests (see [releasing.md](releasing.md)).
+CI (`.github/workflows/ci.yml`) runs `npm ci --omit=optional --ignore-scripts` and `npm run verify` on push and pull request, with Node 24 and Node 26 (the latest of each line, the two lines `engines` supports) on Ubuntu and macOS. The Windows job (also on both lines) runs only the type check, the format check and the packaging-related tests (see [releasing.md](releasing.md)).
 
 ## 2. Directory layers and dependency rules
 

@@ -14,14 +14,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        node: ['24']
-        include:
-          # Node 26 只收集结果：package.json 的 engines 仍是 >=24.18.0 <25，是否放宽等这里的结果再定。
-          - os: ubuntu-latest
-            node: '26'
-            experimental: true
+        # engines 是 >=24.18.0 <27：24 与 26 两条线都要通过（发布包自带的运行时仍是 24.18.0）。
+        node: ['24', '26']
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental == true }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -36,7 +31,11 @@ jobs:
   # 权限位、SIGTERM/SIGKILL 等），完整测试在 Windows 上必然失败。这里先跑类型检查、格式检查与
   # 和 Windows 打包相关的测试；完整的 Windows 兼容是另一项工作（清单见 docs/releasing.md）。
   windows:
-    name: check (windows-latest)
+    name: check (windows-latest, node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['24', '26']
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -45,7 +44,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node }}
       - run: npm ci --omit=optional --ignore-scripts
       - run: npm run check
       - run: npm run format:check

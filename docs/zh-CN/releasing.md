@@ -108,7 +108,7 @@ Windows 包的数据与日志在 `%LOCALAPPDATA%\OpenAgentAPI`（对应 macOS �
 
 CI（`.github/workflows/ci.yml`）在 Ubuntu 与 macOS 上跑完整的 `npm run verify`（`release-plan` 测试还会离线核对 `.github/workflows/` 下的全部工作流：action 是否固定哈希、有没有超时、运行器标签是否退役、矩阵字段与产物目录是否一致）。Windows 作业目前只跑类型检查、格式检查与打包相关的测试（`release-plan`、`claude-sdk`），因为不少测试用到 POSIX 专用写法：用 `chmod` 生成带 shebang 的假可执行文件（`acp`、`approval-policy`、`claude-failure`、`conformance`、`handoff`、`overview`、`sandbox-native` 等）、`/bin/sh`、文件权限位（`harness-bridge-acp`）、`SIGTERM`/`SIGKILL`（`process`、`step-checkpoints`）、写死的 `/tmp` 与 `/usr/bin` 路径（`native-env` 等）。让完整测试在 Windows 上通过是单独的一项工作。
 
-**Node 版本矩阵。** `ci.yml` 的 `verify` 作业除 Node 24 外还有一个 Node 26（`ubuntu-latest`，`continue-on-error: true`，只收集结果、不挡合并）。`engines` 仍是 `>=24.18.0 <25`：查过仓库与全部依赖（`package-lock.json` 里只有根包带这个上限）、`git log` 与文档，没有任何代码、注释或说明记录「Node 25 及以上确有不兼容」，上限来自首个基线快照，属保守写法。内核唯一用到的实验性接口是 `node:sqlite`。Node 25 是奇数版本，维护期已结束（nodejs.org 上最后一个 25.x 是 25.9.0），Node 26（Lithium）已是 LTS，所以收集 26 的结果有意义。是否放宽 `engines`（以及同步改 `scripts/package-windows.mjs` 的版本提示、`release.yml` 的 `NODE_RUNTIME_VERSION`、README 与 CONTRIBUTING 里的说法）等这个条目连续几次绿了再定。写这段时本机只有 Node 24.18，没有在 26 上跑过。
+**Node 版本矩阵。** `engines` 是 `>=24.18.0 <27`：24 或 26 版本线上 24.18 及以上的 Node.js。`ci.yml` 的 `verify` 作业（Ubuntu 与 macOS）与 Windows 的打包相关作业都在 Node 24 和 Node 26 上跑，每一项都必须通过。背景：原来的上限 `<25` 来自首个基线快照，仓库、全部依赖（`package-lock.json` 里只有根包带上限）、`git log` 与文档都没有记录过真正的不兼容；内核唯一用到的实验性接口是 `node:sqlite`。第一次在 Node 26.13.1 上不挡合并的 CI 运行，除 Linux 启动脚本测试外整套测试全部通过，那一项失败只是因为启动脚本自己拒绝了 `PATH` 上的 Node 26，现在这个检查跟随 `engines`。Node 25 是奇数版本，维护期已结束，没有测试它，尽管这个范围在字面上包含它。安装包自带的 Node 运行时（`release.yml` 的 `NODE_RUNTIME_VERSION`）仍是 24.18.0。再改范围时要一并更新：`package.json` 的 `engines`、`scripts/package-windows.mjs` 生成的版本提示（Windows 与 Linux 启动脚本都读 `engines`，不用另改）、`ci.yml` 的矩阵、两份 README 与两份 CONTRIBUTING 里的徽章和说法、`docs/install.md`、`docs/operations.md`、`docs/deploy-public.md`、`docs/engineering.md`（各中英两份）；`test/release-plan.test.ts` 会断言这个范围。
 
 ## 工作流的运行器与 action 版本
 
@@ -125,7 +125,7 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 与 macOS 上跑完整的 `npm run 
 
 ## 第一次在 GitHub 上跑 Release 时盯什么
 
-工作流从未在 GitHub 上真正运行过，Windows 的包也没在 Windows 上跑过；Linux 包、Docker 镜像与 Node 26 条目只在开发机上做过等价的演练（macOS 上用 stub 的 node 解出 Linux 包跑烟雾测试；那里没有 Docker，Dockerfile 的每个阶段是在临时目录里按 `COPY` 与 `RUN` 逐条复现的）。第一次推标签后，按下面的顺序看日志，哪一步红了就对着修：
+工作流从未在 GitHub 上真正运行过，Windows 的包也没在 Windows 上跑过；Linux 包与 Docker 镜像只在开发机上做过等价的演练（macOS 上用 stub 的 node 解出 Linux 包跑烟雾测试；那里没有 Docker，Dockerfile 的每个阶段是在临时目录里按 `COPY` 与 `RUN` 逐条复现的）。第一次推标签后，按下面的顺序看日志，哪一步红了就对着修：
 
 | 步骤 | 失败时日志的样子 | 原因与处理 |
 | --- | --- | --- |
@@ -144,7 +144,7 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 与 macOS 上跑完整的 `npm run 
 | 烟雾测试（Linux / npm） | `有模块无法 import` 并列出模块 | 瘦身裁掉了运行时要读的文件：看缺的是哪个包的哪个路径，把它加进 `isThirdPartyDeadWeight` 的例外 |
 | 烟雾测试（各平台） | `等待超时` 出现在 `任务停在 requires_action`、`oaa approvals 列出待批准项` 或 `stop 之后仍有进程使用 …` | 示例智能体子进程没起来（Linux 上看 `ps` 与 serve.log）或网关没退干净：按日志修；残留进程说明 SIGTERM 没被处理 |
 | `install.sh` 试装（Linux） | `SHA-256 mismatch` 或 `download failed: file://…` | 试装用的 `OAA_DOWNLOAD_BASE` 指向 `release/linux`：核对包名里的版本与 `SHA256SUMS` 是否对得上 |
-| `npm-package` 作业 | `npm error code E404`（装依赖时）或 `EBADENGINE` 警告 | 前者是 npm 官方源偶发问题，重跑；后者只是警告（`engines` 是 24.x，作业用 `NODE_RUNTIME_VERSION`） |
+| `npm-package` 作业 | `npm error code E404`（装依赖时）或 `EBADENGINE` 警告 | 前者是 npm 官方源偶发问题，重跑；后者只是警告（`engines` 是 `>=24.18.0 <27`，作业用 `NODE_RUNTIME_VERSION`） |
 | `npm-package` 作业 | `npx … oaa --help` 输出为空或 `ERR_MODULE_NOT_FOUND` | `bin` 指向的 `dist/src/cli.js` 没打进包，或依赖被提升后路径写死：看 `npm pack` 的文件清单（`test/npm-package.test.ts` 会核对） |
 
 ### Docker 首跑观察清单

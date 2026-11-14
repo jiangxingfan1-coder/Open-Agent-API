@@ -9,7 +9,10 @@ import { rm } from 'node:fs/promises';
 import { builtin, makeBundle } from '../src/lang/bundle.js';
 import { createGateway } from '../src/gateway/server.js';
 import { verifySignature, webhookTiming } from '../src/gateway/webhook-core.js';
-import { FixtureModel, agent, setup, token, waitFor } from './helpers.js';
+import { FixtureModel, agent, setup, token, waitFor as waitUntil } from './helpers.js';
+
+// Bounded waits with room for a slow, loaded CI machine (the condition is polled every 10 ms).
+const waitFor = (check: () => boolean | Promise<boolean>, ms = 20_000) => waitUntil(check, ms);
 
 type Hit = { headers: http.IncomingHttpHeaders; body: string; json: Record<string, unknown> };
 
@@ -72,6 +75,42 @@ async function addEndpoint(
   return r.json();
 }
 
+type Inject = (o: {
+  method: 'GET';
+  url: string;
+  headers: Record<string, string>;
+}) => Promise<{ json(): { data: { status: string }[] } }>;
+type DeliveryRow = {
+  id: string;
+  status: string;
+  http_status: number | null;
+  attempts: number;
+  last_error: string | null;
+};
+
+/**
+ * Wait until the endpoint has at least `count` deliveries and none of them is pending any more.
+ * The receiver records a request before it answers, and the gateway records the outcome only after
+ * the answer arrives, so "the receiver saw it" is not yet "the delivery is settled".
+ */
+async function settled(
+  app: { inject: Inject },
+  endpointId: string,
+  count: number,
+): Promise<DeliveryRow[]> {
+  let rows: DeliveryRow[] = [];
+  await waitFor(async () => {
+    const r = await app.inject({
+      method: 'GET',
+      url: `/v1/webhooks/${endpointId}/deliveries`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    rows = r.json().data as DeliveryRow[];
+    return rows.length >= count && rows.every((d) => d.status !== 'pending');
+  }, 20_000);
+  return rows;
+}
+
 async function start(s: Awaited<ReturnType<typeof setup>>, input = 'write') {
   const r = await s.request('POST', '/v1/responses', {
     model: 'agent/test',
@@ -85,7 +124,7 @@ test('webhook: requires_action then completed, signed, without the task input', 
   const hook = await receiver();
   const s = await writerGateway();
   try {
-    const { secret } = await addEndpoint(s, { url: hook.url });
+    const { id: endpointId, secret } = await addEndpoint(s, { url: hook.url });
     const runId = await start(s, 'secret task text');
     await waitFor(() => hook.hits.length >= 1);
     const first = hook.hits[0]!;
@@ -118,14 +157,9 @@ test('webhook: requires_action then completed, signed, without the task input', 
       'total_tokens',
     ]);
     assert.equal(done.output, undefined);
-    const deliveries = (
-      await s.request(
-        'GET',
-        `/v1/webhooks/${(await s.request('GET', '/v1/webhooks')).json().data[0].id}/deliveries`,
-      )
-    ).json().data;
+    const deliveries = await settled(s.app, endpointId, 2);
     assert.deepEqual(
-      deliveries.map((d: { status: string; http_status: number }) => [d.status, d.http_status]),
+      deliveries.map((d) => [d.status, d.http_status]),
       [
         ['succeeded', 200],
         ['succeeded', 200],
@@ -174,13 +208,10 @@ test('webhook: 500 then 200 is retried with the same delivery ID and body', asyn
     await waitFor(() => hook.hits.length >= 2);
     assert.equal(hook.hits[0]!.headers['x-oaa-delivery'], hook.hits[1]!.headers['x-oaa-delivery']);
     assert.equal(hook.hits[0]!.body, hook.hits[1]!.body);
-    await waitFor(async () => {
-      const [d] = (await s.request('GET', `/v1/webhooks/${endpoint.id}/deliveries`)).json().data;
-      return d.status === 'succeeded';
-    });
-    const [d] = (await s.request('GET', `/v1/webhooks/${endpoint.id}/deliveries`)).json().data;
-    assert.equal(d.attempts, 2);
-    assert.equal(d.http_status, 200);
+    const [d] = await settled(s.app, endpoint.id, 1);
+    assert.equal(d!.status, 'succeeded');
+    assert.equal(d!.attempts, 2);
+    assert.equal(d!.http_status, 200);
     const view = (await s.request('GET', `/v1/webhooks/${endpoint.id}`)).json();
     assert.equal(view.status.consecutive_failures, 0);
     assert.equal(view.status.state, 'ok');
@@ -232,12 +263,12 @@ test('webhook: a receiver that never answers does not hold up the run', async ()
     const r = await s.request('POST', '/v1/responses', { model: 'agent/test', input: 'hi' });
     assert.equal(r.json().status, 'completed');
     assert.ok(Date.now() - before < 2_000, 'the synchronous call is not delayed by the webhook');
+    let d: DeliveryRow | undefined;
     await waitFor(async () => {
-      const [d] = (await s.request('GET', `/v1/webhooks/${endpoint.id}/deliveries`)).json().data;
-      return d?.attempts >= 1;
-    });
-    const [d] = (await s.request('GET', `/v1/webhooks/${endpoint.id}/deliveries`)).json().data;
-    assert.match(d.last_error, /Timed out after 300 ms/);
+      [d] = (await s.request('GET', `/v1/webhooks/${endpoint.id}/deliveries`)).json().data;
+      return (d?.attempts ?? 0) >= 1;
+    }, 20_000);
+    assert.match(String(d!.last_error), /Timed out after 300 ms/);
   } finally {
     await s.cleanup();
     await hook.close();
@@ -262,20 +293,9 @@ test('webhook: queued deliveries continue after a gateway restart', async () => 
     try {
       await waitFor(() => hook.hits.length === 2);
       assert.equal(hook.hits[1]!.headers['x-oaa-delivery'], deliveryId);
-      const deliveries = await again.app.inject({
-        method: 'GET',
-        url: `/v1/webhooks/${endpoint.id}/deliveries`,
-        headers: { authorization: `Bearer ${token}` },
-      });
-      await waitFor(async () => {
-        const r = await again.app.inject({
-          method: 'GET',
-          url: `/v1/webhooks/${endpoint.id}/deliveries`,
-          headers: { authorization: `Bearer ${token}` },
-        });
-        return r.json().data[0].status === 'succeeded';
-      });
-      assert.equal(deliveries.statusCode, 200);
+      const [d] = await settled(again.app, endpoint.id, 1);
+      assert.equal(d!.id, deliveryId);
+      assert.equal(d!.status, 'succeeded');
     } finally {
       await again.app.close();
     }
@@ -289,7 +309,7 @@ test('webhook: a run interrupted by a gateway restart sends run.interrupted', as
   const hook = await receiver();
   const s = await writerGateway();
   try {
-    await addEndpoint(s, { url: hook.url, events: ['run.interrupted'] });
+    const endpoint = await addEndpoint(s, { url: hook.url, events: ['run.interrupted'] });
     const runId = await start(s);
     await waitFor(() => s.store.run(runId).status === 'requires_action');
     await s.app.close();
@@ -301,8 +321,14 @@ test('webhook: a run interrupted by a gateway restart sends run.interrupted', as
       const data = hook.hits[0]!.json.data as { run_id: string; status: string };
       assert.equal(data.run_id, runId);
       assert.equal(data.status, 'interrupted');
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      assert.equal(hook.hits.length, 1, 'sent once, whether queued at shutdown or at startup');
+      // Once everything queued for the endpoint is settled, exactly one delivery exists.
+      const rows = await settled(again.app, endpoint.id, 1);
+      assert.deepEqual(
+        rows.map((d) => d.status),
+        ['succeeded'],
+        'queued once, whether at shutdown or at startup',
+      );
+      assert.equal(hook.hits.length, 1);
     } finally {
       await again.app.close();
     }
@@ -320,8 +346,11 @@ test('webhook: deleting the endpoint stops deliveries; disabled endpoints get no
     const kept = await addEndpoint(s, { url: hook.url, description: 'disabled', enabled: false });
     const gone = await addEndpoint(s, { url: hook.url });
     assert.equal((await s.request('DELETE', `/v1/webhooks/${gone.id}`)).statusCode, 204);
-    await s.request('POST', '/v1/responses', { model: 'agent/test', input: 'hi' });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Synchronous call: the run's events are queued (or not) before the response is returned.
+    const r = await s.request('POST', '/v1/responses', { model: 'agent/test', input: 'hi' });
+    assert.equal(r.json().status, 'completed');
+    const queued = s.store.db.prepare('SELECT count(*) AS n FROM webhook_deliveries').get()!;
+    assert.equal(Number(queued.n), 0, 'nothing is queued for a deleted or a disabled endpoint');
     assert.equal(hook.hits.length, 0);
     const listed = (await s.request('GET', `/v1/webhooks/${kept.id}/deliveries`)).json().data;
     assert.deepEqual(listed, [], 'a disabled endpoint queues nothing');
@@ -348,13 +377,17 @@ test('webhook: test event, and include_output carries the final output', async (
         hook.hits[0]!.body,
       ),
     );
+    const [tested1] = await settled(s.app, plain.id, 1);
+    assert.equal(tested1!.status, 'succeeded');
     await s.request('DELETE', `/v1/webhooks/${plain.id}`);
 
-    await addEndpoint(s, { url: hook.url, include_output: true });
+    const withOutput = await addEndpoint(s, { url: hook.url, include_output: true });
     await s.request('POST', '/v1/responses', { model: 'agent/test', input: 'hi' });
     await waitFor(() => hook.hits.length === 2);
     const output = (hook.hits[1]!.json.data as { output: Record<string, unknown> }).output;
     assert.deepEqual(output, { text: 'Fixture response.', truncated: false, bytes: 17 });
+    const [delivered] = await settled(s.app, withOutput.id, 1);
+    assert.equal(delivered!.status, 'succeeded');
   } finally {
     await s.cleanup();
     await hook.close();

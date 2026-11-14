@@ -180,7 +180,7 @@ const parseVersion = (v) => {
 };
 const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 
-/** 判断版本是否满足 engines.node（支持以空格分隔的 >=、>、<=、<、= 比较式，如 ">=24.18.0 <25"）。 */
+/** 判断版本是否满足 engines.node（支持以空格分隔的 >=、>、<=、<、= 比较式，如 ">=24.18.0 <27"）。 */
 export function satisfiesEngines(version, range) {
   const v = parseVersion(version);
   if (!v) return false;

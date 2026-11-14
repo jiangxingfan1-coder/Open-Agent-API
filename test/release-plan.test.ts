@@ -78,11 +78,15 @@ test('发布目录都在仓库的 release/ 之下', () => {
 
 test('engines 版本判断', () => {
   const range = pkg.engines.node;
+  // The real range: the 24 line from 24.18 and the 26 line are supported; older and newer ones are not.
+  assert.equal(range, '>=24.18.0 <27');
+  for (const ok of ['v24.18.0', '24.20.1', 'v26.0.0', 'v26.13.1'])
+    assert.equal(plan.satisfiesEngines(ok, range), true, ok);
+  for (const bad of ['v24.17.9', 'v22.1.0', 'v27.0.0', 'v28.1.0'])
+    assert.equal(plan.satisfiesEngines(bad, range), false, bad);
+  // The comparison logic itself, on a range that is not the current one.
   assert.equal(plan.satisfiesEngines('v24.18.0', '>=24.18.0 <25'), true);
-  assert.equal(plan.satisfiesEngines('24.20.1', '>=24.18.0 <25'), true);
-  assert.equal(plan.satisfiesEngines('v24.17.9', '>=24.18.0 <25'), false);
   assert.equal(plan.satisfiesEngines('v25.0.0', '>=24.18.0 <25'), false);
-  assert.equal(plan.satisfiesEngines('v22.1.0', range), false);
   assert.equal(plan.satisfiesEngines('garbage', range), false);
 });
 
@@ -209,7 +213,7 @@ test('发布模式的副作用层拒绝写 release/ 之外的路径（dry-run �
 
 test('Windows 启动器：版本提示与 engines 一致，cmd/vbs 只用 ASCII', () => {
   const req = win.nodeRequirement(pkg.engines.node);
-  assert.deepEqual([req.major, req.minor, req.below], [24, 18, 25]);
+  assert.deepEqual([req.major, req.minor, req.below], [24, 18, 27]);
   const ascii = /^[\x00-\x7f]*$/;
   for (const text of [
     win.oaaCmd(req),
@@ -222,7 +226,16 @@ test('Windows 启动器：版本提示与 engines 一致，cmd/vbs 只用 ASCII'
     assert.doesNotMatch(text, /Node\.js 22/);
   }
   const cmd = win.oaaCmd(req);
-  assert.match(cmd, /Node\.js 24\.18\+ \(below 25\)/);
+  assert.match(cmd, /Node\.js 24\.18\+ \(below 27\)/);
+  // The version check inside the .cmd accepts 24.18+ and 26, and refuses 24.17 and 27.
+  const check = /process\.exit\((.*?)\?0:1\)/.exec(cmd)?.[1];
+  assert.ok(check, 'the .cmd carries a version check');
+  const accepts = (v: string) => {
+    const [a, b] = v.split('.').map(Number);
+    return new Function('a', 'b', `return ${check}`)(a, b) as boolean;
+  };
+  for (const ok of ['24.18', '24.30', '26.0', '26.13']) assert.equal(accepts(ok), true, ok);
+  for (const bad of ['24.17', '22.20', '27.0']) assert.equal(accepts(bad), false, bad);
   // 括号块里的 %ERRORLEVEL% 会在解析时提前展开：exit /b %ERRORLEVEL% 不能出现在 ( … ) 块里。
   assert.doesNotMatch(cmd, /\([^)]*exit \/b %ERRORLEVEL%[^)]*\)/s);
   const ps1 = win.desktopPs1(req);

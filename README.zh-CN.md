@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="许可证：Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-0e6b63?style=flat-square" /></a>
-  <a href="package.json"><img alt="Node.js 24.18 及以上（24.x）" src="https://img.shields.io/badge/node-%E2%89%A524.18%20%3C25-0e6b63?style=flat-square" /></a>
+  <a href="package.json"><img alt="Node.js 24.18 及以上的 24 或 26 版本线" src="https://img.shields.io/badge/node-%E2%89%A524.18%20%3C27-0e6b63?style=flat-square" /></a>
 </p>
 <!-- 仓库公开后再加 CI 徽章；star 数等动态徽章同理，不要在公开前放需要仓库数据的徽章。 -->
 
@@ -81,7 +81,7 @@ Node.js 同理：
 
 ## 三分钟跑起来
 
-下面的源码路线需要 Node.js 24.18 及以上（24.x，`package.json` 的 `engines` 为 `>=24.18.0 <25`）；安装包与 Linux 包自带 Node.js（其他路线见[其他安装方式](#其他安装方式)）。不需要 Redis，也不需要任何模型密钥。
+下面的源码路线需要 Node.js 24.18 及以上的 24 或 26 版本线（`package.json` 的 `engines` 为 `>=24.18.0 <27`）；安装包与 Linux 包自带 Node.js（其他路线见[其他安装方式](#其他安装方式)）。不需要 Redis，也不需要任何模型密钥。
 
 ### 最短路径：一条命令
 
@@ -113,7 +113,7 @@ npm run oaa -- quickstart
 
   脚本会用发布页的 `SHA256SUMS` 校验下载，装到 `~/.local` 下。
 - **Docker**（在仓库目录里 `docker compose up --build -d`）：网关只发布在宿主机的 `127.0.0.1:8787`。容器里没有宿主机上装的命令行智能体（没有 Codex、没有 Claude Code），所以适合：用你自己的模型密钥的内置智能体、ACP / A2A 远程智能体、以及连进来的执行节点。Dockerfile 还没有在 CI 之外构建过，第一次验证的构建就是 CI 那一次。
-- **npm tarball**（需要 Node.js 24.18 及以上）：`npm install -g <发布页上 open-agent-api-<版本>.tgz 的地址>`，然后 `oaa quickstart`。这个包是 `private` 的，不在 npm 官方源上。
+- **npm tarball**（需要 Node.js 24.18 及以上的 24 或 26 版本线）：`npm install -g <发布页上 open-agent-api-<版本>.tgz 的地址>`，然后 `oaa quickstart`。这个包是 `private` 的，不在 npm 官方源上。
 
 ### 接上你自己的智能体：`oaa connect`
 

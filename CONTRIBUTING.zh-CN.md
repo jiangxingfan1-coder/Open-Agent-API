@@ -25,7 +25,7 @@
 
 ## 环境要求
 
-- Node.js 24.18 及以上的 24.x（`package.json` 的 `engines` 为 `>=24.18.0 <25`，CI 用 Node 24，即最新的 24.x）。
+- Node.js 24.18 及以上的 24 或 26 版本线（`package.json` 的 `engines` 为 `>=24.18.0 <27`，CI 跑 Node 24 与 Node 26，即各自最新的版本）。
 - 不需要 Docker、Redis 或全局安装的包。
 
 ```sh

@@ -17,10 +17,10 @@ Windows 用 `Get-FileHash`。
 | [Windows zip](#windows) | Windows 10+，x64 | 想要桌面启动器 | 服务器 |
 | [Linux tar.gz / `install.sh`](#linux) | glibc 2.28+（x64 或 arm64） | Linux 工作站或服务器，不用 root，不用 Docker | Alpine / musl |
 | [Docker](#docker) | 带 Compose v2 的 Docker | 服务器、隔离的网关、内置智能体或远程智能体 | 使用宿主机上的 Codex / Claude Code 命令行 |
-| [npm tarball](#npm) | Node.js 24.18 到 24.x | 已经在用 Node，想让 `oaa` 在 PATH 上 | 没有 Node 的机器 |
-| [源码](#源码) | Node.js 24.18 到 24.x，git | 开发 Open Agent API 本身 | 其他人 |
+| [npm tarball](#npm) | Node.js 24.18 及以上（24 或 26 版本线） | 已经在用 Node，想让 `oaa` 在 PATH 上 | 没有 Node 的机器 |
+| [源码](#源码) | Node.js 24.18 及以上（24 或 26 版本线），git | 开发 Open Agent API 本身 | 其他人 |
 
-macOS、Windows 与 Linux 的包自带 Node.js 运行时；npm 与源码路线用本机的 Node.js（`package.json` 的 `engines`：`>=24.18.0 <25`）。
+macOS、Windows 与 Linux 的包自带 Node.js 运行时；npm 与源码路线用本机的 Node.js（`package.json` 的 `engines`：`>=24.18.0 <27`）。
 
 **Claude 原生引擎**需要 Anthropic 的 `@anthropic-ai/claude-agent-sdk`。它受 Anthropic 自己的条款约束，所以不在任何安装包或镜像里。没有它时，
 只有这一个引擎会返回 `adapter_unavailable` 并给出安装命令（`oaa doctor` 也会打印）：

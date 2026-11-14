@@ -25,7 +25,7 @@ This project uses the [Apache License 2.0](LICENSE). Under section 5 of that lic
 
 ## Requirements
 
-- Node.js 24.18 or later within 24.x (`engines` in `package.json` is `>=24.18.0 <25`; CI uses Node 24, the latest 24.x).
+- Node.js 24.18 or newer on the 24 or 26 line (`engines` in `package.json` is `>=24.18.0 <27`; CI runs Node 24 and Node 26, the latest of each line).
 - No Docker, Redis or globally installed packages are needed.
 
 ```sh

@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-0e6b63?style=flat-square" /></a>
-  <a href="package.json"><img alt="Node.js 24.18 or later (24.x)" src="https://img.shields.io/badge/node-%E2%89%A524.18%20%3C25-0e6b63?style=flat-square" /></a>
+  <a href="package.json"><img alt="Node.js 24.18 or newer on the 24 or 26 line" src="https://img.shields.io/badge/node-%E2%89%A524.18%20%3C27-0e6b63?style=flat-square" /></a>
 </p>
 <!-- Add a CI badge once the repository is public; the same goes for dynamic badges such as stars. Do not add badges that need repository data before then. -->
 
@@ -81,7 +81,7 @@ For the caller there are only two things: a Base URL and an API key. `model` hol
 
 ## Running in three minutes
 
-The source route below requires Node.js 24.18 or later (24.x; `engines` in `package.json` is `>=24.18.0 <25`); the installers and the Linux package bring their own Node.js (other routes: [Other ways to install](#other-ways-to-install)). No Redis or model keys are needed.
+The source route below requires Node.js 24.18 or newer on the 24 or 26 line (`engines` in `package.json` is `>=24.18.0 <27`); the installers and the Linux package bring their own Node.js (other routes: [Other ways to install](#other-ways-to-install)). No Redis or model keys are needed.
 
 ### Shortest path: one command
 
@@ -113,7 +113,7 @@ Every route ends with `oaa quickstart`. Shortest steps, limits and uninstall for
 
   It verifies the download against the release's `SHA256SUMS` and installs under `~/.local`.
 - **Docker** (from a checkout: `docker compose up --build -d`): the gateway is published on the host's `127.0.0.1:8787` only. The container has none of the agent CLIs installed on your host (no Codex, no Claude Code), so it fits built-in agents with your own model key, ACP / A2A remote agents, and execution nodes that connect in. The Dockerfile has not yet been built outside CI; its first verified build is the CI run.
-- **npm tarball** (needs Node.js 24.18+): `npm install -g <URL of open-agent-api-<version>.tgz on the Releases page>`, then `oaa quickstart`. The package is `private`, not on the npm registry.
+- **npm tarball** (needs Node.js 24.18 or newer on the 24 or 26 line): `npm install -g <URL of open-agent-api-<version>.tgz on the Releases page>`, then `oaa quickstart`. The package is `private`, not on the npm registry.
 
 ### Connect your own agent: `oaa connect`
 

@@ -14,7 +14,7 @@
   },
   "homepage": "https://github.com/jiangxingfan1-coder/Open-Agent-API#readme",
   "engines": {
-    "node": ">=24.18.0 <25"
+    "node": ">=24.18.0 <27"
   },
   "bin": {
     "oaa": "dist/src/cli.js"

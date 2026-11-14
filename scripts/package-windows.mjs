@@ -6,7 +6,7 @@
 // - ExecutionPolicy：用 -ExecutionPolicy Bypass 只作用于这一次启动的 powershell 进程，不改系统或用户的
 //   执行策略；不用它的话，默认策略（Restricted / 从网上下载带标记的 RemoteSigned）会拒绝运行未签名脚本。
 
-/** engines.node（如 ">=24.18.0 <25"）→ 给人看的说明与 cmd 里检查用的最低主/次版本与上限主版本。 */
+/** engines.node（如 ">=24.18.0 <27"）→ 给人看的说明与 cmd 里检查用的最低主/次版本与上限主版本。 */
 export function nodeRequirement(range) {
   const min = /^>=\s*v?(\d+)\.(\d+)/.exec(range.trim());
   const max = /<\s*v?(\d+)\s*$/.exec(range.trim());

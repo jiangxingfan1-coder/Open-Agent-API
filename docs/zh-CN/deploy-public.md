@@ -28,7 +28,7 @@
 
 ## 3. 安装网关
 
-需要 Node.js 24.18 及以上的 24.x 版本。
+需要 Node.js 24.18 及以上的 24 或 26 版本线。
 
 ```bash
 npm ci --omit=optional --ignore-scripts

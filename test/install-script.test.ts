@@ -18,6 +18,7 @@ const plan = await load('scripts/release-plan.mjs');
 const linux = await load('scripts/package-linux.mjs');
 const skip = process.platform === 'win32' ? 'needs a POSIX shell' : false;
 const installSh = await readFile('scripts/install.sh', 'utf8');
+const pkg = JSON.parse(await readFile('package.json', 'utf8')) as { engines: { node: string } };
 const VERSION = '9.9.9';
 
 type Env = { home: string; shims: string; release: string; prefix: string; root: string };
@@ -45,7 +46,13 @@ async function setup(): Promise<Env> {
 }
 
 /** Builds the release directory the way package-all does: a .tar.gz of Open-Agent-API-linux-x64 and SHA256SUMS. */
-async function publish(env: Env, marker: string, version = VERSION, withRuntime = true) {
+async function publish(
+  env: Env,
+  marker: string,
+  version = VERSION,
+  withRuntime = true,
+  engines = pkg.engines.node,
+) {
   const bundle = path.join(env.root, 'Open-Agent-API-linux-x64');
   await rm(bundle, { recursive: true, force: true });
   await mkdir(path.join(bundle, 'app', 'dist', 'src'), { recursive: true });
@@ -53,7 +60,7 @@ async function publish(env: Env, marker: string, version = VERSION, withRuntime 
     path.join(bundle, 'app', 'dist', 'src', 'cli.js'),
     `console.log(${JSON.stringify(marker)} + ' ' + process.argv.slice(2).join(' '));\n`,
   );
-  await writeFile(path.join(bundle, 'oaa'), linux.launcher(linux.nodeRequirement('>=24.18.0 <25')));
+  await writeFile(path.join(bundle, 'oaa'), linux.launcher(linux.nodeRequirement(engines)));
   await chmod(path.join(bundle, 'oaa'), 0o755);
   if (withRuntime) {
     // The stub stands in for the official Node runtime (a Linux binary cannot run on a macOS developer machine).
@@ -305,15 +312,28 @@ test(
       await symlink(path.join(bundle, 'oaa'), viaLink);
       const a = spawnSync(viaLink, ['a b', 'c'], { encoding: 'utf8' });
       assert.equal(a.stdout.trim(), 'with-runtime a b c');
-      // No bundled runtime: the launcher uses the PATH's Node when its version fits engines.
-      await rm(path.join(bundle, 'runtime'), { recursive: true });
-      const b = spawnSync(viaLink, ['x'], {
-        encoding: 'utf8',
-        env: { PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin` },
-      });
-      assert.equal(b.stdout.trim(), 'with-runtime x', b.stderr);
+      // No bundled runtime: the launcher falls back to the Node on PATH, and only when its version is in range.
+      // The ranges are built around whichever Node runs this test, so the test does not depend on its version.
+      const major = Number(process.versions.node.split('.')[0]);
+      const viaPath = (engines: string) =>
+        publish(env, 'with-runtime', VERSION, false, engines).then(() =>
+          spawnSync(viaLink, ['x'], {
+            encoding: 'utf8',
+            env: { PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin` },
+          }),
+        );
+      const inside = await viaPath(`>=${major}.0.0 <${major + 1}`);
+      assert.equal(inside.status, 0, inside.stderr);
+      assert.equal(inside.stdout.trim(), 'with-runtime x');
+      const outside = await viaPath(`>=${major + 1}.0.0 <${major + 2}`);
+      assert.equal(outside.status, 1);
+      assert.match(outside.stderr, /is not Node\.js/);
+      assert.equal(outside.stdout, '');
+      // And with the real range from package.json the launcher agrees with satisfiesEngines.
+      const real = await viaPath(pkg.engines.node);
+      assert.equal(real.status === 0, plan.satisfiesEngines(process.version, pkg.engines.node));
       assert.match(
-        linux.readme('1.2.3', 'x64', linux.nodeRequirement('>=24.18.0 <25')),
+        linux.readme('1.2.3', 'x64', linux.nodeRequirement(pkg.engines.node)),
         /oaa quickstart/,
       );
     } finally {

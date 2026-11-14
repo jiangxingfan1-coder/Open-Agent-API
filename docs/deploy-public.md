@@ -28,7 +28,7 @@ publisher worker ──outbound WSS──▶ api.example.com/v1/nodes/connect
 
 ## 3. Install the gateway
 
-Node.js 24.18 or later in the 24.x line is required.
+Node.js 24.18 or newer on the 24 or 26 line is required.
 
 ```bash
 npm ci --omit=optional --ignore-scripts
