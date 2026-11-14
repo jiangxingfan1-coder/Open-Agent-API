@@ -6,11 +6,12 @@ This document explains how to release a version, how local development packaging
 
 ## Cut a release
 
-1. **Bump the version** (5 places, all set to the same new version):
+1. **Bump the version** (4 places, all set to the same new version):
    - `version` in `package.json`
    - `version` at the top of `package-lock.json` and `packages[""].version` (2 places)
-   - `PRODUCT_VERSION` in `src/core/version.ts`: the single source for the gateway (`/health`, OpenAPI, `GATEWAY_VERSION`), the ACP handshake `clientInfo.version`, and the MCP client and server `version`. `test/architecture.test.ts` checks that it equals `package.json` and that no other source file hard-codes the version.
-   - The `Open Agent API <version>` string in the About dialog of `desktop/macos/main.swift`. This one is a hard-coded literal that no test covers, so update it by hand.
+   - `PRODUCT_VERSION` in `src/core/version.ts`: the single source for the gateway (`/health`, OpenAPI, `GATEWAY_VERSION`), the ACP handshake `clientInfo.version`, and the MCP client and server `version`. `test/architecture.test.ts` checks that it equals `package.json` and that no other source file, and nothing under `desktop/` or `scripts/`, hard-codes the version.
+
+   The macOS app needs no edit: `scripts/package-all.mjs` writes `package.json`'s version into the app's `Info.plist` (`CFBundleShortVersionString`), and the About dialog reads it from there.
 
    Check: `grep -rn --exclude-dir=node_modules --exclude-dir=dist -F "<old version>" .`. Apart from the places in `CHANGELOG.md` that narrate history, the old version number should no longer appear. (The packaging script used to fall back to a hard-coded version when `package.json` had none; that has been removed.)
 
@@ -34,6 +35,28 @@ This document explains how to release a version, how local development packaging
 7. **Publish**: once everything is confirmed, click "Publish release" on the draft page. The workflow never publishes automatically. Publishing triggers `.github/workflows/docker.yml`: it builds the `linux/amd64` and `linux/arm64` images and pushes them to `ghcr.io/<lower-case owner>/open-agent-api:<version>` and `:latest` (pre-releases and versions such as `1.2.3-rc.1` do not get `latest`). If this step fails, the published Release is not affected; after fixing, run the Docker workflow manually from the Actions page with the same version (the `package.json` version at that commit must equal it).
 
    After the first push the package on ghcr is private by default: on the repository's Packages page set `open-agent-api` to Public and check that it is linked to this repository (the image carries the `org.opencontainers.image.source` label, which usually links it automatically).
+
+## Manual checks before publishing
+
+The macOS window cannot be tested offline: the offline tests run the shell's pure logic (language, port and data-folder
+handling, whose gateway is on the port, the page script that signs the console in) and compile it, nothing more. So look
+at the built app once on a real Mac before publishing. Run it **isolated**: it does not touch an installed copy, its data
+folder `~/Library/Application Support/OpenAgentAPI`, its port 8787, `/Applications` or `~/Applications`. From the
+repository, after `npm run package:release:mac -- --arch <arm64|x64> --node-dir <dir>`:
+
+```bash
+OAA_DESKTOP_HOME="$(mktemp -d)" OAA_DESKTOP_PORT=18787 "release/macos/Open Agent API.app/Contents/MacOS/OpenAgentAPI"
+```
+
+For a downloaded `.dmg`, mount it and use `/Volumes/Open Agent API/Open Agent API.app/Contents/MacOS/OpenAgentAPI`
+instead. Quit with ⌘Q and delete the temporary folder afterwards. What the isolation covers is described in
+[install.md](install.md#macos). Then, in order:
+
+1. **Window and port**: the window title (Window menu) ends with "isolated run", and the console opens on `127.0.0.1:18787` already connected, with no connection dialog.
+2. **Port in use**: with the first copy still running, start the same command a second time (a new folder each time). The second copy must show "Another Open Agent API gateway is already on port 18787", name the configuration file and offer "Open Data Folder", and must not open the first copy's console.
+3. **Signed in by the app**: after ⌘R ("Reload Console") the console is still connected; after "Disconnect" in Settings › Connection, ⌘R connects it again; after quitting (⌘Q) and starting the same command with the same `OAA_DESKTOP_HOME` folder, it is connected from the first screen. The app hands the admin key to the page on every load (see [security-model.md](security-model.md#default-exposure)); if any of these needs the connection dialog, the key hand-over broke.
+4. **First-launch dialog**: on the very first start of a new `OAA_DESKTOP_HOME` folder a sheet titled "First launch: set up for you" must appear once. It lists `agent/sample`, the engines found on this Mac (or says none was found) and where to turn one off; "Show Execution Machines" opens that page. After ⌘Q and a second start with the same folder it must not appear again.
+5. **Language**: switch System Settings › Language & Region so Chinese is first, restart the app: menus, About, the status menu and the dialogs are Chinese; with English first, they are English. The console's own language (Settings) is unaffected by the app. About shows the version of `package.json`.
 
 ## Local development packaging vs release packaging
 

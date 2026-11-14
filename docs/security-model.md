@@ -1,5 +1,7 @@
 # Security model
 
+English · [简体中文](zh-CN/security-model.md)
+
 This document describes who can do what in an Open Agent API (OAA) gateway, what is exposed by
 default, what you must do before exposing a gateway to the internet, and where the gateway does
 **not** defend you. It reflects version 0.0.64. Report vulnerabilities as described in
@@ -115,19 +117,29 @@ A fresh `oaa init` / `oaa quickstart` gateway (security profile `local`):
   an allowlist;
 - the developer platform is off.
 
-The desktop apps (macOS app, Windows launcher) run the same gateway on `127.0.0.1:8787`.
+The desktop apps (macOS app, Windows launcher) run the same gateway on `127.0.0.1`, by default on
+port 8787 (the `port` in the app's own `config.json`; the macOS app can also run isolated from a
+temporary data folder, see [install.md](install.md#macos)). Before it uses a gateway that is already
+on its port, the macOS app checks that the gateway belongs to its own data folder; it does not
+connect to, or give the admin key to, any other program on that port.
 On every launch the macOS app sets `enabled: true` for each native engine in `localWorker.native`
 whose executable exists (for example Codex, Claude Code, Antigravity). That makes the engine
 *available* to the local worker; an agent still has to be published before any key can call it.
+On a first launch it also publishes the offline sample agent `agent/sample` (it calls no model) and,
+when `agy` is installed, the Antigravity example `agent/antigravity`, and tells you once in a
+dialog what it enabled and published (see [install.md](install.md#macos)).
 The Windows launcher runs `oaa quickstart`, which also creates a caller key
 (`keys\quickstart.key`) for all agents (`*`) with the `approve` scope. Because new keys default
 to execution level `host`, such a key can call any host-level agent you publish later, and that
 agent runs on your machine as your user with the files, commands and environment it can reach.
 As long as the gateway stays on loopback and the keys stay on your machine, this is the intended
 local use. It becomes remote code execution for whoever holds a key once the port is reachable
-from elsewhere (port forwarding, a tunnel, `host: 0.0.0.0`). The macOS app also places the
-admin key into the console's web storage (including `localStorage`) so the console signs in
-automatically.
+from elsewhere (port forwarding, a tunnel, `host: 0.0.0.0`). To sign the console in
+automatically, the macOS app puts the admin key into the page's `sessionStorage` (it belongs to the
+window's page and is not part of the persistent web storage that `localStorage` is) on every load of
+the console, in the main frame and only on the gateway's own origin. Earlier versions also wrote it to the persistent `localStorage` (and
+under two more names that nothing read); the app now deletes those copies whenever it loads the
+console. The key file `admin.token` stays in the data folder.
 
 ## Before exposing a gateway to the internet
 
@@ -177,3 +189,10 @@ automatically.
 - **Login failure counters** are in memory only (not persisted), in every profile.
 - **Stored data** (SQLite and files) is not encrypted at rest; protect the data directory with
   file permissions and disk encryption.
+- **The macOS app's engine switch** is not an opt-out: each launch sets `enabled: true` again for
+  every native engine whose executable exists, so turning one off in the config file does not
+  last. What keeps an engine from running is that no agent that uses it is published.
+- **Old copies of the admin key** that earlier versions of the macOS app left in the web view's
+  `localStorage` are removed when the console is loaded from the same origin (same port). If the
+  port was changed after such a version, the copy under the old port's origin stays in the app's
+  web storage until the console is opened on that port again.

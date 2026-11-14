@@ -79,14 +79,20 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\\win-stop.
 `;
 }
 
+// 提示文字跟随 Windows 界面语言：以 zh 开头用中文，否则英文（与控制台、命令行的规则一致）。
+// 每条提示都是 Say "中文" "English" 的形式；消息里不要出现双引号（用 $变量 或不加引号）。
+const PS_LANG = `$IsChinese = (Get-UICulture).Name -like "zh*"
+function Say([string]$Chinese, [string]$English) { if ($IsChinese) { return $Chinese } else { return $English } }
+`;
+
 const PS_COMMON = `$BundleRoot = Split-Path -Parent $PSScriptRoot
 $AppDir = Join-Path $BundleRoot "app"
 $DataDir = Join-Path $env:LOCALAPPDATA "OpenAgentAPI"
 $PidFile = Join-Path $DataDir "desktop.pid"
-`;
+${PS_LANG}`;
 
 export function desktopPs1(req) {
-  return `# Open Agent API 桌面启动器：后台启动网关（无控制台窗口），然后以独立窗口打开控制台。
+  return `# Open Agent API 桌面启动器 / desktop launcher：后台启动网关（无控制台窗口），然后以独立窗口打开控制台。
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 ${PS_COMMON}
@@ -98,7 +104,7 @@ function Show-Error([string]$Message) {
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 $NodeExe = Join-Path $BundleRoot "runtime\\node.exe"
 if (-not (Test-Path -LiteralPath $NodeExe)) {
-  Show-Error "安装包里缺少 runtime\\node.exe（需要 ${req.text}）。请重新解压完整的发布包。"
+  Show-Error (Say "安装包里缺少 runtime\\node.exe（需要 ${req.text}）。请重新解压完整的发布包。" "runtime\\node.exe is missing from the package (${req.text} is required). Extract the complete release zip again.")
 }
 $CliJs = Join-Path $AppDir "dist\\src\\cli.js"
 $ConfigPath = Join-Path $DataDir "config.json"
@@ -108,9 +114,15 @@ $LogErr = Join-Path $DataDir "oaa-desktop.err.log"
 $QuickstartLog = Join-Path $DataDir "quickstart.log"
 # 首次启动时还没有 config.json：端口按默认 8787，由下面的 quickstart 初始化。
 $Port = 8787
+# 端口取自网关配置里的 port，这里不写死；读不懂时直接说明，而不是去连别的端口。
 if (Test-Path -LiteralPath $ConfigPath) {
-  $Config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-  if ($Config.port) { $Port = [int]$Config.port }
+  try {
+    $Config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Config.port) { $Port = [int]$Config.port }
+    if ($Port -lt 1 -or $Port -gt 65535) { throw "port out of range" }
+  } catch {
+    Show-Error (Say "无法从 $ConfigPath 读到有效的 port（1-65535 的整数）。请检查这个文件。" "Cannot read a valid port (an integer from 1 to 65535) from $ConfigPath. Check the file.")
+  }
 }
 $BaseUrl = "http://127.0.0.1:$Port"
 
@@ -136,7 +148,7 @@ function Test-PortBusy {
 
 if (-not (Test-Gateway)) {
   if (Test-PortBusy) {
-    Show-Error "端口 $Port 已被其他程序占用。请关闭占用它的程序，或修改 $ConfigPath 里的 port 后重试。"
+    Show-Error (Say "端口 $Port 已被其他程序占用（也可能是另一个 Open Agent API 实例）。请关闭占用它的程序，或修改 $ConfigPath 里的 port 后重试。" "Port $Port is already in use by another program (possibly another Open Agent API instance). Quit it, or change the port setting in $ConfigPath, then try again.")
   }
   # 由 oaa quickstart 启动：首次初始化、后台启动网关（只监听 127.0.0.1）、发布离线示例智能体
   # agent/sample（不调用任何模型）并真调一次确认可用；重复运行不重复创建。输出（含调用方密钥文件位置与
@@ -146,7 +158,7 @@ if (-not (Test-Gateway)) {
   # 不用 -Wait：它会连同 quickstart 留在后台的网关进程一起等，永远不返回；WaitForExit 只等 quickstart 本身。
   $Qs.WaitForExit()
   if ($Qs.ExitCode -ne 0 -or -not (Test-Gateway)) {
-    Show-Error "网关没有启动成功，详见日志：$LogErr 与 $QuickstartLog"
+    Show-Error (Say "网关没有启动成功，详见日志：$LogErr 与 $QuickstartLog" "The gateway did not start. See the logs: $LogErr and $QuickstartLog")
   }
 }
 
@@ -183,7 +195,7 @@ $CliJs = Join-Path $AppDir "dist\\src\\cli.js"
 # 由 quickstart（oaa serve --detach）启动的网关记录在 server.pid：oaa stop 只结束 /health 报告的那个进程。
 if (Test-Path -LiteralPath (Join-Path $DataDir "server.pid")) {
   $Stop = Start-Process -FilePath $NodeExe -ArgumentList @("\`"$CliJs\`"", "stop", "--dir", "\`"$DataDir\`"") -WorkingDirectory $AppDir -NoNewWindow -PassThru -Wait
-  if ($Stop.ExitCode -eq 0) { Write-Host "已退出 Open Agent API 网关。" }
+  if ($Stop.ExitCode -eq 0) { Write-Host (Say "已退出 Open Agent API 网关。" "Stopped the Open Agent API gateway.") }
 }
 # 旧版启动器直接启动的网关记录在 desktop.pid。
 if (-not (Test-Path -LiteralPath $PidFile)) { exit 0 }
@@ -191,9 +203,9 @@ $Id = [int](Get-Content -LiteralPath $PidFile -Raw).Trim()
 $Proc = Get-Process -Id $Id -ErrorAction SilentlyContinue
 if ($Proc -and $Proc.Path -and ((Resolve-Path -LiteralPath $Proc.Path).Path -eq (Resolve-Path -LiteralPath $NodeExe).Path)) {
   Stop-Process -Id $Id
-  Write-Host "已退出 Open Agent API 网关（进程 $Id）。"
+  Write-Host (Say "已退出 Open Agent API 网关（进程 $Id）。" "Stopped the Open Agent API gateway (process $Id).")
 } else {
-  Write-Host "记录的进程 $Id 已不在运行，或不是本安装包的网关；未结束任何进程。"
+  Write-Host (Say "记录的进程 $Id 已不在运行，或不是本安装包的网关；未结束任何进程。" "The recorded process $Id is no longer running or is not this package's gateway; no process was stopped.")
 }
 Remove-Item -LiteralPath $PidFile -Force
 `;
@@ -202,19 +214,19 @@ Remove-Item -LiteralPath $PidFile -Force
 export function installPs1(version) {
   return `# Open Agent API 一键安装：复制到 %LOCALAPPDATA%\\Programs\\OpenAgentAPI，创建快捷方式，把 oaa 加到用户 PATH。
 $ErrorActionPreference = "Stop"
-Write-Host "Open Agent API v${version} - Windows 安装" -ForegroundColor Cyan
+${PS_LANG}Write-Host (Say "Open Agent API v${version} - Windows 安装" "Open Agent API v${version} - Windows setup") -ForegroundColor Cyan
 
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\\OpenAgentAPI"
 $StopScript = Join-Path $InstallDir "scripts\\win-stop.ps1"
 if (Test-Path -LiteralPath $StopScript) {
-  Write-Host "[0/4] 先退出正在运行的旧版本网关 ..."
+  Write-Host (Say "[0/4] 先退出正在运行的旧版本网关 ..." "[0/4] Stopping the gateway of the running older version ...")
   & $StopScript
 }
-Write-Host "[1/4] 复制文件到 $InstallDir ..."
+Write-Host (Say "[1/4] 复制文件到 $InstallDir ..." "[1/4] Copying files to $InstallDir ...")
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Copy-Item -Path (Join-Path $PSScriptRoot "*") -Destination $InstallDir -Recurse -Force
 
-Write-Host "[2/4] 创建桌面与开始菜单快捷方式 ..."
+Write-Host (Say "[2/4] 创建桌面与开始菜单快捷方式 ..." "[2/4] Creating the Desktop and Start Menu shortcuts ...")
 $Vbs = Join-Path $InstallDir "OpenAgentAPI-Desktop.vbs"
 $WshShell = New-Object -ComObject WScript.Shell
 foreach ($Dir in @([Environment]::GetFolderPath("Desktop"), [Environment]::GetFolderPath("Programs"))) {
@@ -227,16 +239,16 @@ foreach ($Dir in @([Environment]::GetFolderPath("Desktop"), [Environment]::GetFo
   $Shortcut.Save()
 }
 
-Write-Host "[3/4] 把 oaa 命令加到用户 PATH ..."
+Write-Host (Say "[3/4] 把 oaa 命令加到用户 PATH ..." "[3/4] Adding the oaa command to your user PATH ...")
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 $Parts = @($UserPath -split ";" | Where-Object { $_ })
 if ($Parts -notcontains $InstallDir) {
   [Environment]::SetEnvironmentVariable("Path", (($Parts + $InstallDir) -join ";"), "User")
 }
 
-Write-Host "[4/4] 启动 Open Agent API ..."
+Write-Host (Say "[4/4] 启动 Open Agent API ..." "[4/4] Starting Open Agent API ...")
 Start-Process "wscript.exe" -ArgumentList "\`"$Vbs\`""
-Write-Host "安装完成。可从桌面或开始菜单打开 Open Agent API；新开的终端里可以直接运行 oaa。" -ForegroundColor Green
+Write-Host (Say "安装完成。可从桌面或开始菜单打开 Open Agent API；新开的终端里可以直接运行 oaa。" "Done. Open Open Agent API from the Desktop or the Start Menu; in a new terminal you can run oaa directly.") -ForegroundColor Green
 `;
 }
 
@@ -247,7 +259,59 @@ pause
 `;
 }
 
+/** README-WINDOWS.txt：先英文，后中文（两段内容相同）。 */
 export function readmeTxt(version, req) {
+  return `${readmeEnglish(version, req)}
+${readmeChinese(version, req)}`;
+}
+
+function readmeEnglish(version, req) {
+  return `Open Agent API v${version} - Windows (x64)
+========================================================================
+(中文说明在本文件后半部分。)
+
+This package ships its own ${req.text} runtime (runtime\\node.exe); you do not need to install Node.js.
+Data and log folder: %LOCALAPPDATA%\\OpenAgentAPI
+  config.json         gateway configuration ("port" defaults to 8787; the launcher reads the port from here)
+  admin.token         administrator token
+  oaa-desktop.log     output of a gateway started directly by the desktop launcher
+  oaa-desktop.err.log error output of the gateway and of quickstart
+  quickstart.log      output of the quickstart that the desktop launcher runs (key file location, curl example)
+  keys\\quickstart.key  caller key (only in this file, never printed)
+
+Step one: open a Command Prompt in this folder and run  oaa.cmd quickstart
+   It initializes, starts the gateway in the background (listening on 127.0.0.1 only),
+   publishes the offline sample agent agent/sample (it calls no model, uses no network and costs nothing),
+   creates the caller key file and makes one real call, then prints the Base URL, the model,
+   a curl command you can run as is, and the command to connect your own agent
+   (for example oaa.cmd connect codex when codex is installed). Running it again creates nothing twice.
+   The desktop launcher below does the same automatically; its output goes to %LOCALAPPDATA%\\OpenAgentAPI\\quickstart.log.
+
+1. One-step install (recommended): double-click Install-OAA-Windows.cmd
+   Installs to %LOCALAPPDATA%\\Programs\\OpenAgentAPI, creates Desktop and Start Menu shortcuts,
+   adds the oaa command to your user PATH, and starts the app.
+
+2. Run without installing: double-click OpenAgentAPI-Desktop.vbs
+   Starts the gateway in the background, copies the admin token to the clipboard,
+   and opens the console in its own window.
+   To quit the background gateway: double-click Stop-OpenAgentAPI.cmd
+
+3. Console mode: double-click OpenAgentAPI.cmd (closing the window or pressing Ctrl+C quits the gateway)
+
+4. Command line: oaa.cmd --help
+
+The launcher's own messages follow the Windows display language (Chinese or English).
+
+The first time you run it, Windows SmartScreen may say "Windows protected your PC": the package is not
+code-signed. After you have checked that it came from this project's GitHub Release and verified
+SHA256SUMS, click "More info" and then "Run anyway".
+
+The Claude native engine needs @anthropic-ai/claude-agent-sdk, which you install yourself (it is under
+Anthropic's terms and is not distributed with this package); run oaa.cmd doctor to see the install command.
+`;
+}
+
+function readmeChinese(version, req) {
   return `Open Agent API v${version} - Windows (x64)
 ========================================================================
 

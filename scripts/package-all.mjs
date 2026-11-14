@@ -205,7 +205,13 @@ function buildMacOSBundle(arch) {
   act.exec('/usr/bin/iconutil', ['-c', 'icns', iconsetDir, '-o', icnsPath], { writes: [icnsPath] });
 
   // 2. 编译 Swift 桌面壳（WKWebView + 菜单栏 + 网关守护）
-  const swiftSrc = path.join(rootDir, 'desktop', 'macos', 'main.swift');
+  // 所有 .swift 一起编译（main.swift 放顶层代码，其余是字符串表与可单测的纯逻辑）；tests/ 下的自检不进包。
+  const swiftDir = path.join(rootDir, 'desktop', 'macos');
+  const swiftSources = fs
+    .readdirSync(swiftDir)
+    .filter((f) => f.endsWith('.swift'))
+    .sort()
+    .map((f) => path.join(swiftDir, f));
   const binOut = path.join(macosBinDir, 'OpenAgentAPI');
   act.exec(
     '/usr/bin/swiftc',
@@ -217,7 +223,7 @@ function buildMacOSBundle(arch) {
       'Cocoa',
       '-framework',
       'WebKit',
-      swiftSrc,
+      ...swiftSources,
       '-o',
       binOut,
     ],
@@ -343,6 +349,11 @@ function infoPlist() {
   <string>${version}</string>
   <key>CFBundleVersion</key>
   <string>${version}</string>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>en</string>
+    <string>zh-Hans</string>
+  </array>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>NSHighResolutionCapable</key>

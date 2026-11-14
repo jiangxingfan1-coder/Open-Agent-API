@@ -45,6 +45,34 @@ Security → "Open Anyway"). Only the first launch needs this.
 If the desktop app is already open it is using port 8787; add `--port 18787`. The data directory is `.oaa` in the
 current directory; the desktop app keeps its own data in `~/Library/Application Support/OpenAgentAPI`.
 
+**First launch.** To work out of the box, the app publishes the offline sample agent `agent/sample` (it calls no model and
+uses no network; the Antigravity example `agent/antigravity` too when `agy` is installed) and switches on the agent engines
+it finds on the Mac (Codex, Claude Code, Antigravity, DeepSeek Harness). Switching on only makes an engine available: it runs
+once you publish an agent that uses it and call that agent with a key. A dialog says once what was done and where to turn
+an engine off (the console's "Execution machines" page; the app detects and enables installed engines again at each start).
+
+**Port.** The desktop app takes the port from `port` in its own `config.json` (8787 unless you changed it; the menu bar
+icon has "Open Data Folder"). To change it, edit that file and choose "Restart Gateway". If the port is taken the app
+says which port it is, that it may be another Open Agent API instance, and how to change it; it never connects to
+whatever answers there. A gateway it finds already running on the port is used only when it was started for the same
+`config.json` (for example one that outlived a crashed app).
+
+**Isolated run (testing, a second copy).** Setting `OAA_DESKTOP_HOME` (a data folder; `--home <dir>` does the same) runs
+the app entirely inside that folder, and `OAA_DESKTOP_PORT` (`--port <n>`, only valid together with the folder) sets the
+port. Copy and paste:
+
+```bash
+OAA_DESKTOP_HOME="$(mktemp -d)" OAA_DESKTOP_PORT=18787 "/Applications/Open Agent API.app/Contents/MacOS/OpenAgentAPI"
+```
+
+It runs next to an installed copy without touching it: its data folder `~/Library/Application Support/OpenAgentAPI`, its
+port, `/Applications`, `~/Applications` and `~/.local/bin` stay as they are, and the isolated run installs and links
+nothing. Config, admin key, logs, the sample agents and the port setting go into the given folder; the console's web
+storage (preferences, language) is kept in memory only; the window position and appearance are not saved. The window
+title says "isolated run". Quit with ⌘Q, then delete the folder. What isolation does not cover: macOS notification
+permission belongs to the app and is shared; files you download from the console still go to `~/Downloads`; and agents you
+run are still your own programs with your real home folder.
+
 **Uninstall.** Quit the app (`oaa stop` for a gateway started from the terminal), drag the app to the Trash, and delete
 `~/Library/Application Support/OpenAgentAPI` and any `.oaa` directories if you no longer want the data.
 
@@ -55,7 +83,9 @@ avoids a prompt per file). Double-click `Install-OAA-Windows.cmd`: it copies the
 `%LOCALAPPDATA%\Programs\OpenAgentAPI`, creates Desktop and Start Menu shortcuts, adds the folder to your user `PATH`
 and starts the app. The package is not code-signed, so SmartScreen may say "Windows protected your PC": check the
 `SHA256SUMS` first, then More info → Run anyway. The scripts run PowerShell with `-ExecutionPolicy Bypass` for that one
-process only; your execution policy is not changed.
+process only; your execution policy is not changed. The messages of the PowerShell scripts (installer, launcher, stop
+script) follow the Windows display language: Chinese when it starts with `zh`, English otherwise. The launcher takes the
+port from `port` in `%LOCALAPPDATA%\OpenAgentAPI\config.json` (8787 before that file exists).
 
 **Quickstart.** In a new terminal: `oaa quickstart` (or `oaa.cmd quickstart` inside the extracted folder if you did not
 install). The shortcut does the same thing and writes the output to `%LOCALAPPDATA%\OpenAgentAPI\quickstart.log`.

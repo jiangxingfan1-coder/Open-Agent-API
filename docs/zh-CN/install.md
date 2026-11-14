@@ -41,6 +41,28 @@ macOS、Windows 与 Linux 的包自带 Node.js 运行时；npm 与源码路线�
 桌面应用如果已经打开，它占着 8787 端口；加上 `--port 18787`。数据目录是当前目录下的 `.oaa`；桌面应用自己的数据在
 `~/Library/Application Support/OpenAgentAPI`。
 
+**首次启动。** 为了开箱即用，应用会发布离线示例智能体 `agent/sample`（不调用任何模型、不联网；装了 `agy` 时还会发布 Antigravity
+示例 `agent/antigravity`），并启用它在这台 Mac 上找到的智能体引擎（Codex、Claude Code、Antigravity、DeepSeek Harness）。启用只是让引擎
+「可用」：你发布了使用它的智能体、并用密钥调用时才会运行。会有一个对话框把做了什么、去哪里关掉某个引擎（控制台的「执行机器」页；
+应用每次启动都会重新检测并启用已安装的引擎）说明一次。
+
+**端口。** 桌面应用的端口取自它自己 `config.json` 里的 `port`（没改过就是 8787；菜单栏图标里有「打开数据目录」）。要改端口，
+编辑这个文件，再选「重启后台服务」。端口被占用时，应用会说明是哪个端口、可能是另一个 Open Agent API 实例、怎么改端口，
+不会去连那里应答的任何东西。端口上已经有网关在运行时，只有它是为同一份 `config.json` 启动的才会被使用（比如应用崩溃后留下的那个）。
+
+**隔离运行（测试、再开一份）。** 设置 `OAA_DESKTOP_HOME`（数据目录；`--home <目录>` 等价）后，应用的一切读写都在这个目录里；
+`OAA_DESKTOP_PORT`（`--port <端口>`，只能和数据目录一起用）指定端口。直接复制运行：
+
+```bash
+OAA_DESKTOP_HOME="$(mktemp -d)" OAA_DESKTOP_PORT=18787 "/Applications/Open Agent API.app/Contents/MacOS/OpenAgentAPI"
+```
+
+它可以和已安装的那份并排运行而不影响它：已安装那份的数据目录 `~/Library/Application Support/OpenAgentAPI`、它的端口、
+`/Applications`、`~/Applications` 与 `~/.local/bin` 都不动，隔离运行也不安装、不链接任何东西。配置、管理员密钥、日志、示例智能体
+和端口设置都写在指定目录里；控制台的网页存储（偏好、语言）只放在内存里；窗口位置与外观不保存。窗口标题会带「隔离运行」。
+用 ⌘Q 退出，再删掉那个目录。隔离不覆盖的有：macOS 的通知权限属于应用本身，是共用的；从控制台下载的文件仍存到 `~/Downloads`；
+你运行的智能体仍是你自己的程序，用的还是真实的主目录。
+
 **卸载。** 退出应用（从终端启动的网关用 `oaa stop`），把应用拖进废纸篓；不再需要数据时，删掉
 `~/Library/Application Support/OpenAgentAPI` 与各处的 `.oaa` 目录。
 
@@ -49,7 +71,8 @@ macOS、Windows 与 Linux 的包自带 Node.js 运行时；npm 与源码路线�
 **安装。** 下载 `Open-Agent-API-<version>-win-x64.zip` 并解压（先在 zip 上右键 → 属性 → 解除锁定，可以避免逐个文件提示）。
 双击 `Install-OAA-Windows.cmd`：它把文件复制到 `%LOCALAPPDATA%\Programs\OpenAgentAPI`，创建桌面与开始菜单快捷方式，把这个文件夹加进用户
 `PATH`，然后启动应用。包没有代码签名，SmartScreen 可能提示「Windows 已保护你的电脑」：先核对 `SHA256SUMS`，再点「更多信息」→「仍要运行」。
-脚本只对这一次启动的 PowerShell 进程用 `-ExecutionPolicy Bypass`，不改你的执行策略。
+脚本只对这一次启动的 PowerShell 进程用 `-ExecutionPolicy Bypass`，不改你的执行策略。PowerShell 脚本（安装、启动、退出）的提示文字跟随 Windows 的显示语言：以 `zh` 开头用中文，否则用英文。
+启动器的端口取自 `%LOCALAPPDATA%\OpenAgentAPI\config.json` 里的 `port`（这个文件还不存在时用 8787）。
 
 **Quickstart。** 在新终端里运行 `oaa quickstart`（没有安装时，在解压出的文件夹里运行 `oaa.cmd quickstart`）。快捷方式做的是同一件事，
 输出写在 `%LOCALAPPDATA%\OpenAgentAPI\quickstart.log`。

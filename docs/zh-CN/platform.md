@@ -349,7 +349,7 @@ curl -s -X PUT https://console.example.com/v1/platform/listings \
 
 - **只对这一个智能体**。账号密钥可以用本机权限运行这个上架的智能体，仅此而已。它们对其它智能体的执行等级仍是 `workspace` / `sandbox`。
 - **委派、交接、备选智能体要各自放开**。如果这个智能体委派、交接或回退到另一个需要本机权限的智能体，那个智能体也必须上架并打开自己的开关，否则调用以 `isolation_required` 被拒绝（提交时沿委派链检查，每个子运行提交时再查一次）。委派链没有全部放开的上架项显示 `callable: false`，缺的智能体列在 `blocked_by` 里。
-- **以什么权限运行什么**。智能体以运行网关的系统用户身份运行：能读写这个用户能读写的文件，能做这个用户能做的事。它实际能做什么，受审批策略（`approvals`）与工作目录约束。请保持审批（`ask`，默认值）：账号密钥发起的运行，其操作请求等待**所有者**处理；账号密钥没有 `approve` 权限，不能自己批准（403 `scope_denied`）。`approvals: auto` 的智能体，其请求无需任何人就被批准；上架项会显示 `auto_approvals: true`，控制台也会提示。请用专用系统用户或在沙箱里运行网关。信任边界见 [security-model.md](../security-model.md#parties-and-trust-boundaries)（只有英文）。
+- **以什么权限运行什么**。智能体以运行网关的系统用户身份运行：能读写这个用户能读写的文件，能做这个用户能做的事。它实际能做什么，受审批策略（`approvals`）与工作目录约束。请保持审批（`ask`，默认值）：账号密钥发起的运行，其操作请求等待**所有者**处理；账号密钥没有 `approve` 权限，不能自己批准（403 `scope_denied`）。`approvals: auto` 的智能体，其请求无需任何人就被批准；上架项会显示 `auto_approvals: true`，控制台也会提示。请用专用系统用户或在沙箱里运行网关。信任边界见 [security-model.md](security-model.md#各方与信任边界)。
 - **关闭开关**从下一次调用起生效；关闭期间，账号也不能恢复这个智能体被中断的运行（`isolation_required`）。已经在进行的运行会正常结束。
 - **写审计**。打开或关闭开关（包括新建时就打开、移除一个打开着的上架项）写一条审计记录 `platform_listing_host_execution`，带 `agent_id` 和 `detail`（`on` / `off`）（`GET /v1/audit`）。
 - **目录只显示调得了的智能体**。`GET /v1/portal/agents` 只列出账号密钥能调用它及其全部委派对象的启用上架项（`callable: true`）；其余的 `GET /v1/portal/agent?id=` 返回 404。这样开发者不会为调不了的智能体充值。

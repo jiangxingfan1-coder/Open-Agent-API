@@ -10,9 +10,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var statusItem: NSStatusItem!
     var serverProcess: Process?
     var startedOwnServer = false
+    /// A gateway of this data folder that outlived an earlier run of the app and was verified to be
+    /// ours; "Restart Gateway" stops it, quitting the app leaves it alone.
+    var attachedPid: Int?
+    /// The first-launch seeding runs once; a reload while it runs must not start it again.
+    var seedingInProgress = false
 
-    let port = 8787
+    /// How this run was asked to behave (isolated data folder and port, see docs/install.md).
+    let options = ShellLaunchOptions.parse(
+        environment: ProcessInfo.processInfo.environment, arguments: CommandLine.arguments)
+
+    /// The gateway port, read from config.json at every start (never fixed here).
+    var port = gatewayDefaultPort
     var baseURL: String { "http://127.0.0.1:\(port)" }
+
+    /// Boot runs on its own queue; a newer boot (Restart Gateway) makes an older one stop.
+    let bootQueue = DispatchQueue(label: "dev.oaa.desktop.boot")
+    let bootLock = NSLock()
+    var bootGeneration = 0
 
     /// Like Possibility's inset title bar: no title strip, traffic lights sit in a 52pt band
     /// centred on the console's sidebar head row (26pt from the top).
@@ -21,6 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     lazy var appSupportDir: String = {
         let fm = FileManager.default
+        // Isolated run: everything the shell reads or writes lives in the folder it was given.
+        if let home = options.home {
+            try? fm.createDirectory(
+                atPath: home, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            return home
+        }
         let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = base.appendingPathComponent("OpenAgentAPI", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -37,37 +58,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         return FileManager.default.currentDirectoryPath
     }()
 
-    func findNodeBinary() -> String {
-        let fm = FileManager.default
-        if let res = Bundle.main.resourcePath {
-            let bundledNode = (res as NSString).appendingPathComponent("node/bin/node")
-            if fm.isExecutableFile(atPath: bundledNode) {
-                return bundledNode
-            }
-        }
-        let home = NSHomeDirectory()
-        let candidates = [
-            "\(home)/.local/bin/node",
-            "/opt/homebrew/bin/node",
-            "/usr/local/bin/node",
-            "\(home)/.nvm/current/bin/node",
-            "\(home)/.volta/bin/node"
-        ]
-        for path in candidates {
-            if fm.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-        return "/usr/bin/env"
-    }
-
     func resolveActiveToken() -> String {
         let fm = FileManager.default
-        let candidates = [
-            (appSupportDir as NSString).appendingPathComponent("admin.token"),
-            (appRootDir as NSString).appendingPathComponent(".oaa/admin.token"),
-            (NSHomeDirectory() as NSString).appendingPathComponent(".open-agent-api/admin.token")
-        ]
+        var candidates = [(appSupportDir as NSString).appendingPathComponent("admin.token")]
+        // An isolated run must never pick up the key of another gateway.
+        if !options.isolated {
+            candidates += [
+                (appRootDir as NSString).appendingPathComponent(".oaa/admin.token"),
+                (NSHomeDirectory() as NSString).appendingPathComponent(".open-agent-api/admin.token"),
+            ]
+        }
         for path in candidates {
             if fm.fileExists(atPath: path),
                let raw = try? String(contentsOfFile: path, encoding: .utf8) {
@@ -82,18 +82,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        // Wrong isolation settings: say so and quit before anything is read or written.
+        if let problem = options.problem {
+            let text = StartupProblem.text(for: problem)
+            let alert = NSAlert()
+            alert.messageText = text.title
+            alert.informativeText = text.body
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: tr(.buttonOK))
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+            NSApp.terminate(nil)
+            return
+        }
         setupMainMenu()
         setupStatusBar()
         setupMainWindow()
         if notificationsAvailable {
             UNUserNotificationCenter.current().delegate = self
             // `open -a "Open Agent API" --args --enable-notifications`: ask macOS for permission now,
-            // then confirm with a test notification and switch the console's 审批通知 on.
+            // then confirm with a test notification and switch the console's approval notifications on.
             if CommandLine.arguments.contains("--enable-notifications") {
                 requestNotificationPermission(confirm: true)
             }
         }
-        ensureKernelAndLoadUI()
+        // The folders are resolved once, here on the main thread, before the boot queue uses them.
+        _ = appSupportDir
+        _ = appRootDir
+        startBoot(terminating: nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -122,54 +138,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "关于 Open Agent API", action: #selector(showAbout), keyEquivalent: "")
+        appMenu.addItem(withTitle: tr(.menuAbout), action: #selector(showAbout), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        appMenu.addItem(withTitle: tr(.menuSettings), action: #selector(openSettings), keyEquivalent: ",")
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: "重新载入控制台", action: #selector(reloadConsole), keyEquivalent: "r")
-        appMenu.addItem(withTitle: "重启后台服务", action: #selector(restartKernel), keyEquivalent: "")
+        appMenu.addItem(withTitle: tr(.menuReloadConsole), action: #selector(reloadConsole), keyEquivalent: "r")
+        appMenu.addItem(withTitle: tr(.menuRestartGateway), action: #selector(restartKernel), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: "隐藏 Open Agent API", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: tr(.menuHide), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthers = appMenu.addItem(
-            withTitle: "隐藏其他", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+            withTitle: tr(.menuHideOthers), action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
         hideOthers.keyEquivalentModifierMask = [.command, .option]
-        appMenu.addItem(withTitle: "全部显示", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: tr(.menuShowAll), action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: "退出 Open Agent API", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: tr(.menuQuit), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
 
         // Edit menu (enables Cmd+C, Cmd+V, Cmd+X, Cmd+A inside WKWebView)
         let editMenuItem = NSMenuItem()
         mainMenu.addItem(editMenuItem)
-        let editMenu = NSMenu(title: "编辑")
-        editMenu.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
-        editMenu.addItem(withTitle: "重做", action: Selector(("redo:")), keyEquivalent: "Z")
+        let editMenu = NSMenu(title: tr(.menuEdit))
+        editMenu.addItem(withTitle: tr(.menuUndo), action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: tr(.menuRedo), action: Selector(("redo:")), keyEquivalent: "Z")
         editMenu.addItem(NSMenuItem.separator())
-        editMenu.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "拷贝", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(withTitle: tr(.menuCut), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: tr(.menuCopy), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: tr(.menuPaste), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: tr(.menuSelectAll), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editMenuItem.submenu = editMenu
 
         let viewMenuItem = NSMenuItem()
         mainMenu.addItem(viewMenuItem)
-        let viewMenu = NSMenu(title: "显示")
-        viewMenu.addItem(withTitle: "命令面板", action: #selector(openCommandPalette), keyEquivalent: "k")
-        viewMenu.addItem(withTitle: "切换侧栏", action: #selector(toggleConsoleSidebar), keyEquivalent: "\\")
+        let viewMenu = NSMenu(title: tr(.menuView))
+        viewMenu.addItem(withTitle: tr(.menuCommandPalette), action: #selector(openCommandPalette), keyEquivalent: "k")
+        viewMenu.addItem(withTitle: tr(.menuToggleSidebar), action: #selector(toggleConsoleSidebar), keyEquivalent: "\\")
         viewMenu.addItem(NSMenuItem.separator())
         let fullScreen = viewMenu.addItem(
-            withTitle: "进入全屏幕", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+            withTitle: tr(.menuFullScreen), action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         fullScreen.keyEquivalentModifierMask = [.command, .control]
         viewMenuItem.submenu = viewMenu
 
         let windowMenuItem = NSMenuItem()
         mainMenu.addItem(windowMenuItem)
-        let windowMenu = NSMenu(title: "窗口")
-        windowMenu.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        windowMenu.addItem(withTitle: "缩放", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        let windowMenu = NSMenu(title: tr(.menuWindow))
+        windowMenu.addItem(withTitle: tr(.menuMinimize), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: tr(.menuZoom), action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         windowMenu.addItem(NSMenuItem.separator())
-        windowMenu.addItem(withTitle: "显示控制台", action: #selector(openStudioWindow), keyEquivalent: "0")
-        windowMenu.addItem(withTitle: "关闭窗口", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(withTitle: tr(.menuShowConsole), action: #selector(openStudioWindow), keyEquivalent: "0")
+        windowMenu.addItem(withTitle: tr(.menuCloseWindow), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowMenuItem.submenu = windowMenu
         NSApp.windowsMenu = windowMenu
 
@@ -187,19 +203,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             } else {
                 button.title = "OAA"
             }
-            button.toolTip = "Open Agent API · 智能体控制台"
+            button.toolTip = tr(.statusTooltip)
         }
         let menu = NSMenu()
-        menu.addItem(withTitle: "打开控制台", action: #selector(openStudioWindow), keyEquivalent: "")
-        menu.addItem(withTitle: "在默认浏览器中打开", action: #selector(openInBrowser), keyEquivalent: "")
-        menu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: "")
+        menu.addItem(withTitle: tr(.statusOpenConsole), action: #selector(openStudioWindow), keyEquivalent: "")
+        menu.addItem(withTitle: tr(.statusOpenInBrowser), action: #selector(openInBrowser), keyEquivalent: "")
+        menu.addItem(withTitle: tr(.menuSettings), action: #selector(openSettings), keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "复制管理员密钥", action: #selector(copyAdminToken), keyEquivalent: "")
-        menu.addItem(withTitle: "拷贝服务地址（Base URL）", action: #selector(copyCompatUrl), keyEquivalent: "")
-        menu.addItem(withTitle: "打开数据目录", action: #selector(openDataFolder), keyEquivalent: "")
+        menu.addItem(withTitle: tr(.statusCopyAdminKey), action: #selector(copyAdminToken), keyEquivalent: "")
+        menu.addItem(withTitle: tr(.statusCopyBaseUrl), action: #selector(copyCompatUrl), keyEquivalent: "")
+        menu.addItem(withTitle: tr(.statusOpenDataFolder), action: #selector(openDataFolder), keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "重启后台服务", action: #selector(restartKernel), keyEquivalent: "")
-        menu.addItem(withTitle: "退出 Open Agent API", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: tr(.menuRestartGateway), action: #selector(restartKernel), keyEquivalent: "")
+        menu.addItem(withTitle: tr(.menuQuit), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
     }
 
@@ -214,18 +230,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             defer: false
         )
         // The title stays for Mission Control and the Window menu but is never drawn.
-        window.title = "Open Agent API"
+        window.title =
+            options.isolated ? tr(.windowTitleIsolated, ["title": "Open Agent API"]) : "Open Agent API"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.isMovableByWindowBackground = false
         window.minSize = NSSize(width: 980, height: 640)
         window.center()
-        window.setFrameAutosaveName("OAAMainWindow")
+        // An isolated run keeps no window position or appearance in the user's preferences.
+        if !options.isolated { window.setFrameAutosaveName("OAAMainWindow") }
         window.delegate = self
+        let defaults = UserDefaults.standard
         applyAppearance(
-            theme: UserDefaults.standard.string(forKey: "OAAAppearance") ?? "system",
-            palette: UserDefaults.standard.string(forKey: "OAAPalette") ?? "black"
+            theme: options.isolated ? "system" : defaults.string(forKey: "OAAAppearance") ?? "system",
+            palette: options.isolated ? "black" : defaults.string(forKey: "OAAPalette") ?? "black"
         )
 
         let config = WKWebViewConfiguration()
@@ -233,6 +252,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Page → shell bridge: window dragging, appearance and desktop actions.
         controller.add(self, name: "oaa")
         config.userContentController = controller
+        // An isolated run leaves no web storage (console preferences, language choice) on disk.
+        if options.isolated { config.websiteDataStore = WKWebsiteDataStore.nonPersistent() }
 
         webView = WKWebView(frame: rect, configuration: config)
         webView.navigationDelegate = self
@@ -243,7 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         window.makeKeyAndOrderFront(nil)
         layoutTrafficLights()
 
-        showSplashHTML(status: "正在启动后台服务 · 127.0.0.1:\(port)")
+        showSplashHTML(status: tr(.splashStarting))
     }
 
     func windowDidResize(_ notification: Notification) { layoutTrafficLights() }
@@ -316,8 +337,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case "appearance":
             let theme = body["theme"] as? String ?? "system"
             let palette = body["palette"] as? String ?? "black"
-            UserDefaults.standard.set(theme, forKey: "OAAAppearance")
-            UserDefaults.standard.set(palette, forKey: "OAAPalette")
+            if !options.isolated {
+                UserDefaults.standard.set(theme, forKey: "OAAAppearance")
+                UserDefaults.standard.set(palette, forKey: "OAAPalette")
+            }
             applyAppearance(theme: theme, palette: palette)
         case "action":
             switch (body["name"] as? String) ?? "" {
@@ -368,7 +391,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             DispatchQueue.main.async {
                 self.postNotification(
                     id: "test", title: "Open Agent API",
-                    body: "审批通知已开启：有请求等待你审批时，会这样提醒你。", test: true)
+                    body: tr(.notificationTestBody), test: true)
                 self.enableConsoleNotifications(attempt: 0)
             }
         }
@@ -439,8 +462,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             button.title = count > 0 ? label : ""
             button.toolTip =
                 count > 0
-                ? "Open Agent API · \(label) 个请求等待审批"
-                : "Open Agent API · 智能体控制台"
+                ? tr(count == 1 ? .statusBadgeOne : .statusBadgeMany, ["count": label])
+                : tr(.statusTooltip)
         }
     }
 
@@ -463,7 +486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     ) {
         let alert = NSAlert()
         alert.messageText = message
-        alert.addButton(withTitle: "好")
+        alert.addButton(withTitle: tr(.buttonOK))
         alert.beginSheetModal(for: window) { _ in completionHandler() }
     }
 
@@ -473,8 +496,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     ) {
         let alert = NSAlert()
         alert.messageText = message
-        alert.addButton(withTitle: "确认")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: tr(.buttonConfirm))
+        alert.addButton(withTitle: tr(.buttonCancel))
         alert.beginSheetModal(for: window) { response in
             completionHandler(response == .alertFirstButtonReturn)
         }
@@ -563,304 +586,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             WKUserScript(
                 source: "document.documentElement.dataset.shell = 'macos';",
                 injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        guard !token.isEmpty else { return }
-        let escaped = token
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
-        let js = """
-        try {
-          sessionStorage.setItem('oaa-token', '\(escaped)');
-          localStorage.setItem('oaa-token', '\(escaped)');
-          localStorage.setItem('oaa_token', '\(escaped)');
-          localStorage.setItem('oaa_admin_token', '\(escaped)');
-          sessionStorage.setItem('oaa_token', '\(escaped)');
-        } catch (e) {}
-        """
-        controller.addUserScript(WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+        // The admin key goes into sessionStorage only (the one place the console reads it from), never
+        // into the persistent localStorage, and only into the main frame on the gateway's own origin.
+        controller.addUserScript(
+            WKUserScript(
+                source: ConsoleBridge.tokenScript(token: token, origin: ConsoleBridge.origin(port: port)),
+                injectionTime: .atDocumentStart, forMainFrameOnly: true))
     }
 
-    private func showSplashHTML(status: String) {
-        // Brand splash: the O + A interlocked line mark, following the window appearance.
-        let html = """
-        <!doctype html>
-        <html lang="zh-CN">
-        <head>
-          <meta charset="utf-8" />
-          <style>
-            :root { color-scheme: light dark; }
-            body {
-              margin: 0;
-              height: 100vh;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              background: #000000;
-              color: #f2f2f2;
-              font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
-              -webkit-font-smoothing: antialiased;
-              user-select: none;
-              cursor: default;
-            }
-            .drag { position: fixed; inset: 0 0 auto 0; height: 52px; }
-            .mark { width: 92px; height: 89px; margin-bottom: 22px; }
-            .mark g { fill: none; stroke: currentColor; stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; }
-            h1 { margin: 0; font: italic 400 34px/1.1 "Instrument Serif", "Iowan Old Style", Georgia, serif; letter-spacing: -0.01em; }
-            .sub { margin: 10px 0 28px 0; color: #8e8e8e; font-size: 13px; letter-spacing: 0.24em; }
-            p { display: flex; align-items: center; gap: 8px; margin: 0; color: #9d9d9d; font: 12px ui-monospace, "SF Mono", Menlo, monospace; }
-            p::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #81d8d0; animation: tide 1.4s ease-in-out infinite; }
-            @keyframes tide { 50% { opacity: 0.3; } }
-            @media (prefers-color-scheme: light) {
-              body { background: #ece9e1; color: #132220; }
-              .sub { color: #66726e; }
-              p { color: #5b6864; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="drag"></div>
-          <svg class="mark" viewBox="40.11 43 175.78 170" aria-hidden="true"><g><path d="M209.89 207L150.11 49L108.57 155"/><path d="M94.7 190.38L88.19 207"/><path d="M143.36 106.65A50 50 0 1 1 119.1 78.6"/></g></svg>
-          <h1>Open Agent API</h1>
-          <div class="sub">一次发布 · 随处调用</div>
-          <p>\(status)</p>
-          <script>
-            document.querySelector('.drag').addEventListener('mousedown', function () {
-              try { window.webkit.messageHandlers.oaa.postMessage({ type: 'drag' }); } catch (e) {}
-            });
-          </script>
-        </body>
-        </html>
-        """
-        webView.loadHTMLString(html, baseURL: nil)
+    func showSplashHTML(status: String?, problem: (title: String, body: String)? = nil) {
+        webView.loadHTMLString(SplashPage.html(status: status, problem: problem), baseURL: nil)
     }
 
-    private func checkHealth(completion: @escaping (Bool) -> Void) {
-        guard let url = URL(string: "\(baseURL)/health") else {
-            completion(false)
-            return
-        }
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 0.6
-        URLSession.shared.dataTask(with: req) { _, resp, _ in
-            if let http = resp as? HTTPURLResponse, http.statusCode == 200 {
-                completion(true)
-            } else {
-                completion(false)
-            }
-        }.resume()
-    }
-
-    private func ensureKernelAndLoadUI() {
-        checkHealth { [weak self] alive in
-            guard let self = self else { return }
-            if alive {
-                DispatchQueue.main.async {
-                    self.connectWebView()
-                }
-            } else {
-                self.startManagedKernel()
-                self.pollUntilReady(attemptsLeft: 45)
-            }
-        }
-    }
-
-    private func pollUntilReady(attemptsLeft: Int) {
-        checkHealth { [weak self] alive in
-            guard let self = self else { return }
-            if alive {
-                DispatchQueue.main.async {
-                    self.connectWebView()
-                }
-            } else if attemptsLeft > 0 {
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
-                    self.pollUntilReady(attemptsLeft: attemptsLeft - 1)
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self.showSplashHTML(status: "后台服务没能启动（端口 \(self.port)）。请查看日志：\(self.appSupportDir)/oaa-desktop.log")
-                }
-            }
-        }
-    }
-
-    private func seedDefaultAgentsIfNeeded() {
-        let fm = FileManager.default
-        // v2: seed the offline sample agent (calls no model) so a fresh install has one agent that works;
-        // the agy example is published only when agy is installed.
-        let marker = (appSupportDir as NSString).appendingPathComponent(".seeded-v2")
-        if fm.fileExists(atPath: marker) { return }
-        let tokenFile = (appSupportDir as NSString).appendingPathComponent("admin.token")
-        guard fm.fileExists(atPath: tokenFile) else { return }
-
-        var env = ProcessInfo.processInfo.environment
-        let extraPaths = [
-            "\(NSHomeDirectory())/.local/bin",
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/usr/bin",
-            "/bin"
-        ]
-        env["PATH"] = (extraPaths + [env["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
-
-        DispatchQueue.global().async { [weak self] in
-            guard let self = self else { return }
-            var examples = ["examples/sample-agent.json"]
-            if self.nativeInstalled("antigravity") {
-                examples.append("examples/agy-gemini-3.8-flash.oaa")
-            }
-            for rel in examples {
-                let full = (self.appRootDir as NSString).appendingPathComponent(rel)
-                if fm.fileExists(atPath: full) {
-                    self.runCliSync(["publish", full, "--url", self.baseURL, "--token-file", tokenFile], env: env)
-                }
-            }
-            try? "ok".write(toFile: marker, atomically: true, encoding: .utf8)
-            DispatchQueue.main.async {
-                self.webView.reload()
-            }
-        }
-    }
-
-    /// Whether config.json records an executable for this native engine that exists on disk.
-    private func nativeInstalled(_ engine: String) -> Bool {
-        let configPath = (appSupportDir as NSString).appendingPathComponent("config.json")
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
-              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let lw = json["localWorker"] as? [String: Any],
-              let native = lw["native"] as? [String: Any],
-              let entry = native[engine] as? [String: Any],
-              let exec = entry["executable"] as? String else { return false }
-        return FileManager.default.isExecutableFile(atPath: exec)
-    }
-
-    private func runCliSync(_ args: [String], env: [String: String]) {
-        let nodeBin = findNodeBinary()
-        let cliPath = (appRootDir as NSString).appendingPathComponent("dist/src/cli.js")
-        let proc = Process()
-        if nodeBin == "/usr/bin/env" {
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            proc.arguments = ["node", cliPath] + args
-        } else {
-            proc.executableURL = URL(fileURLWithPath: nodeBin)
-            proc.arguments = [cliPath] + args
-        }
-        proc.currentDirectoryURL = URL(fileURLWithPath: appRootDir)
-        proc.environment = env
-        try? proc.run()
-        proc.waitUntilExit()
-    }
-
-    private func startManagedKernel() {
-        let fm = FileManager.default
-        let configPath = (appSupportDir as NSString).appendingPathComponent("config.json")
-
-        var env = ProcessInfo.processInfo.environment
-        let extraPaths = [
-            "\(NSHomeDirectory())/.local/bin",
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/usr/bin",
-            "/bin",
-            "/usr/sbin",
-            "/sbin"
-        ]
-        let existingPath = env["PATH"] ?? "/usr/bin:/bin"
-        env["PATH"] = (extraPaths + [existingPath]).joined(separator: ":")
-
-        if !fm.fileExists(atPath: configPath) {
-            runCliSync(["init", "--dir", appSupportDir], env: env)
-        }
-
-        // Ensure installed local native CLI adapters (antigravity/agy, claude, codex, dsh) are enabled in config.json
-        if let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
-           var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
-            var modified = false
-            if json["localAgents"] != nil {
-                json.removeValue(forKey: "localAgents")
-                modified = true
-            }
-            if var lw = json["localWorker"] as? [String: Any],
-               var native = lw["native"] as? [String: Any] {
-                for (k, v) in native {
-                    if var entry = v as? [String: Any],
-                       let execPath = entry["executable"] as? String,
-                       fm.isExecutableFile(atPath: execPath),
-                       (entry["enabled"] as? Bool) != true {
-                        entry["enabled"] = true
-                        native[k] = entry
-                        modified = true
-                    }
-                }
-                if modified {
-                    lw["native"] = native
-                    json["localWorker"] = lw
-                }
-            }
-            // The offline sample agent (examples/sample-agent.mjs) runs on the bundled Node; it calls
-            // no model and uses no network. Re-written on every launch so the paths follow the app.
-            let sampleScript = (appRootDir as NSString).appendingPathComponent("examples/sample-agent.mjs")
-            if fm.fileExists(atPath: sampleScript), var lw = json["localWorker"] as? [String: Any] {
-                var adapters = (lw["adapters"] as? [String: Any]) ?? [:]
-                let nodeBin = findNodeBinary()
-                let sample: [String: Any] = [
-                    "transport": "acp",
-                    "command": nodeBin == "/usr/bin/env" ? "node" : nodeBin,
-                    "args": [sampleScript],
-                    "enabled": true
-                ]
-                if !NSDictionary(dictionary: sample).isEqual(adapters["oaa-sample"] as? [String: Any] ?? [:]) {
-                    adapters["oaa-sample"] = sample
-                    lw["adapters"] = adapters
-                    json["localWorker"] = lw
-                    modified = true
-                }
-            }
-            if modified,
-               let updated = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
-                try? updated.write(to: URL(fileURLWithPath: configPath))
-            }
-        }
-
-        let nodeBin = findNodeBinary()
-        let cliPath = (appRootDir as NSString).appendingPathComponent("dist/src/cli.js")
-        let logPath = (appSupportDir as NSString).appendingPathComponent("oaa-desktop.log")
-        fm.createFile(atPath: logPath, contents: nil)
-        let logHandle = FileHandle(forWritingAtPath: logPath)
-
-        let proc = Process()
-        if nodeBin == "/usr/bin/env" {
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            proc.arguments = ["node", cliPath, "serve", "--config", configPath]
-        } else {
-            proc.executableURL = URL(fileURLWithPath: nodeBin)
-            proc.arguments = [cliPath, "serve", "--config", configPath]
-        }
-        proc.currentDirectoryURL = URL(fileURLWithPath: appRootDir)
-        proc.environment = env
-        if let logHandle = logHandle {
-            proc.standardOutput = logHandle
-            proc.standardError = logHandle
-        }
-
-        do {
-            try proc.run()
-            serverProcess = proc
-            startedOwnServer = true
-        } catch {
-            NSLog("Failed to start OAA Kernel: \(error)")
-        }
-    }
-
-    private func stopManagedKernel() {
-        if startedOwnServer, let proc = serverProcess, proc.isRunning {
-            proc.terminate()
-            proc.waitUntilExit()
-        }
-        serverProcess = nil
-        startedOwnServer = false
-    }
-
-    private func connectWebView() {
+    func connectWebView() {
         seedDefaultAgentsIfNeeded()
         installUserScripts(token: resolveActiveToken())
         if let url = URL(string: baseURL) {
@@ -915,18 +653,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     @objc func restartKernel() {
-        showSplashHTML(status: "正在重启后台服务…")
+        showSplashHTML(status: tr(.splashRestarting))
         stopManagedKernel()
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
-            self.startManagedKernel()
-            self.pollUntilReady(attemptsLeft: 45)
-        }
+        // A gateway that outlived an earlier run (verified to be ours when it was found) is stopped too.
+        let leftover = attachedPid
+        attachedPid = nil
+        startBoot(terminating: leftover)
     }
 
     @objc func showAbout() {
         let alert = NSAlert()
-        alert.messageText = "Open Agent API 0.6.4"
-        alert.informativeText = "智能体控制台 · 一次发布，随处调用。\n\n监听地址：\(baseURL)\n数据目录：\(appSupportDir)"
+        // The version comes from Info.plist (written from package.json by scripts/package-all.mjs);
+        // never write it here. A bare binary without a bundle has no Info.plist and shows no version.
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        alert.messageText = version.map { "Open Agent API \($0)" } ?? "Open Agent API"
+        alert.informativeText = tr(.aboutBody, ["url": baseURL, "dir": appSupportDir])
         alert.alertStyle = .informational
         alert.runModal()
     }

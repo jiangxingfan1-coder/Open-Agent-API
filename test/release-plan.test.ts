@@ -259,6 +259,61 @@ test('Windows 启动器：版本提示与 engines 一致，cmd/vbs 只用 ASCII'
   assert.match(win.stopPs1(), /Stop-Process/);
 });
 
+test('Windows 启动器：提示文字跟随界面语言（中英成对），版本号与端口不写死', () => {
+  const req = win.nodeRequirement(pkg.engines.node);
+  const scripts: Record<string, string> = {
+    desktop: win.desktopPs1(req),
+    stop: win.stopPs1(),
+    install: win.installPs1('9.9.9'),
+  };
+  const cjk = /[　-〿一-鿿＀-￯]/;
+  for (const [name, text] of Object.entries(scripts)) {
+    assert.match(
+      text,
+      /\(Get-UICulture\)\.Name -like "zh\*"/,
+      `${name}: follows the display language`,
+    );
+    // Every message is Say "中文" "English"; a bare string passed to Show-Error / Write-Host would
+    // speak one language only.
+    assert.doesNotMatch(text, /(Show-Error|Write-Host)\s+"/, `${name}: a message bypasses Say`);
+    const pairs = [...text.matchAll(/Say "([^"]*)" "([^"]*)"/g)];
+    assert.ok(pairs.length >= 3, `${name}: expected the messages, found ${pairs.length}`);
+    for (const [, chinese, english] of pairs) {
+      assert.match(chinese!, cjk, `${name}: the Chinese text of "${english}"`);
+      assert.doesNotMatch(english!, cjk, `${name}: the English text of "${english}"`);
+    }
+    const outside = text
+      .replace(/Say "[^"]*" "[^"]*"/g, '')
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('#'))
+      .join('\n');
+    assert.doesNotMatch(outside, cjk, `${name}: Chinese outside the Say calls`);
+  }
+  // The version comes from the argument, never from a literal; the port from the configuration.
+  assert.match(scripts.install!, /v9\.9\.9/);
+  assert.doesNotMatch(
+    Object.values(scripts).join('\n'),
+    new RegExp(pkg.version.replace(/\./g, '\\.')),
+  );
+  const readme = win.readmeTxt('9.9.9', req);
+  assert.equal(readme.match(/v9\.9\.9/g)?.length, 2, 'one heading per language');
+  assert.ok(
+    readme.indexOf('Step one') >= 0 && readme.indexOf('Step one') < readme.indexOf('第一步'),
+  );
+  assert.match(readme, /SmartScreen/);
+  const desktop = scripts.desktop!;
+  assert.match(desktop, /\$Port = \[int\]\$Config\.port/);
+  assert.match(desktop, /\$BaseUrl = "http:\/\/127\.0\.0\.1:\$Port"/);
+  const hardcoded = desktop
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('#') && line.includes('8787'));
+  assert.deepEqual(
+    hardcoded.map((line) => line.trim()),
+    ['$Port = 8787'],
+    'the only literal port is the default used before config.json exists',
+  );
+});
+
 test('package.json 提供发布打包脚本', () => {
   assert.match(pkg.scripts['package:release:mac'] ?? '', /package-all\.mjs mac --release/);
   assert.match(pkg.scripts['package:release:win'] ?? '', /package-all\.mjs win --release/);

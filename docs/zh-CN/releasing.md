@@ -6,11 +6,12 @@
 
 ## 发一个版本
 
-1. **改版本号**（5 处，全部改成同一个新版本）：
+1. **改版本号**（4 处，全部改成同一个新版本）：
    - `package.json` 的 `version`
    - `package-lock.json` 顶部的 `version` 与 `packages[""].version`（2 处）
-   - `src/core/version.ts` 的 `PRODUCT_VERSION`：网关（`/health`、OpenAPI、`GATEWAY_VERSION`）、ACP 握手的 `clientInfo.version` 与 MCP 客户端/服务端 `version` 的唯一来源。`test/architecture.test.ts` 会核对它与 `package.json` 一致，并且没有其它源文件写死版本号。
-   - `desktop/macos/main.swift`「关于」对话框里的 `Open Agent API <版本>` 字样。这一处是写死的字面量，没有测试覆盖，需要手工改。
+   - `src/core/version.ts` 的 `PRODUCT_VERSION`：网关（`/health`、OpenAPI、`GATEWAY_VERSION`）、ACP 握手的 `clientInfo.version` 与 MCP 客户端/服务端 `version` 的唯一来源。`test/architecture.test.ts` 会核对它与 `package.json` 一致，并且没有其它源文件、也没有 `desktop/` 与 `scripts/` 下的任何文件写死版本号。
+
+   macOS 应用不用另改：`scripts/package-all.mjs` 把 `package.json` 的版本写进应用的 `Info.plist`（`CFBundleShortVersionString`），「关于」对话框从那里读取。
 
    核对：`grep -rn --exclude-dir=node_modules --exclude-dir=dist -F "<旧版本>" .`，除 `CHANGELOG.md` 里叙述历史的地方外不应再有旧版本号。（打包脚本以前在 `package.json` 没有版本号时回退到一个写死的版本，现在已去掉。）
 
@@ -34,6 +35,26 @@
 7. **发布**：确认无误后在草稿页面点「Publish release」。工作流从不自动公开。点发布会触发 `.github/workflows/docker.yml`：构建 `linux/amd64` 与 `linux/arm64` 镜像并推到 `ghcr.io/<owner 小写>/open-agent-api:<版本>` 与 `:latest`（预发布版本和 `1.2.3-rc.1` 这类版本号不打 `latest`）。这一步失败不影响已发布的 Release，修好后在 Actions 页面手动运行 Docker 工作流并填同一个版本号即可（要求该提交的 `package.json` 版本与之一致）。
 
    首次推送后 ghcr 上的包默认是私有的：在仓库的 Packages 页面把 `open-agent-api` 的可见性改成 Public，并确认它已关联到本仓库（镜像带 `org.opencontainers.image.source` 标签，通常会自动关联）。
+
+## 发布前的人工检查
+
+macOS 窗口没法离线测试：离线测试只运行壳的纯逻辑（语言、端口与数据目录的处理、端口上是谁的网关、让控制台登录的页面脚本）
+并编译它，仅此而已。所以发布前要在真机上把打好的应用看一遍。用**隔离运行**来看：它不碰已安装的那份、它的数据目录
+`~/Library/Application Support/OpenAgentAPI`、它的 8787 端口、`/Applications` 与 `~/Applications`。在仓库里，
+`npm run package:release:mac -- --arch <arm64|x64> --node-dir <目录>` 之后：
+
+```bash
+OAA_DESKTOP_HOME="$(mktemp -d)" OAA_DESKTOP_PORT=18787 "release/macos/Open Agent API.app/Contents/MacOS/OpenAgentAPI"
+```
+
+检查下载下来的 `.dmg` 时，先挂载，再用 `/Volumes/Open Agent API/Open Agent API.app/Contents/MacOS/OpenAgentAPI`。
+用 ⌘Q 退出，再删掉临时目录。隔离覆盖哪些内容见 [install.md](install.md#macos)。然后按顺序看：
+
+1. **窗口与端口**：窗口标题（「窗口」菜单里）以「隔离运行」结尾，控制台在 `127.0.0.1:18787` 上打开且已经连接，没有弹出连接对话框。
+2. **端口被占用**：第一份还开着时，再运行一遍同样的命令（每次用新的目录）。第二份必须显示「端口 18787 上已有另一个 Open Agent API 网关」，写出配置文件的位置并提供「打开数据目录」，并且不能打开第一份的控制台。
+3. **由应用登录**：按 ⌘R（「重新载入控制台」）后控制台仍是已连接的；在「设置 › 连接」里点「断开连接」后，再按 ⌘R 又会连上；退出（⌘Q）后用同一个 `OAA_DESKTOP_HOME` 目录再运行同一条命令，第一屏就是已连接的。应用在每次载入页面时把管理员密钥交给页面（见 [security-model.md](security-model.md#默认暴露面)）；这几步里只要出现连接对话框，就说明密钥交接坏了。
+4. **首次启动对话框**：在全新的 `OAA_DESKTOP_HOME` 目录上第一次启动时，必须出现一次标题为「首次启动：已为你做好这些准备」的面板。它列出 `agent/sample`、这台 Mac 上找到的引擎（没找到就明说没找到），以及去哪里关掉某个引擎；点「查看「执行机器」页」会打开那一页。⌘Q 后用同一个目录再启动一次，它不能再出现。
+5. **语言**：在「系统设置 › 语言与地区」里把中文放第一位，重启应用：菜单、「关于」、状态栏菜单和对话框都是中文；把英文放第一位则都是英文。控制台自己的语言（设置里）不受应用影响。「关于」里显示的是 `package.json` 的版本号。
 
 ## 本机开发打包与发布打包
 
