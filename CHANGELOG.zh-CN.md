@@ -6,7 +6,7 @@
 
 ## 0.0.65（2026-11-14）
 
-这一版让网关能装在更多地方，也拿更多的客户端检验了它，并让一次请求可以带上文字以外的东西。它可以装在 Linux（自带 Node.js 的 tar.gz 与 `install.sh`）、Docker 里和用 npm tarball 安装，支持 Node 24 与 26，完整测试在 CI 的 Windows 上通过。一个兼容性实验室让官方 Python 与 Node SDK 和几个框架实际对着网关运行，并回放十几个聊天客户端的请求；实验室发现不兼容的地方，网关都做了修改。调用方可以发图片，也可以要求保证符合某个 schema 的 JSON；运行事件可以推送到你自己的端点；审批可以在命令行里处理。一次安全审查带来了一批修复。有几处默认值是有意改变的，列在「行为变化」里，有办法恢复旧行为的会写明怎么恢复。没有验证过的部分列在「尚未验证」里。
+这一版让网关能装在更多地方，也拿更多的客户端检验了它，并让一次请求可以带上文字以外的东西。它可以装在 Linux（自带 Node.js 的 tar.gz 与 `install.sh`）、Docker 里和用 npm tarball 安装，支持 Node 24 与 26，完整测试在 CI 的 Windows 上通过。一个兼容性实验室让官方 Python 与 Node SDK 和几个框架实际对着网关运行，并回放十几个聊天客户端的请求；实验室发现不兼容的地方，网关都做了修改。调用方可以发图片，也可以要求保证符合某个 schema 的 JSON；运行事件可以推送到你自己的端点；审批可以在命令行里处理。一次安全审查带来了一批修复。一条命令（`oaa connect <预设>`）现在能让内置智能体接上本地或托管的模型提供方；一次长时间压测找出并修复了内存与数据库的增长，并且有了清理旧数据的办法。有几处默认值是有意改变的，列在「行为变化」里，有办法恢复旧行为的会写明怎么恢复。没有验证过的部分列在「尚未验证」里。
 
 下面出现的文件名、命令与配置项都是仓库里的；提到的文档在 `docs/` 下。
 
@@ -15,6 +15,7 @@
 - **调用方带工具时的缺省模式是 `auto`。** 请求带了 `tools` 又没有选模式时，以前在兼容入口、Claude Messages 与 Gemini 上按 `managed` 处理（智能体用自己的工具完成，响应里写 `X-OAA-Client-Tools: ignored`），在 OpenAI 的默认端点（`/v1/chat/completions`、`/v1/responses`）上则以 400 `unsupported_parameter` 拒绝。现在缺省是 `auto`：智能体能接管这些工具时（内置内核智能体，或执行机器为它声明了 `client-tools-v1` 的 ACP 智能体）就桥接：智能体的调用以 `tool_calls`（或该协议的对应形式）交回，调用方执行后，同一个任务继续；响应带 `X-OAA-Client-Tools: bridge`。其他所有智能体（Codex、Claude Code、Antigravity、A2A、HTTP 适配器）在每个入口上的行为与以前完全一样。要让所有智能体回到旧的处理方式，请求里发 `X-OAA-Client-Tools: managed`，或把 `clientTools.default` 设为 `managed`。仍有一处差别：缺省设为 `managed` 后，OpenAI 的默认端点会忽略工具而不是拒绝，以前只有 `/v1/compat` 是这样。强制的 `tool_choice` 永远不桥接。
 - **要求的 JSON 格式现在会被强制保证。** `response_format`（`json_object`、`json_schema`）、Responses 的 `text.format`、Gemini 的 `responseMimeType` 加 `responseSchema`、Claude 的 `output_config.format`，以前在 OpenAI 默认端点上被拒绝，或作为一个从未被检查的愿望交给智能体。现在成功的响应一定是能解析且符合 schema 的 JSON；答错了，会发回给智能体修正，最多 `structuredOutput.maxRepairs` 次（0 到 3，缺省 1），仍然不对则运行以 `structured_output_invalid`（422）失败。流式响应会先扣住，等答案检查通过后一次发出。旧的透传没有开关可以恢复：不要再发这个格式，或把 `structuredOutput.maxRepairs` 设为 `0` 让它在第一次答错时就失败。
 - **只影响采样的参数在 OpenAI 默认端点上不再报错。** `top_k`、`min_p`、`repeat_penalty`、`logit_bias`、任意长度的 `stop` 列表以及类似的厂商参数会被接受并忽略，被忽略的名字列在响应头 `X-OAA-Ignored-Params` 里。会改变网关该做什么的参数（强制的 `tool_choice`、`logprobs: true`、大于 1 的 `n`、未知字段）仍然被拒绝。
+- **Responses 与 Gemini 的流式响应现在带有运行过程。** 在 `/v1/responses` 或 Gemini 入口上做流式调用，以前流里只有答案。现在流里还会带上运行每个阶段的一行简短说明（排队、开始、调用了某个工具、等待审批、修正轮等），用各协议自己的思考形状：Responses 是一个 `reasoning` 输出项（放在最前面，所以之后的 `output_index` 都加一），Gemini 是标了 `"thought": true` 的部分。答案文本、非流式响应和用量统计都没有变，不显示思考的客户端看到的答案不变。Chat Completions 与 Claude Messages 保持原样（关）。想对单个请求关掉，发 `X-OAA-Progress: off`（或 `metadata: {"oaa.progress": "off"}`）；想对整个网关关掉，把 `streamProgress.responses` 与 `streamProgress.gemini` 设为 `"off"`；想在 Chat 或 Claude 上打开，把 `streamProgress.chat` 或 `streamProgress.claude` 设为 `"reasoning"`。读取流式 `response.completed` 事件里 `response.output[0]` 的代码会拿到这个 reasoning 项，请改读 `output_text`。见 `docs/progress.md`。
 - **图片被接受了。** 图片内容段以前在每个入口都被 400 `unsupported_content` 拒绝。现在能用图片的智能体会接受；不能的智能体仍会在运行创建之前拒绝它。除非打开 `images.fetchRemote`，否则不会去抓远程 URL。
 - **开发者平台的计费不再透支。** 每个任务的价格现在在任务开始时预扣，任务没有完成就退回。以前是在结束时才扣，并发的调用可以全都通过余额检查，把余额扣成负数。按 token 计的那一部分现在到余额为 0 就停止，不会扣成负数。本来就是负数的余额不会被进一步压低。旧行为没有开关可以恢复。
 - **不上报 token 用量的智能体设置按 token 的价格会被拒绝**（`usage_pricing_unsupported`，400）：这样的智能体只能按次定价。以前保存的上架项保留原价。
@@ -35,6 +36,7 @@
 ### Windows
 
 - 命令经 `PATH` 与 `PATHEXT` 发现（`oaa init`、`quickstart`、`connect`、`doctor`、ACP 预设），记录带扩展名的完整路径。npm 的启动器（`codex.cmd` 之类）直接用 node 启动；其他 `.cmd` 与 `.bat` 经 `cmd.exe /d /s /c` 启动，每个参数都做了转义，所以调用方输入里的 `&`、`|`、`%VAR%` 与引号都按文本传递。给这类文件的参数里带换行会被拒绝（`invalid_request`）。
+- 在 Windows 上，`oaa connect <预设>` 重启由它自己启动的后台网关时，先像 `oaa stop` 那样请它通过 `POST /v1/gateway/shutdown` 自行关闭，因为那里的普通终止会直接结束进程。
 - 取消、超时与关机时，用 `taskkill /T /F` 结束智能体的整棵进程树。`oaa stop` 先通过新增的 `POST /v1/gateway/shutdown`（覆盖整个所有者的管理员密钥，只接受来自回环地址的请求）请网关自己关闭，十秒后仍在运行才终止进程。
 - 调用方工具中继用命名管道代替 Unix socket。私有文件（管理员密钥、调用方密钥、`server.pid`）尽力用 `icacls` 收紧权限。Windows 会特殊处理的文件名（保留的设备名、含 `:`、以点或空格结尾）会被 `invalid_path` 拒绝。`oaa status` 与 `oaa verify` 在没有 `ps` 时也能工作。
 - 完整的测试集现在在 CI 的 `windows-latest` 上运行（`windows.yml`，每个测试文件一个进程）；只在 POSIX 上有意义的测试带明确原因跳过。PowerShell 启动器脚本的提示文字跟随 Windows 的显示语言。细节与限制（没有沙箱、强制结束、安装包未签名）见 `docs/windows.md`。
@@ -58,6 +60,9 @@
 - **图片输入**（`image-input-v1`）：PNG、JPEG、GIF 与 WebP，经 OpenAI Chat 与 Responses、Claude Messages、Gemini、UAP 与原生请求体，可以是内联、已上传的文件或 `https` URL。上限是每张 5 MiB、每个请求 10 张与 8 MiB（`images.*`）。图片会存为调用方的输入文件。每个智能体按它能用的形式接收，否则请求在运行创建之前被拒绝；`GET /v1/models` 里有 `image_input`。网关缺省不抓取远程 URL。新增错误码：`image_invalid`、`image_too_large`、`too_many_images`、`image_fetch_failed`、`image_delivery_failed`。见 `docs/images.md`。
 - **运行事件回调**（`webhooks-v1`）：带签名（HMAC-SHA256）的 HTTPS 回调，事件有 `run.requires_action`、`run.completed`、`run.failed`、`run.cancelled`、`run.incomplete` 与 `run.interrupted`；有持久队列、大约 40 分钟内共 6 次尝试、`/v1/webhooks` 下的端点与投递管理、出站地址检查（`security.profile: "public"` 下更严）、控制台里的只读列表。`examples/webhook-receiver.mjs` 是一个可以批准待办的接收端示例。只有覆盖整个所有者的管理员密钥能配置端点。见 `docs/webhooks.md`。
 
+- **模型提供方预设**：`oaa connect <预设>` 一条命令就让内置智能体接上模型，并发布 `agent/assistant`，一个带工作区文件工具的通用助手。预设有：`ollama`、`lmstudio`、`openai-compatible`、`openai`、`anthropic`、`gemini-api`、`openrouter`、`deepseek`、`moonshot`、`zhipu`、`siliconflow`、`groq`、`together`、`mistral`。提供方现在可以从文件里读密钥（`apiKeyFile`，每次调用都读，所以换密钥不用重启），也可以不需要密钥（`noApiKey`，给本地模型用），并新增设置 `streamUsage` 与 `preset`。密钥从不接受命令行参数。上游调用失败时，错误现在会点名提供方并说明改哪里，新增错误码 `upstream_auth_failed`、`upstream_model_not_found` 与 `upstream_incompatible`。控制台发布内置智能体的对话框可以从已配置的提供方里选，智能体卡片显示所用的提供方以及它的密钥能不能解析。预设里的取值来自各服务自己的文档。见 `docs/models.md`。
+- **流式过程**（`stream-progress-v1`）：「行为变化」里说明的行为，可以按请求（`X-OAA-Progress`、`oaa.progress`）或按协议（`streamProgress`）选择。这些行从不带工具参数、工具结果、提示词或内部标识，语言跟随 `Accept-Language`。兼容性实验室对每个 SDK 和框架都跑了一个 `stream_progress` 场景；聊天客户端里只有 Dify 对照了它的源码，它会在 Chat 上把过程混进答案里，所以 Chat 保持关闭。见 `docs/progress.md`。
+
 ### 开发者平台
 
 - 上架项可以打开 `host_execution`，让平台账号能调用那一个外部智能体（Codex、Claude Code、ACP 智能体、适配器、带本机工具的内核智能体）。默认关闭并有审计，它委派的智能体需要各自的开关。控制台的上架对话框有这个开关和它的说明，上架列表会标出账号暂时调不了的智能体。见 `docs/platform.md`。
@@ -70,7 +75,20 @@
 - 新增 `oaa status`：用一个只读的回答说明网关和它的智能体怎么样了，支持 `--json`。
 - 新增 `oaa verify AGENT`：打印计划；加 `--confirm-live-cost` 才会在隔离网关上运行真实智能体的验收场景，并写出脱敏的 `report.md` 与 `report.json`，可以附到 issue 里（模板：「智能体验证报告」）。`examples/live-agents-acceptance.ts` 现在与它共用场景。
 - 新增 `oaa webhook add|list|remove|test|deliveries`。
+- 新增 `oaa connect <预设>` 与 `oaa models`：给内置智能体接上模型提供方，并列出已配置的提供方，说明密钥能不能解析、端点有没有回应（本机地址自动探测，托管服务只有加 `--check` 才探测，而且只请求模型列表）。`oaa connect` 不会调用模型，除非加 `--test`，而且那时也只对本机地址的端点调用。
+- 新增 `oaa prune [--older-than 30d] [--dry-run] [--vacuum]`：删除早于某个时间点的已结束运行及其事件与文件（见「稳定性」）。`oaa doctor` 现在会报告数据库大小。
 - 命令参考见 `docs/cli.md`。
+
+### 稳定性
+
+新增的 `docs/zh-CN/stability.md` 写有方法、数字、崩溃恢复的语义和已知限制。
+
+- **数据保留。** 你不要求，就什么都不删。新的 `retention` 设置（`runsDays`、`intervalMinutes`、`warnDatabaseMb`）会按定时器清理超过 `runsDays` 的已结束运行；`oaa prune`（`--older-than`、`--dry-run`、`--vacuum`）或 `POST /v1/maintenance/prune`（需要覆盖整个所有者的管理员密钥）则一次性清理。排队、执行中、等待审批和 interrupted 的运行永远不会被清理；账号与计费记录（账本、密钥用量合计）和记忆也不清理。`oaa doctor` 报告数据库大小，超过 `retention.warnDatabaseMb`（默认 1024 MB）时 `oaa status` 会打印一条提示；两者都不删任何东西。
+- **压测发现并修复的内存与数据库增长。**（1）每次执行都会设一个无法取消的 30 分钟超时，使每个已结束运行的数据在 30 分钟内一直可达（负载下堆约每分钟增长 1.3 MB），现在改成可清除的计时器。（2）按精确时长反复重设的计时器，每次都会留下一个空的 Node 内部计时器列表；Node 要等原定时长过去才回收这样的列表，所以这是随负载和截止时长增长的积压，不是永久泄漏，这些计时器现在改用取整的时长。（3）清理之后，控制台的活动窗口仍保留刚被删除的运行。（4）持续失败的端点会让它的投递队列无限增长。修复之前，一次 65 分钟的运行里堆每分钟增长 0.29 MB、数据库每分钟增长 0.8 MB；修复之后分别是 0.008 与 0.0 MB。
+- **事件回调：** 每个端点最多排队 10,000 条投递；超出的最旧几条标为 `failed`，原因是 `queue_overflow`。
+- **备份与日志：** 迁移之前写的备份，每个源版本只保留最近 3 份（以前没有上限，所以守护程序反复重启一个起不来的网关时可能写满磁盘）；后台网关的 `server.log` 在启动时若大于 10 MB，会轮换为 `server.log.1`。被清理删掉的会话工作区，本机 worker 会重建，不再沿用缓存里的旧路径。
+- **`npm run soak`**（只支持 macOS 与 Linux，不属于 `npm test`）用一个真实的网关进程、一个假模型和离线示例智能体做混合负载，重启三次（SIGTERM、SIGKILL、SIGTERM），并核对恢复情况与一组通过判据。它在这一版代码上的最新结果，环境是 macOS（Apple 芯片）、Node 24、并发 8：一轮 32 分钟带重启（34,010 个请求没有意外错误；另有 24 个失败发生在重启窗口内，单独计数），一轮 62 分钟单段（67,799 个请求，没有意外错误）。两轮都满足全部判据：数据库、文件描述符、句柄与子进程都保持平稳，SIGKILL 时在执行中的运行重启后都是 `interrupted`，没有智能体进程比网关活得更久。短末段的内存判据是在 32 分钟那一轮之后修正的：它 10 分钟的末段拟合斜率主要量到的是约 ±25 MB 的正常波动；所以 32 分钟那一轮满足的是修正后的判据，不是最初写的那一条（细节见 `docs/zh-CN/stability.md`）。
+- **`npm run upgrade-check`** 用真实的二进制重复一次升级：旧版本建库，当前版本接管，旧版本再打开。一个真实的 0.0.64 数据库是测试夹具。
 
 ### 桌面应用
 
@@ -80,7 +98,9 @@
 ### 文档
 
 - 每份文档都是英文为主，中文版在 `docs/zh-CN/`（以及 `README.zh-CN.md`、`CHANGELOG.zh-CN.md`、`ROADMAP.zh-CN.md`）。一个测试会检查链接与锚点有效、每份文档都有对应的另一语言版本、语言切换行在、错误码表与错误目录一致，以及这份变更记录以一个空的「未发布」小节开头。
-- 新增：`ROADMAP.md`、`docs/cli.md`、`docs/install.md`、`docs/windows.md`、`docs/security-model.md`、`docs/compatibility.md`、`docs/structured-output.md`、`docs/images.md`、`docs/webhooks.md`，以及智能体验证报告的 issue 模板。`docs/evidence.md` 现在把离线测试与 CI 能说明的，和用真实智能体跑过的，分开写。
+- **文档站点与示例集。** `tools/docs-site/` 把中英文档生成为带搜索的静态站点；Pages 工作流现在先生成它，再与展示页一起部署，并有检查校验生成的页面和其中的链接。`examples/cookbook/` 有八组可复制运行的调用示例（第一次调用、长时间任务、审批、调用方工具、结构化输出、图片、错误与重试、接上工具），用 curl、Python 和 Node 写，兼容性实验室会逐个运行它们。`examples/README.md` 说明每个文件是给谁的。展示页的导航里有这两处的入口。
+- 小项：文档现在写明每个入口都认 `Idempotency-Key`，以及取消之后调用方会看到什么（`cancelled`，或者在无法排除外部副作用时是带 `effect_outcome_unknown` 的 `interrupted`）。离线示例智能体的回答不再自称「本会话第 N 轮」，它的 README 也说明了它不能续接会话。
+- 新增：`ROADMAP.md`、`docs/cli.md`、`docs/install.md`、`docs/windows.md`、`docs/security-model.md`、`docs/compatibility.md`、`docs/structured-output.md`、`docs/images.md`、`docs/webhooks.md`、`docs/models.md`、`docs/progress.md`、`docs/stability.md`，以及智能体验证报告的 issue 模板。`docs/evidence.md` 现在把离线测试与 CI 能说明的，和用真实智能体跑过的，分开写。
 
 ### 尚未验证
 
@@ -93,6 +113,10 @@
 - **发布工作流的新增部分。** Linux 包、`install.sh`、npm tarball、扩充后的烟雾测试与多架构的 Docker 推送，还没有在 GitHub 上运行过：第一次运行就是这个版本的发布，这个版本的 Windows 包也是。Docker 镜像已经在 CI 里构建（amd64）并通过烟雾测试。
 - **兼容性实验室用的是确定性的夹具模型和示例智能体**，从来不是真实智能体。回放只说明网关接受客户端记录下来的请求、并以它能解析的形式回答，不说明整个应用可用。Cursor 未核实，LibreChat 与 LobeChat 只是部分从源码推出。
 - **开发者平台**：真实外部智能体的计费成功路径，以及公网部署，都没有见到过。
+- **模型提供方预设**没有对任何真实的模型服务运行过。地址和差异来自各服务自己的文档，测试用的是假服务。某个预设不能用时，`oaa models --check` 和错误码会说明该改哪项设置。
+- **文档站点**已经构建、链接也检查过，但没有在真实的 GitHub Pages 上看过：第一次部署就是它第一次露面。
+- **压测**只用了假模型和离线示例智能体，最长 62 分钟。真实的模型提供方和真实的智能体命令行会带来它没有测到的延迟、内存和故障方式，有设计上限的缓存要几个小时才会填满。较早的一次 32 分钟尝试里，网关在 SIGKILL 之后约 110 秒才有回应；之后的三次 SIGKILL 重启和一次手工尝试都没有再出现，原因不明（见 `docs/zh-CN/stability.md` 的「已知限制」）。
+- **外部智能体的流式过程**只用替身智能体测过，没有对真实的智能体运行过。
 - **没有做的**：把 schema 交给模型提供方自己的结构化输出功能、强制工具选择、真实的支付渠道。
 
 ## 0.0.64（2026-11-14）

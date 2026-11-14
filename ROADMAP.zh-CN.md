@@ -13,11 +13,14 @@
 - 命令行里的 `oaa approvals`、`oaa approve`、`oaa deny`、`oaa status`、`oaa verify` 与 `oaa webhook`（[docs/zh-CN/cli.md](docs/zh-CN/cli.md)）。
 - 运行事件回调（[docs/zh-CN/webhooks.md](docs/zh-CN/webhooks.md)）、强制保证的结构化输出（[docs/zh-CN/structured-output.md](docs/zh-CN/structured-output.md)）与每个入口上的图片输入（[docs/zh-CN/images.md](docs/zh-CN/images.md)）。
 - 开发者平台的上架项可以让平台账号调用指定的外部智能体，计费不再透支。
-- 英文为主的文档。
+- 英文为主的文档、带搜索的自动生成的文档站点，以及可复制运行的调用示例集（[examples/cookbook](examples/cookbook/README.zh-CN.md)）。
+- `oaa connect <预设>` 与 `oaa models`：本地与兼容 OpenAI 的模型提供方预设（Ollama、LM Studio、OpenAI、Anthropic、Gemini、DeepSeek 等），内置智能体一条命令就能跑在某个模型上（[docs/zh-CN/models.md](docs/zh-CN/models.md)）。
+- 流式响应里的运行过程，用各协议的思考形状：Responses 与 Gemini 默认开，Chat 与 Claude 默认关（[docs/zh-CN/progress.md](docs/zh-CN/progress.md)）。
+- 压测（`npm run soak`）、升级检查（`npm run upgrade-check`）、压测带来的修复，以及带 `oaa prune` 的数据保留（[docs/zh-CN/stability.md](docs/zh-CN/stability.md)）。
 
 ## 接下来
 
-- **长时间运行测试、升级路径与数据保留。** 让网关在负载下长时间运行，写清版本之间怎么升级，并说明哪些数据保留多久。这项正在进行，还不在 0.0.65 里。
+- **更长、更接近真实的压测。** 压测最长跑了 62 分钟，对的是假模型和离线示例智能体。跑上许多小时，以及对着真实的模型提供方和真实的智能体命令行跑，才能看到它现在看不到的东西。
 - **原生的结构化输出。** 目前网关校验答案并要求智能体修正，但 schema 没有交给模型提供方自己的结构化输出功能（OpenAI 的 `response_format`、Anthropic 的 `output_config.format`、Gemini 的 `responseSchema`）。交给它们能提高一次就答对的比例，但需要逐个提供方处理，并且不能让某个提供方拒绝它今天还接受的请求。
 - **强制工具选择。** `tool_choice` 设为 `required` 或某个具名函数时，OpenAI 默认端点会拒绝，其他入口会忽略，因为网关和上游模型都做不到。靠强制工具调用来拿结构的调用方，同样因此得不到服务。
 - **用真实的 Codex 与 Claude Code 做端到端验证。** 两者都没有跑过验收场景，向它们交付图片也只是按文档实现的。这需要装了它们的人来做：见下文「怎么帮忙」。
@@ -26,7 +29,6 @@
 
 ## 以后
 
-- **本地与兼容 OpenAI 的模型提供方预设**（Ollama、LM Studio 等），供内置智能体使用，这样内置智能体不用手写配置就能跑在本地模型上。
 - **导出运行指标**（例如 Prometheus 格式）。
 - **经过公证的 macOS 构建。** macOS 应用目前只做临时签名、没有公证，所以第一次打开时 macOS 会要求手动打开（见 [docs/zh-CN/releasing.md](docs/zh-CN/releasing.md)）。
 - **Windows 与 Linux 上的真实智能体。** CI 用替身覆盖了这两个系统；在这两个系统上用真实的 Codex、Claude Code 或 Antigravity 的记录并不存在。
@@ -42,13 +44,14 @@
 - **兼容性实验室**：官方 SDK 与几个框架对着一个带示例智能体的隔离网关运行，十几个聊天客户端记录下来的请求被回放。过程中没有真实的模型或智能体，Cursor 未核实。
 - **真实智能体的端到端：只有 Antigravity。** 验收脚本（`examples/live-agents-acceptance.ts`）对真实的 Antigravity 跑过一次，共 12 次真实调用。多数场景通过；没能验证的场景和未通过的一项（残留的后台进程）都列在 evidence 文件里。
 - **审批与调用方工具**由针对替身的测试覆盖。在 2026-11-11 的一次手工联调里，调用方工具桥接也对真实的 ACP 智能体（Antigravity 与 Qoder）跑通过。
+- **长时间运行与升级，用的是假模型**：`npm run soak` 对一个真实的网关进程跑过 32 分钟（带三次重启：SIGTERM、SIGKILL、SIGTERM）和 62 分钟单段，都满足了它的判据；`npm run upgrade-check` 与一个真实的 0.0.64 数据库覆盖了从上一版的升级。细节与限制见 [docs/zh-CN/stability.md](docs/zh-CN/stability.md)。
 - **Docker 镜像**在 CI 里能构建，容器通过了烟雾测试（amd64）。
 - **macOS 应用，人工检查过一次**：在一台 Apple 芯片的 Mac 上隔离运行，打开就是已连接状态，显示首次启动说明，刷新后仍然已连接，版本号正确，并且跟随系统语言。
 
 **没有验证的**
 
 - **Codex 与 Claude Code 没有跑过验收场景。** 2026-11-11 的手工联调记录了一次 Codex 托管调用成功、Claude Code 因命令行没有登录而失败；之后代码有变化，两者都没有重做。向它们交付图片没有验证。
-- 内置智能体搭配真实模型提供方、反向代理后面的公网部署、跨机器调用、向公网 HTTPS 端点投递事件回调，以及 Cursor、Cline 之类把 Open Agent API 当作模型来调的客户端，都没有真实的端到端记录。
+- 内置智能体搭配真实模型提供方（`oaa connect` 的预设只对照各服务的文档核对过，并只在假服务上运行过）、真实 GitHub Pages 上的文档站点、反向代理后面的公网部署、跨机器调用、向公网 HTTPS 端点投递事件回调，以及 Cursor、Cline 之类把 Open Agent API 当作模型来调的客户端，都没有真实的端到端记录。
 - Windows 与 Linux 上的真实智能体；Linux 包、`install.sh`、npm tarball 与多架构镜像，它们还没有走过发布工作流。
 - 「接下来」里列出的桌面应用各项。
 

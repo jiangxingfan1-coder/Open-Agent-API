@@ -13,11 +13,14 @@ This is the public roadmap of Open Agent API, written as of version 0.0.65 (2026
 - `oaa approvals`, `oaa approve`, `oaa deny`, `oaa status`, `oaa verify` and `oaa webhook` in the command line ([docs/cli.md](docs/cli.md)).
 - Run-event webhooks ([docs/webhooks.md](docs/webhooks.md)), enforced structured output ([docs/structured-output.md](docs/structured-output.md)) and image input on every entry ([docs/images.md](docs/images.md)).
 - Developer-platform listings that let platform accounts call a chosen external agent, with billing that no longer overdraws.
-- English-first documentation.
+- English-first documentation, a generated documentation site with search, and a cookbook of copy-and-run calls ([examples/cookbook](examples/cookbook/README.md)).
+- `oaa connect <preset>` and `oaa models`: presets for local and OpenAI-compatible model providers (Ollama, LM Studio, OpenAI, Anthropic, Gemini, DeepSeek and more), so a built-in agent can run on a model with one command ([docs/models.md](docs/models.md)).
+- Run progress in streams, in each protocol's thinking shape: on by default for Responses and Gemini, off for Chat and Claude ([docs/progress.md](docs/progress.md)).
+- A soak test (`npm run soak`), an upgrade check (`npm run upgrade-check`), the fixes the soak led to, and data retention with `oaa prune` ([docs/stability.md](docs/stability.md)).
 
 ## Next
 
-- **A long-running soak test, the upgrade path and data retention.** Run the gateway for a long time under load, document how to upgrade between versions, and say what data is kept and for how long. This is in progress and is not part of 0.0.65 yet.
+- **Longer and more realistic soak runs.** The soak ran for at most 62 minutes against a fake model and the offline sample agent. A run of many hours, and one against a real model provider and real agent command lines, would show what it cannot.
 - **Native structured output.** Today the gateway validates the answer and asks the agent to correct it, but the schema is not passed to the model provider's own structured-output feature (`response_format` of OpenAI, `output_config.format` of Anthropic, `responseSchema` of Gemini). Passing it would raise the share of answers that are right the first time. It needs per-provider handling and must not make a provider reject a request it accepts today.
 - **Forced tool choice.** `tool_choice` set to `required`, or to a named function, is refused on OpenAI's default endpoints and ignored elsewhere, because neither the gateway nor the upstream model can honor it. Callers that get structure through a forced tool call are not served for the same reason.
 - **Real Codex and Claude Code, end to end.** Neither has been run through the acceptance scenarios, and image delivery to both is implemented from documentation only. This needs people who have them installed: see "How to help" below.
@@ -26,7 +29,6 @@ This is the public roadmap of Open Agent API, written as of version 0.0.65 (2026
 
 ## Later
 
-- **Presets for local and OpenAI-compatible model providers** (Ollama, LM Studio and others) for built-in agents, so that a built-in agent can run on a local model without hand-written configuration.
 - **Exporting run metrics** (for example in the Prometheus format) from the gateway.
 - **Notarized macOS builds.** The macOS app is currently ad-hoc signed and not notarized, so macOS asks users to open it manually the first time (see [docs/releasing.md](docs/releasing.md)).
 - **Real agents on Windows and Linux.** CI covers both with stand-ins; a record with real Codex, Claude Code or Antigravity on those systems does not exist.
@@ -42,13 +44,14 @@ The details are in [docs/evidence.md](docs/evidence.md); the short version, kept
 - **The compatibility lab**: the official SDKs and several frameworks run against an isolated gateway with a sample agent, and the recorded requests of a dozen chat clients are replayed. No real model or agent is involved, and Cursor is unverified.
 - **Real-agent end-to-end: Antigravity only.** The acceptance script (`examples/live-agents-acceptance.ts`) was run once against a real Antigravity, with 12 real calls. Most scenarios passed; the ones that could not be verified, and the one that failed (a leftover background process), are listed in the evidence file.
 - **Approvals and caller tools** are exercised by tests against stand-ins. In a manual session on 2026-11-11, caller-tool bridging also worked against real ACP agents (Antigravity and Qoder).
+- **Long runs and upgrades, with a fake model**: `npm run soak` ran a real gateway process for 32 minutes with three restarts (SIGTERM, SIGKILL, SIGTERM) and for 62 minutes in one segment, and met its criteria; `npm run upgrade-check` and a real 0.0.64 database cover the upgrade from the previous version. Details and limits: [docs/stability.md](docs/stability.md).
 - **The Docker image** builds and its container passes a smoke test in CI (amd64).
 - **The macOS app, by hand, once**: it opens already connected, shows the first-launch note, stays connected after a reload, shows the right version, and follows the system language, on an Apple silicon Mac in an isolated run.
 
 **What has not been verified**
 
 - **Codex and Claude Code have not been run through the acceptance scenarios.** The manual session on 2026-11-11 recorded one managed call to Codex that worked and a Claude Code run that failed because its CLI was not signed in; the code has changed since then and neither was repeated. Image delivery to both is not verified.
-- Built-in agents with a real model provider, public deployment behind a reverse proxy, calls across machines, webhook delivery to a public HTTPS endpoint, and clients such as Cursor and Cline calling Open Agent API as a model have no real end-to-end record.
+- Built-in agents with a real model provider (the presets of `oaa connect` were checked against each service's documentation and run against fake services only), the documentation site on real GitHub Pages, public deployment behind a reverse proxy, calls across machines, webhook delivery to a public HTTPS endpoint, and clients such as Cursor and Cline calling Open Agent API as a model have no real end-to-end record.
 - Real agents on Windows and Linux; the Linux packages, `install.sh`, the npm tarball and the multi-architecture image, which have not yet been through the release workflow.
 - The desktop app items listed under "Next".
 

@@ -44,6 +44,9 @@
 | 命令 | 作用 | 示例 |
 | --- | --- | --- |
 | `oaa connect NAME [--dir .oaa]` | 检测 `codex`、`claude`、`agy` 或某个 ACP 智能体（预设名或适配器名），在运行中的网关上启用它，发布为 `agent/NAME`，确认调用方密钥能调用它，并打印一条可以试的 `curl`。不会调用这个智能体。 | `oaa connect codex` |
+| `oaa connect [--dir .oaa]` | 不带目标时：列出本机找到的外部智能体和所有模型预设，并给出下一步该敲的命令。 | `oaa connect` |
+| `oaa connect PRESET [--model M] [--key-env NAME \| --key-file FILE] [--base-url URL] [--agent agent/assistant] [--name NAME] [--definition FILE.oaa] [--test] [--dir .oaa]` | 给内置智能体接上模型：探测本地服务（只限本机回环地址），把提供方写进配置（只存密钥的引用；相同的条目跳过，不同的条目拒绝覆盖），只在这个数据目录自己启动了网关时才重启它，发布 `agent/assistant`，确认调用方密钥可用，并打印一条 `curl`。从不调用模型；`--test` 只发一次最小请求，且只对本机地址的端点。预设与密钥见 [models.md](models.md)。 | `oaa connect deepseek --key-file ~/.config/deepseek.key` |
+| `oaa models [--dir .oaa] [--check] [--json]` | 列出已配置的模型提供方：协议、端点、密钥的引用能不能解析、端点有没有回应（本机地址自动探测，托管服务只有加 `--check` 才探测，而且只请求模型列表），以及哪些智能体在用它。 | `oaa models --check` |
 | `oaa publish-native --id ID --engine ENGINE [--models default] [--approvals ask\|auto] --url URL --token-file FILE` | 把一个内置引擎（`codex`、`claude`、`antigravity`、`dsh`）或一个已启用的适配器（`adapter/NAME`）发布为智能体。`--approvals auto` 让这个智能体的权限请求按策略批准，而不是等你。 | `oaa publish-native --id agent/codex --engine codex --url http://127.0.0.1:8787 --token-file .oaa/admin.token` |
 | `oaa expose ENGINE\|definition.oaa [--models default] [--approvals ask\|auto] [--id ID] [--dir DIR] [--detach] --url URL --token-file FILE` | 在本机把一个智能体命令行作为（可能是远程）网关的执行节点运行，并在那个网关上发布它。 | `oaa expose codex --detach --url https://gw.example.com --token-file admin.token` |
 

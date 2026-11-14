@@ -119,6 +119,10 @@ npm run oaa -- quickstart
 
 `npm run oaa -- connect codex`（或 `claude`、`agy`，以及 `oaa doctor` 列出的 ACP 智能体名）一步完成：检测它是否已安装 → 在本网关启用（只改本网关的记录，不改它自己的配置与登录）→ 发布为 `agent/codex`（已发布则跳过）→ 确认 quickstart 的密钥能调用它 → 打印 `model` 和一条可粘贴的 curl。connect **不会调用**这个智能体：第一次调用会使用它自己在这台机器上的登录状态与额度。没安装时会说明先安装并登录，再运行 quickstart 让网关识别它。
 
+### 给内置智能体接上模型：`oaa connect <预设>`
+
+内置智能体（网关自己的智能体循环）需要一个模型提供方。`oaa connect ollama`（本地模型，不需要密钥）或 `oaa connect deepseek --key-file ~/.config/deepseek.key`（还有 `openai`、`anthropic`、`gemini-api`、`openrouter`、`lmstudio`、`openai-compatible` 等）会把提供方写进 `.oaa/config.json`，重启由这个数据目录启动的网关，发布 `agent/assistant`（一个带工作区文件工具的通用助手），确认 quickstart 的密钥，并打印一条 curl。密钥从不在命令行里输入：`--key-env` 写变量名，`--key-file` 指向一个文件。它不会调用模型，除非你加 `--test`（只对本机地址的端点）；`oaa models` 列出已配置的提供方以及它们的密钥能不能解析。这些预设取自各服务自己的文档，只在假服务上运行过。见 [docs/zh-CN/models.md](docs/zh-CN/models.md)。
+
 ### 分步做
 
 要发布真正干活的智能体，需要本机装好并登录过的 Codex、Claude Code、Antigravity 或某个 ACP 智能体（`npm run oaa -- doctor` 会列出找到了哪些），或者一个模型提供方的 API Key（用来跑内置智能体）。下面是 `quickstart` 背后的分步做法：
@@ -138,7 +142,7 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
      --url http://127.0.0.1:8787 --token-file .oaa/admin.token
    ```
 
-   也可以用 OAA-Lang 或 JSON 定义一个内置智能体，见 [docs/zh-CN/language.md](docs/zh-CN/language.md) 与 [操作手册](docs/zh-CN/operations.md)（那需要你自己配置模型提供方，仓库里的示例用的是占位符）。
+   也可以用 OAA-Lang 或 JSON 定义一个内置智能体，见 [docs/zh-CN/language.md](docs/zh-CN/language.md) 与 [操作手册](docs/zh-CN/operations.md)（那需要一个模型提供方：上面的 `oaa connect <预设>` 可以配好，`examples/` 里的定义模板用的是占位符）。
 3. **创建 API 密钥**：控制台「API 密钥」页点「生成密钥」，结果页会给出服务地址（Base URL）、API Key（形如 `sk-oaa-…`，只显示一次）和模型名，各自可以一键复制。为每个调用方应用单独创建一把。命令行的等价写法（密钥写进私有文件，不打印到屏幕上）：
 
    ```sh
@@ -221,6 +225,8 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 
 任何兼容这几家协议的客户端，只要填 Base URL 和 API 密钥就能用；`Authorization: Bearer`、`x-api-key`、`x-goog-api-key` 三种鉴权头都接受。不支持的输入会明确报错，而不是悄悄降级：例如音频和其他内联的二进制内容一律返回 400 `unsupported_content`，需要先经 `POST /v1/files` 上传再引用；只影响采样的参数（`temperature`、`top_k` 等）会被接受并忽略，响应头 `X-OAA-Ignored-Params` 会说明忽略了哪些。见 [docs/zh-CN/protocol.md](docs/zh-CN/protocol.md#兼容入口的参数错误与结束原因060)。
 
+**流式里的过程。** 流式调用还可以显示智能体在做什么：运行的每个阶段（排队、调用了某个工具、等待审批）发一行简短的说明，用各协议自己的思考形状，所以已经会显示模型思考的客户端不用改动就能显示它。Responses 与 Gemini 默认开，Chat Completions 与 Claude Messages 默认关；可以按请求用 `X-OAA-Progress: reasoning | off` 切换，也可以在配置里按协议用 `streamProgress` 设置。答案本身不会变。见 [docs/zh-CN/progress.md](docs/zh-CN/progress.md)。
+
 除了文字，调用方还可以要求两样东西：每个入口上的**图片**（[docs/zh-CN/images.md](docs/zh-CN/images.md)），以及**保证符合某个 schema 的 JSON**（`response_format`、`text.format`、`responseSchema`、`output_config.format`）：网关校验答案，把答错的发回给智能体修正，仍然不对就让运行以 `structured_output_invalid` 失败，而不是返回一段只是看起来像 JSON 的文字（[docs/zh-CN/structured-output.md](docs/zh-CN/structured-output.md)）。
 
 ## 控制面：让人留在回路里
@@ -230,7 +236,7 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 - **审批**：智能体要做需要批准的操作时，任务停在「待审批」。你可以在控制台、在终端里（`oaa approvals`、`oaa approve`、`oaa deny`），或用带 `approve` 权限的密钥调用接口批准或拒绝，之后同一个任务接着做。审批是持久的挂起点，不是一次性的弹窗。
 - **事件回调**：运行事件（完成、失败、等待审批等）可以推送到你自己的一个 HTTPS 端点，带签名并会重试（`oaa webhook add`），调用方不用轮询，审批请求也可以送进你的聊天工具或自己的系统。见 [docs/zh-CN/webhooks.md](docs/zh-CN/webhooks.md)。
 - **中断与恢复**：任务可以随时取消。被中断的任务可以恢复；结果未知的外部写入（例如命令执行到一半被中断），必须人工确认结果后才能恢复。
-- **幂等**：带 `Idempotency-Key` 请求头时，同一个键只对应一个任务；同键不同输入返回 409。
+- **幂等**：带 `Idempotency-Key` 请求头时（每个入口都认它），同一个键只对应一个任务；同键不同输入返回 409。
 - **任务检查器**：每个任务的时间线、关键路径、执行步骤、审批与产物都能查看，也能回放事件流。
 
 <p align="center">
@@ -275,12 +281,12 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 
 ## 桌面应用与命令行
 
-- **命令行**：`oaa --help`（在源码检出目录里是 `npm run oaa -- --help`）列出全部子命令，包括 `quickstart`、`connect`、`init`、`serve`、`stop`、`status`、`doctor`、`key create`、`publish`、`publish-native`、`invoke`、`wait`、`approvals`、`approve`、`deny`、`webhook`、`verify`、`cancel`、`resume`、`nodes`、`mcp`；`check` 与 `fmt` 用来检查和格式化 OAA-Lang 源码，编译、检查和格式化都不调用模型。`oaa status` 显示网关和它的智能体怎么样了，`oaa verify` 在你的机器上对一个真实智能体做自检（它会先打印要做什么，加 `--confirm-live-cost` 之前什么都不会启动）。每条命令按任务分组的说明见 [docs/zh-CN/cli.md](docs/zh-CN/cli.md)。
+- **命令行**：`oaa --help`（在源码检出目录里是 `npm run oaa -- --help`）列出全部子命令，包括 `quickstart`、`connect`、`init`、`serve`、`stop`、`status`、`doctor`、`models`、`prune`、`key create`、`publish`、`publish-native`、`invoke`、`wait`、`approvals`、`approve`、`deny`、`webhook`、`verify`、`cancel`、`resume`、`nodes`、`mcp`；`check` 与 `fmt` 用来检查和格式化 OAA-Lang 源码，编译、检查和格式化都不调用模型。`oaa connect <预设>` 与 `oaa models` 为内置智能体配置并列出模型提供方，`oaa prune` 删除旧的已结束运行（除非你设置了 `retention` 或运行它，否则什么都不会被删），`oaa status` 显示网关和它的智能体怎么样了，`oaa verify` 在你的机器上对一个真实智能体做自检（它会先打印要做什么，加 `--confirm-live-cost` 之前什么都不会启动）。每条命令按任务分组的说明见 [docs/zh-CN/cli.md](docs/zh-CN/cli.md)。
 - **macOS 桌面应用**：源码在 `desktop/macos`，内嵌的是同一个控制台，提供 Dock 角标与审批通知；它的菜单与对话框跟随系统语言，端口取自它自己的 `config.json`，也可以与已安装的副本隔离运行（`OAA_DESKTOP_HOME`、`OAA_DESKTOP_PORT`，见 [install.md](docs/zh-CN/install.md#macos)）。可以用 `npm run package:mac` 从源码打包（`npm run package:win` 对应 Windows）。安装包在发布页（[安装路线](docs/zh-CN/install.md)）；macOS 与 Windows 的安装包未经公证、没有代码签名，自己打包的也一样。这个版本的改动由所有者在一台 Apple 芯片的 Mac 上以隔离方式人工检查过一次；检查覆盖了什么、没覆盖什么，见 [docs/zh-CN/releasing.md](docs/zh-CN/releasing.md#发布前的人工检查)。
 
 ## 文档
 
-按「我想……」组织的完整索引在 [docs/zh-CN/README.md](docs/zh-CN/README.md)。常用入口：[安装](docs/zh-CN/install.md)、[命令行](docs/zh-CN/cli.md)、[操作手册](docs/zh-CN/operations.md)、[协议](docs/zh-CN/protocol.md)、[与 SDK 和客户端的兼容](docs/zh-CN/compatibility.md)、[结构化输出](docs/zh-CN/structured-output.md)、[图片输入](docs/zh-CN/images.md)、[事件回调](docs/zh-CN/webhooks.md)、[双层 Harness](docs/zh-CN/harness.md)、[OAA-Lang](docs/zh-CN/language.md)、[接入外部智能体](docs/zh-CN/adapters.md)、[控制台](docs/zh-CN/console.md)、[Windows](docs/zh-CN/windows.md)、[公网部署](docs/zh-CN/deploy-public.md)、[安全模型](docs/zh-CN/security-model.md)、[开发者平台](docs/zh-CN/platform.md)、[架构](docs/zh-CN/architecture.md)、[验证证据](docs/zh-CN/evidence.md)、[工程规范](docs/zh-CN/engineering.md)、[变更记录](CHANGELOG.zh-CN.md)、[路线图](ROADMAP.zh-CN.md)。
+按「我想……」组织的完整索引在 [docs/zh-CN/README.md](docs/zh-CN/README.md)。常用入口：[安装](docs/zh-CN/install.md)、[命令行](docs/zh-CN/cli.md)、[操作手册](docs/zh-CN/operations.md)、[协议](docs/zh-CN/protocol.md)、[与 SDK 和客户端的兼容](docs/zh-CN/compatibility.md)、[结构化输出](docs/zh-CN/structured-output.md)、[图片输入](docs/zh-CN/images.md)、[事件回调](docs/zh-CN/webhooks.md)、[模型提供方](docs/zh-CN/models.md)、[流式里的运行过程](docs/zh-CN/progress.md)、[稳定性与数据保留](docs/zh-CN/stability.md)、[双层 Harness](docs/zh-CN/harness.md)、[OAA-Lang](docs/zh-CN/language.md)、[接入外部智能体](docs/zh-CN/adapters.md)、[控制台](docs/zh-CN/console.md)、[Windows](docs/zh-CN/windows.md)、[公网部署](docs/zh-CN/deploy-public.md)、[安全模型](docs/zh-CN/security-model.md)、[开发者平台](docs/zh-CN/platform.md)、[架构](docs/zh-CN/architecture.md)、[验证证据](docs/zh-CN/evidence.md)、[工程规范](docs/zh-CN/engineering.md)、[变更记录](CHANGELOG.zh-CN.md)、[路线图](ROADMAP.zh-CN.md)。可复制运行的调用示例（curl、Python、Node）在[示例集](examples/cookbook/README.zh-CN.md)里。`node tools/docs-site/build.mjs` 会把全部文档（中英文，带搜索）生成为静态站点，由 Pages 工作流发布。
 
 ## 现状与边界
 
@@ -288,15 +294,16 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 
 **测试与 CI**
 
-- 项目用 `node:test` 写了 1,021 项测试，`npm run verify` 跑类型检查、排版检查与全量测试，`npm run test:offline` 只跑不监听端口的那部分。
+- 项目用 `node:test` 写了 1,101 项测试，`npm run verify` 跑类型检查、排版检查与全量测试，`npm run test:offline` 只跑不监听端口的那部分。
 - CI 在 Ubuntu 与 macOS 上用 Node 24 与 Node 26 跑全量测试，也在 Windows 上跑（Node 24；只在 POSIX 上有意义的测试带明确原因跳过）。它还会构建 Docker 镜像并对容器做烟雾测试，并运行兼容性实验室。
 - 测试用本地确定性模型、本地协议服务器和替身智能体。它们**不能**证明真实提供方、真实智能体的兼容性、真实的跨机器性能或账号访问。流式、公平性与配对基准都是本地测量，条件与限定见[操作手册](docs/zh-CN/operations.md)与 [docs/zh-CN/architecture.md](docs/zh-CN/architecture.md)。
 - 兼容性实验室让官方 SDK 与几个框架对着一个智能体是示例或夹具的网关运行，并回放聊天客户端记录下来的请求。回放只说明客户端的请求被接受、并以它能解析的形式回答，不说明整个应用可用。Cursor 未核实。见 [docs/zh-CN/compatibility.md](docs/zh-CN/compatibility.md)。
+- 压测（`npm run soak`，macOS 与 Linux）让一个真实的网关进程在混合负载下跑过 32 分钟（带三次重启）和 62 分钟单段，并检查了从 0.0.64 的升级（`npm run upgrade-check`）。两者用的都是假模型和离线示例智能体。数字、压测带来的修复、崩溃恢复的语义和已知限制见 [docs/zh-CN/stability.md](docs/zh-CN/stability.md)。
 
 **真实智能体验证**
 
 - 经过真实验证的只有 Antigravity：一次端到端验证（2026-11-13）共 12 次真实调用，通过了 OpenAI Chat 非流式与流式、Responses 续接、Claude Messages、Gemini `generateContent`、取消与并发。这只验证了那一条本地线路和那一个引擎；审批与调用方工具桥接在 Antigravity 下不支持。验证脚本是 [examples/live-agents-acceptance.ts](examples/live-agents-acceptance.ts)，`oaa verify` 在你的机器上运行同一批场景。
-- Codex、Claude Code、内置智能体搭配真实模型提供方、公网部署，**尚未**做过这样的端到端验证。向 Codex 与 Claude Code 交付图片是按厂商文档实现的，没有对真实智能体运行过。[docs/zh-CN/evidence.md](docs/zh-CN/evidence.md) 记录了更早的一次手工联调：它的结论是 Codex 的一次托管调用通过，Claude Code 因命令行未登录而失败，之后代码有过改动，没有复测。如果你装了 Codex 或 Claude Code，运行 `oaa verify` 并用[智能体验证报告](https://github.com/jiangxingfan1-coder/Open-Agent-API/issues/new/choose)模板把报告发给我们，是最有用的帮助。
+- Codex、Claude Code、内置智能体搭配真实模型提供方（包括 `oaa connect` 的预设）、公网部署，**尚未**做过这样的端到端验证。向 Codex 与 Claude Code 交付图片是按厂商文档实现的，没有对真实智能体运行过。[docs/zh-CN/evidence.md](docs/zh-CN/evidence.md) 记录了更早的一次手工联调：它的结论是 Codex 的一次托管调用通过，Claude Code 因命令行未登录而失败，之后代码有过改动，没有复测。如果你装了 Codex 或 Claude Code，运行 `oaa verify` 并用[智能体验证报告](https://github.com/jiangxingfan1-coder/Open-Agent-API/issues/new/choose)模板把报告发给我们，是最有用的帮助。
 
 **安装与平台**
 
@@ -317,6 +324,8 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 - 要求的 JSON schema 由网关自己强制保证，没有交给模型提供方自己的结构化输出功能；强制工具选择（`tool_choice` 为 required）不支持；不支持音频输入。
 - 外部智能体可能不报告 token 用量，此时只有按次价格生效；报告的 token 数不是费用估算，token 上限也不作为可强制执行的花费上限。
 - 事件回调只对本机的接收端测过，没有对公网 HTTPS 端点测过。
+- 数据保留到你删除为止：默认的 `retention` 什么都不删，所以数据库会随使用增长。`oaa prune`，或用 `retention.runsDays` 设一个定时器，会清理早于某个时间点的已结束运行；`oaa doctor` 会报告数据库大小（[docs/zh-CN/stability.md](docs/zh-CN/stability.md#4-数据保留与-oaa-prune)）。
+- 文档站点已经构建、链接也检查过，但还没有在真实的 GitHub Pages 上看过。
 - 网关不防护什么（例如注册没有邮箱验证、登录失败计数只在内存里）见 [docs/zh-CN/security-model.md](docs/zh-CN/security-model.md)。
 - 不扫描用户主目录寻找密钥，不训练基础模型，不实现订阅池或隐藏的认证中转。
 
