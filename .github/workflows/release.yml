@@ -112,7 +112,7 @@ jobs:
         if: matrix.platform == 'win'
         run: |
           npm run build
-          node --test --test-concurrency=1 dist/test/release-plan.test.js dist/test/claude-sdk.test.js
+          node --import ./dist/test/setup-locale.js --test --test-concurrency=1 dist/test/release-plan.test.js dist/test/claude-sdk.test.js
 
       - name: 下载官方 Node 并用 SHASUMS256.txt 校验
         run: |
