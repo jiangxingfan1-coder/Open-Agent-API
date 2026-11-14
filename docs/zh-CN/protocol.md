@@ -237,6 +237,10 @@ Chat 的 `stream_options.include_usage=true` 要求 `stream=true`：普通数据
 
 **重试**：运行已经创建、但没有正常结束（失败、取消、中断、待审批）时，非流式 Chat / Claude / Gemini 返回 **422**（不再是官方 SDK 默认会自动重试的 409）并带 `x-should-retry: false`；Responses 照旧返回 200 的 response 对象（`status: "failed"` 等）。错误码目录里不可重试、而状态码会让 SDK 重试（408、409、429、5xx）的错误同样带 `x-should-retry: false`（例如配额耗尽）。可重试的 429 / 503 带 `Retry-After`：每分钟限流（`rate_limited`）给当前 60 秒窗口真实的剩余秒数（1–60），其余容量类上限（含 `too_many_streams`、`catalog_capacity`、`key_concurrency_limit`）给 10 秒。
 
+**每个入口都认 `Idempotency-Key`**：`/v1/chat/completions`、`/v1/responses`、`/v1/messages`、Gemini 的 `generateContent` / `streamGenerateContent` 以及 `/v1/compat/*` 都遵守请求头 `Idempotency-Key`（1 到 200 个字符，否则 400 `invalid_idempotency_key`），与 `POST /v1/invoke` 相同。同一个键、同样的输入再发一次，会接到已经存在的那个运行上（`X-Run-ID` 相同，不会再起第二个运行；流式请求同样接上）；同一个键配不同的输入返回 409 `idempotency_conflict`（Chat 在 `error.code`，Claude 是 `error.type: "conflict_error"` 加 `error.code`，Gemini 是 `status: "ABORTED"`）。每个逻辑任务用一个键，每次重试都带同一个键：这样结果不明的请求（超时、连接中断）才可以放心重发，因为客户端断开不会取消运行。桥接工具轮次里带着工具结果的续接请求是按工具调用 ID 找到运行的，不看这个键。
+
+**取消**：`POST /v1/responses/{id}/cancel`（或 `oaa cancel`）之后的最终状态取决于智能体。内置（kernel）智能体以 `cancelled` 结束。外部智能体（ACP、Codex、Claude Code 等）如果还没开始执行，也是 `cancelled`；已经开始执行后才被取消的，记为 `interrupted`、错误码 `effect_outcome_unknown`，因为它已经产生的副作用无法排除。`GET /v1/runs/{id}` 显示 `interrupted`；Responses 入口把它显示为 `status: "incomplete"`、`incomplete_details.reason: "effect_outcome_unknown"` 与 `metadata["oaa.status"]: "interrupted"`；Chat、Claude、Gemini 与其他没有正常结束的运行一样返回 422。取消已经结束的运行，原样返回该运行。调用方应把 `cancelled` 与 `interrupted` / `effect_outcome_unknown` 都当作取消的正常结果，后一种要核对副作用（见[操作手册「查看与恢复请求」](operations.md#查看与恢复请求)）。
+
 **配额耗尽（429）与余额不足（402）为什么不同**：`run_quota_exceeded`、`token_quota_exceeded` 是 API 密钥上由 owner 设的限额，语义是「这把密钥用完了」，与 OpenAI 的 `insufficient_quota` 一样用 429；`insufficient_balance` 是平台账户需要付费充值，用 402。两者都不可重试：429 的配额耗尽带 `x-should-retry: false`、不带 `Retry-After`，402 本身不在官方 SDK 自动重试的状态码里，所以都不会被 SDK 自动重试。已发布错误码的 HTTP 状态不改。
 
 **结束原因**：
@@ -329,7 +333,7 @@ MCP 的 `oaa_list_agents` 使用有界摘要端点；`oaa_inspect_agent` 暴露�
 
 用 `auto` 时，智能体发来的权限请求仍然先受限制（超过 256 KiB 的详情照旧被拒绝）。之后它不进入 `requires_action`，也不等待：内核存下一条 `status: "approved"`、`kind: "native"`、`response: {"auto": true}` 的审批记录，发出 `approval.resolved`（`{approval_id, decision: "approve", actor: "policy:auto"}`），并答复智能体批准。运行保持 `in_progress`，不写 `run.requires_action`，所以每一种流看起来都像没有发生过权限请求。`approval.resolved` 的 `actor`，对 owner 的决定是批准的那把密钥的名字，对这些策略批准是 `policy:auto`。只有这样的智能体，`GET /v1/agents` 与概览里的智能体条目才带 `approvals: "auto"`；其他条目不变。发布或更新这样的智能体（经任何发布端点）会写一条审计记录，错误码为 `approval_policy_auto`，带 `agent_id`（`GET /v1/audit`）。
 
-执行等级与授权并没有放宽：外部智能体仍然需要 `host` 执行等级的调用方密钥，沙箱、BYOK 与节点授权检查都不变。**风险：**自动批准让调用方以 owner 自己在那台机器上的权限驱动智能体；命令或文件修改在执行之前没有人审阅。只对受信任的调用方使用，配一把只限定这个智能体的专用 API 密钥，并尽量使用沙箱执行等级。
+执行等级与授权并没有放宽：外部智能体仍然需要 `host` 执行等级的调用方密钥，沙箱、BYOK 与节点授权检查都不变。**风险**：自动批准让调用方以 owner 自己在那台机器上的权限驱动智能体；命令或文件修改在执行之前没有人审阅。只对受信任的调用方使用，配一把只限定这个智能体的专用 API 密钥，并尽量使用沙箱执行等级。
 
 一次审批决定与它的 `approval.resolved` 事件在同一个 SQLite 事务里提交；观察者只在提交之后才收到通知。对账过的步骤与它的 `step.reconciled` 事件同理。审计写入失败会回滚状态变化，也不授予执行。重复一次已经处理过的审批或对账，返回 409，而不是改变已记录的决定。丢失的 HTTP 响应不能证明失败：采取下一步动作之前，请先读取审批/步骤记录。
 

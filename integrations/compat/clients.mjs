@@ -14,4 +14,9 @@ export const CLIENTS = [
   { id: 'litellm-python', label: 'LiteLLM (Python)', group: 'framework', runtime: 'python', script: 'clients/litellm_py.py' },
   { id: 'openai-agents-python', label: 'OpenAI Agents SDK (Python)', group: 'framework', runtime: 'python', script: 'clients/agents_py.py' },
   { id: 'llamaindex-python', label: 'LlamaIndex (OpenAI-like)', group: 'framework', runtime: 'python', script: 'clients/llamaindex_py.py' },
+  // The runnable examples of examples/cookbook/, run as a user runs them (scenarios: cookbook.mjs). `runtime` is how this
+  // script itself runs; the examples inside use Python, Node or curl.
+  { id: 'cookbook-python', label: 'Cookbook examples, Python (examples/cookbook)', group: 'cookbook', runtime: 'node', script: 'clients/cookbook_python.mjs' },
+  { id: 'cookbook-node', label: 'Cookbook examples, Node (examples/cookbook)', group: 'cookbook', runtime: 'node', script: 'clients/cookbook_node.mjs' },
+  { id: 'cookbook-curl', label: 'Cookbook examples, curl (examples/cookbook)', group: 'cookbook', runtime: 'node', script: 'clients/cookbook_curl.mjs' },
 ];

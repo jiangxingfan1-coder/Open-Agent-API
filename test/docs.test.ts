@@ -3,6 +3,7 @@ import { existsSync, statSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { ERROR_CATALOG } from '../src/core/errors.js';
 
 // Documentation checks, offline and without listening on a port:
@@ -52,18 +53,20 @@ function prose(text: string): string {
   return kept.join('\n');
 }
 
-/** GitHub's heading anchor: lowercase, drop punctuation, spaces become hyphens. */
+/** GitHub's heading anchor (the rule itself is shared with the documentation site generator). */
+const { githubSlug } = (await import(
+  pathToFileURL(path.resolve('tools/docs-site/slug.mjs')).href
+)) as { githubSlug: (text: string) => string };
 function slug(heading: string): string {
-  return heading
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/<[^>]+>/g, '')
-    .replace(/`/g, '')
-    .replace(/\s+#+\s*$/, '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{M}\p{N}\p{Pc}\- ]/gu, '')
-    .replace(/ /g, '-');
+  return githubSlug(
+    heading
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\s+#+\s*$/, '')
+      .split('`')
+      .map((part, i) => (i % 2 === 0 ? part.replace(/<[^>]+>/g, '') : part))
+      .join(''),
+  );
 }
 
 const anchorCache = new Map<string, Set<string>>();

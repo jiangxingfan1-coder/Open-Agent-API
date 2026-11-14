@@ -1,0 +1,17 @@
+# Continue (VS Code / JetBrains): add this entry under `models:` in your config.yaml.
+# Source of every key: docs/compatibility.md, "Chat clients" (verified from the client's source,
+# integrations/compat/replays/continue.json). Replace the key placeholder; nothing here is a secret.
+models:
+  - name: Open Agent API sample # only a display label
+    provider: openai # the gateway speaks the OpenAI protocol
+    model: agent/sample # the agent name exactly as GET /v1/models lists it
+    apiBase: http://127.0.0.1:8787/v1 # WITH /v1; without it Continue calls /chat/completions and gets a 404
+    apiKey: <your OAA API key>
+    roles: [chat, edit, apply]
+    # Agent mode sends tools only to models that declare tool_use. With a built-in (kernel) agent or an ACP agent
+    # the tools are handed to the agent. An agent that cannot take them (a native engine such as Codex or Claude
+    # Code) answers 400 on this Base URL; use http://127.0.0.1:8787/v1/compat as apiBase for it (the agent then
+    # finishes the task with its own tools).
+    capabilities: [tool_use]
+    # Tab autocomplete uses POST /v1/completions, which the gateway does not serve: keep autocomplete on another
+    # model (the agent above is for chat, edit and apply).

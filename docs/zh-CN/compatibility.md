@@ -150,6 +150,8 @@ Gemini 的请求体可以写 camelCase 或 snake_case（`system_instruction`、`
 ## 值得知道的行为
 
 * **客户端断开不会取消运行。** SDK 会重试超时的请求（OpenAI SDK 默认 `max_retries=2`），每次重试都会再启动一个智能体运行；被放弃的运行继续执行并占用容量（`maxActiveRuns`，默认 8）。对智能体调用请设 `max_retries=0` 和较宽裕的超时，或用 `background: true` 加 `responses.retrieve`，并用 `POST /v1/responses/{id}/cancel` 取消。失败的运行 SDK 不会重试（网关回答 `422` 加 `x-should-retry: false`）；`/v1/responses` 像 Responses API 一样，把失败的运行报告为 HTTP 200 加 `status: "failed"`。
+* **用 `Idempotency-Key` 安全地重试。** 每个入口（Chat、Responses、Claude Messages、Gemini、`/v1/compat/*` 与 `POST /v1/invoke`）都遵守 `Idempotency-Key` 请求头：同一个键、同样的输入再发一次，会接到已经存在的那个运行上而不是再起一个（`X-Run-ID` 相同）；同一个键配不同输入是 `409 idempotency_conflict`。每个逻辑任务发一个键，每次重试都带同一个键（见 [protocol.md](protocol.md#兼容入口的参数错误与结束原因060)）；示例集的[错误与重试](../../examples/cookbook/07-errors-and-retries/)示例就是这样做的。
+* **取消之后留下什么。** 内置智能体以 `cancelled` 结束。外部智能体（ACP、Codex、Claude Code 等）开始执行后被取消，以 `interrupted`、`effect_outcome_unknown` 结束（Responses 入口显示 `status: "incomplete"`、`incomplete_details.reason: "effect_outcome_unknown"`；Chat、Claude、Gemini 返回 422），因为它的副作用无法排除；开始执行之前被取消的是 `cancelled`。两者都是正常结果，后一种要核对副作用。
 * **流**（Chat）以 `data: [DONE]` 结束；第一个分块带 `delta.role: "assistant"`；带 `include_usage` 时，`[DONE]` 之前的最后一个分块是 `choices: []` 加用量。不报告 token 用量的智能体（例如示例智能体这样的外部智能体）产生 `usage: null`。空闲的流每 15 秒发一次 `: heartbeat` 注释帧。
 * **Docker 与其它主机**：网关只回应 `allowedHosts` 里的 `Host` 名（默认 `127.0.0.1`、`localhost`、`[::1]`）。把网关当作 `host.docker.internal` 访问的容器，在这个名字被加进 `allowedHosts`、且网关监听在容器能到达的地址之前，会得到 `403 invalid_host`。这是有意的默认值；实验室不会去改它。浏览器直连的客户端需要把它们的来源加进 `allowedOrigins`；之后预检会回答浏览器要求的那些头。
 * **限定了某些智能体的密钥**调用其它智能体得到 `403`（SDK 里是 `PermissionDeniedError`）；超过 `rpm` 配额的密钥得到 `429`，带 `Retry-After`。

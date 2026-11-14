@@ -1,0 +1,14 @@
+# LibreChat: add this entry under `endpoints.custom` in librechat.yaml (custom endpoints exist only there).
+# Source of every key: docs/compatibility.md, "Chat clients" (from the client's source, partly inferred:
+# integrations/compat/replays/librechat.json). In Docker use http://host.docker.internal:8787/v1 and add that
+# host name to the gateway's `allowedHosts`.
+endpoints:
+  custom:
+    - name: Open Agent API
+      apiKey: user_provided # each user types their own key; or a literal / ${OAA_API_KEY}
+      baseURL: http://127.0.0.1:8787/v1 # WITH /v1: the client appends /chat/completions and /models
+      models:
+        default: ['agent/sample'] # the agent names exactly as GET /v1/models lists them
+        fetch: true # also list them from GET /v1/models
+      titleConvo: false # otherwise every new conversation runs the agent once more to write a title
+      dropParams: ['stop', 'user'] # only if you want these fields not to be sent (the gateway accepts and ignores them)
