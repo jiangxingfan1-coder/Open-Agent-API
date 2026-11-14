@@ -1,7 +1,7 @@
 /**
  * 错误目录：网关、执行节点与客户端会产生的全部稳定错误码（`error.code`）。
  *
- * - 含义以 docs/protocol.md「错误码（error.code）」一章为准；新增错误码时先在这里登记，再补文档表格。
+ * - 含义以 docs/protocol.md「Error codes (`error.code`)」一章为准（中文版在 docs/zh-CN/protocol.md）；新增错误码时先在这里登记，再补两份文档的表格。
  * - `status` 是该码最常用的 HTTP 状态；同一个码在不同场景用不同状态时，`statuses` 列出全部。
  *   `null` 表示它不作为 HTTP 响应出现（只是运行的错误码，或只在 worker / 客户端本地产生）。
  * - `retryable`：调用方原样重试有可能成功（限流、超时、容量、节点暂时不可用、网关关闭中）。
@@ -66,6 +66,7 @@ const ROWS: Row[] = [
   ['unauthorized', 401, 'request', _, '缺少或无效/已吊销的 API 密钥', '检查 Authorization 头里的 API 密钥'],
   ['key_expired', 401, 'request', _, 'API 密钥已过期', '向 owner 申请新的 API 密钥'],
   ['scope_denied', 403, 'request', _, '密钥缺少所需 scope，或无权访问该智能体/资源'],
+  ['quota_exceeds_own', 403, 'request', _, '新密钥的额度不能高于你自己密钥的额度', '为新密钥设置不高于自己的各项额度'],
   ['invalid_host', 403, 'request', _, 'Host 不在允许列表中'],
   ['origin_denied', 403, 'request', _, '跨源请求的 Origin 未被允许'],
   ['admin_host_denied', 403, 'request', _, '配置了控制台域名后，在非控制台域名上使用了 admin 密钥'],
@@ -78,18 +79,24 @@ const ROWS: Row[] = [
   ['key_concurrency_limit', 429, 'request', R, '达到该密钥的并发运行上限', '等待已有运行完成后重试'],
   ['run_quota_exceeded', 429, 'request', _, '该密钥的运行次数配额已用完', '请 owner 调高或重置该密钥的配额'],
   ['token_quota_exceeded', 429, 'request', _, '该密钥的 token 配额已用完', '请 owner 调高或重置该密钥的配额'],
+  ['storage_quota_exceeded', 413, 'request', _, '该调用方存储的文件已达上限', '请 owner 调高 maxStoredBytesPerSubject'],
   ['too_many_streams', 429, 'request', R, '该密钥（或 owner）同时打开的事件流已达上限', '关闭不用的事件流后重连'],
   ['invalid_request', [400, 404], 'request', _, '请求字段无效或缺失（Gemini 路径格式错误时为 404）'],
   ['client_tools_unsupported', 400, 'request', _, '请求带了调用方工具，但选择了拒绝模式（reject）', '去掉 tools，或改用 X-OAA-Client-Tools: managed'],
   ['client_tools_bridge_unsupported', 400, 'request', _, '请求了桥接模式（bridge），但这个智能体不支持，或没有执行机器声明支持桥接', '改用 X-OAA-Client-Tools: managed，让智能体用自己的工具完成；ACP 智能体可升级执行机器'],
   ['client_tool_conflict', 400, 'request', _, '调用方工具与已发布的工具、工作流、委托或另一个调用方工具重名', '给调用方工具换个名字'],
   ['client_tools_too_many', 400, 'request', _, '已发布工具加调用方工具超过 100 个', '减少本次请求声明的工具'],
+  ['output_schema_unsupported', 400, 'request', _, '请求的输出 schema 里有网关无法如实校验的内容（异步、文档外引用、未实现的 format、危险的正则、嵌套过深）', '改写 schema：只引用文档内部、用标准 format、正则写简单些'],
   ['invalid_client_tool', 400, 'request', _, '调用方工具的名字或参数 schema 不合法', '名字用字母、数字、_ 或 -（至多 64 个），参数用合法的 JSON Schema'],
   ['invalid_json', 400, 'request', _, '请求体不是合法 JSON，或声明了 JSON 却为空'],
   ['payload_too_large', 413, 'request', _, '请求体或数据超过大小上限'],
   ['unsupported_media_type', 415, 'request', _, '不支持的 Content-Type'],
   ['unsupported_parameter', 400, 'request', _, '严格端点不支持这个参数', '改用 /v1/compat/* 端点，或去掉这个参数'],
-  ['unsupported_content', 400, 'request', _, '内容块类型不被支持（例如内联的图片数据）', '先用 POST /v1/files 上传，再按文件 ID 引用'],
+  ['unsupported_content', 400, 'request', _, '内容块类型不被支持（例如音频），或这个智能体不接受图片', '看 error.param 指的内容段；不接受图片的智能体请去掉图片或换一个接受图片的智能体（GET /v1/models 的 image_input）'],
+  ['image_invalid', [400, 500], 'request', _, '图片无法使用：不是合法的 base64、不是 PNG / JPEG / GIF / WebP，或声明的类型与实际内容不符', '发送 PNG、JPEG、GIF 或 WebP，media_type 与实际格式一致；图片 URL 必须是 https'],
+  ['image_too_large', 413, 'request', _, '单张图片或这次请求的图片总量超过上限', '压缩或缩小图片；owner 可调 images.maxImageBytes / images.maxTotalBytes'],
+  ['too_many_images', 400, 'request', _, '这次请求的图片张数超过上限', '分几次发送；owner 可调 images.maxImagesPerRequest'],
+  ['image_fetch_failed', 400, 'request', _, '网关代取图片 URL 失败（重定向、非图片、超时、私网地址等）', '改用内联 base64，或先 POST /v1/files 上传再按文件 ID 引用'],
   ['protocol_undetected', 400, 'request', _, '通用入口无法判定请求属于哪种协议', '改用专用端点，或用 X-OAA-Protocol 头指明'],
   ['invalid_url', 400, 'request', _, 'URL 无法解析'],
   ['invalid_multipart', [400, 406], 'request', _, 'multipart 请求体畸形或不是 multipart'],
@@ -157,6 +164,7 @@ const ROWS: Row[] = [
   ['max_output_tokens', null, 'run', _, '模型输出被截断（运行错误码，状态 incomplete）'],
   ['context_limit', 409, 'run', _, '上下文超过 2 MB（2,000,000 字节），请新建会话', '新建会话'],
   ['output_contract', 422, 'run', _, '最终答案不符合声明的输出 schema'],
+  ['structured_output_invalid', 422, 'run', _, '请求要求了结构化输出，但智能体的答案（含修复轮）仍不是合乎要求的 JSON', '放宽 schema、在提示里说明结构，或调高 structuredOutput.maxRepairs'],
   ['output_too_large', [413, 502], 'run', _, '智能体输出超过上限'],
   ['files_too_large', 413, 'run', _, '输入文件总量超过 8 MiB'],
   ['workspace_too_large', 413, 'run', _, '工作区传输超过上限'],
@@ -241,6 +249,9 @@ const ROWS: Row[] = [
   ['model_not_configured', 503, 'provider', _, '未设置提供方 API 密钥环境变量', '在节点上设置提供方 API 密钥环境变量'],
   ['upstream_rate_limited', [429, 502], 'provider', R, '上游模型限流', '稍后重试'],
   ['upstream_failed', [429, 502], 'provider', _, '上游模型响应失败'],
+  ['upstream_auth_failed', 502, 'provider', _, '上游模型服务拒绝了提供方的 API 密钥（HTTP 401/403）', '检查 apiKeyEnv / apiKeyFile 指向的密钥、所属地域与权限'],
+  ['upstream_model_not_found', 502, 'provider', _, '上游模型服务不认识这个模型名或接口路径（HTTP 404）', '用 oaa models --check 查看可用模型，改正线路里的模型名或 baseUrl'],
+  ['upstream_incompatible', 502, 'provider', _, '兼容服务不接受请求里的某个字段（如 max_completion_tokens、stream_options、工具或图片）', '按错误信息改提供方的 maxTokensField / streamUsage / imageInput，或换模型'],
   ['upstream_incomplete', 502, 'provider', _, '上游以非正常原因结束'],
   ['upstream_truncated', 502, 'provider', _, '上游未给出终止响应就结束'],
   ['upstream_output_limit', 502, 'provider', _, '上游响应超过大小上限（累计 8 MiB 或单个 SSE 事件 2 MiB）'],
@@ -258,6 +269,7 @@ const ROWS: Row[] = [
   ['native_disabled', 503, 'engine', _, '该原生引擎未在 worker 上启用'],
   ['native_incomplete', 502, 'engine', _, '原生智能体或适配器未完整完成，或提前退出没有给出结果'],
   ['native_truncated', 502, 'engine', _, '原生智能体结束时没有结果'],
+  ['image_delivery_failed', 502, 'engine', _, '把图片交给外部智能体这一步失败（工作目录里找不到图片文件）', '重试；仍失败就去掉图片或改作附件发送'],
   ['native_closed', 502, 'engine', _, '原生智能体进程已关闭'],
   ['native_protocol_error', 502, 'engine', _, '原生/ACP 协议错误，或智能体拒绝了请求'],
   ['native_model_mismatch', 409, 'engine', _, '智能体未确认所选模型（未发送任务）'],
@@ -332,7 +344,12 @@ const ROWS: Row[] = [
   ['port_in_use', 409, 'client', _, 'quickstart 要用的端口已被其它程序或另一个网关占用', '用 oaa quickstart --port <端口> 换一个端口'],
   ['sample_agent_missing', 500, 'client', _, '找不到随附的离线示例智能体 examples/sample-agent.mjs', '重新安装，或在源码目录里运行'],
   ['agent_conflict', 409, 'client', _, '同名智能体已发布为另一个引擎，connect 不覆盖'],
+  ['provider_conflict', 409, 'client', _, '配置里已有同名但设置不同的模型提供方，connect 不覆盖', '用 --name 换一个提供方名，或手工修改配置'],
+  ['provider_unreachable', 503, 'client', _, '连不上模型提供方的端点（本地服务没在运行或端口不同）', '启动该服务，或用 --base-url 指定它的地址'],
+  ['key_file_insecure', 400, 'client', _, '密钥文件不是普通文件、为空、过大，或其他用户可以读取', 'chmod 600 该文件，内容只放一行密钥'],
   ['not_running', 404, 'client', _, '没有找到由 oaa serve --detach 启动、仍在运行的网关'],
+  ['approval_ambiguous', 400, 'client', _, '这个运行有多个待审批项，没有指定要处理哪一项', '用 --action 审批项编号指定一项，或用 --all 处理全部；oaa approvals 列出它们'],
+  ['approval_declined', 400, 'client', _, '你在确认时选择了不批准，没有批准任何项'],
   // platform
   ['registration_closed', 403, 'platform', _, '这个站点不开放自助注册', '联系站点运营者开通账号'],
   ['invite_required', 403, 'platform', _, '注册需要邀请码', '向站点运营者索取邀请码'],
@@ -345,15 +362,26 @@ const ROWS: Row[] = [
   ['insufficient_balance', 402, 'platform', _, '余额不足', '兑换点数后再提交'],
   ['key_limit_reached', 409, 'platform', _, '账号的密钥数量已到上限', '先吊销不用的密钥'],
   ['listing_not_found', 404, 'platform', _, '该智能体没有上架记录'],
+  ['usage_pricing_unsupported', 400, 'platform', _, '这个智能体不上报 token 用量，不能按用量定价', '改为按次定价（per_1k_tokens 设为 0）'],
   ['code_not_found', 404, 'platform', _, '兑换码不存在'],
   ['reference_conflict', 409, 'platform', _, '这个外部单号已经用于另一笔金额不同的入账', '换一个单号，或核对金额'],
   ['platform_managed_by_config', 409, 'platform', _, '配置文件里已有 platform 段，开发者平台由配置文件管理，控制台里不能修改', '改配置文件里的 platform 段后重启；或删掉该段，改在控制台里启用'],
+  // webhooks
+  ['webhook_not_found', 404, 'request', _, '没有这个编号的事件回调端点', '用 oaa webhook list 查看已有的端点编号'],
+  ['webhook_url_invalid', 400, 'request', _, '回调地址无效：只允许 http/https、不能带用户名密码；非本机回环地址必须用 https', '改用 https 地址；确实要用明文 http 时显式设置 allow_insecure_http'],
+  ['webhook_target_denied', 400, 'request', _, 'public 安全档位下，回调地址不能指向私网、本机回环、链路本地或云元数据地址', '换成公网地址；确实要回调内网时为该端点显式设置 allow_private_network'],
+  ['webhook_limit_reached', 409, 'request', _, '事件回调端点数已达上限（每个 owner 20 个）', '先删除不再使用的端点'],
+  ['webhook_delivery_not_found', 404, 'request', _, '这个端点下没有这个编号的投递记录'],
+  ['webhook_delivery_pending', 409, 'request', _, '这条投递还在队列里，不能重发', '等它投递成功或最终失败后再重发'],
 ];
 
 /** 第一轮模型调用失败时可以换一条线路重试的码。 */
 const ROUTE_RETRYABLE = new Set([
   'upstream_rate_limited',
   'upstream_failed',
+  'upstream_auth_failed',
+  'upstream_model_not_found',
+  'upstream_incompatible',
   'upstream_truncated',
   'node_disconnected',
   'work_timeout',

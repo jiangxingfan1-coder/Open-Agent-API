@@ -79,7 +79,7 @@ export function createRunInspector({ onChanged, onClosed, onSelected, onContinue
     refresh,
     onChanged,
   });
-  const { renderSteps, renderArtifacts } = createSections({
+  const { renderSteps, renderArtifacts, renderImages } = createSections({
     $,
     bytes,
     download,
@@ -218,11 +218,15 @@ export function createRunInspector({ onChanged, onClosed, onSelected, onContinue
       $('run-usage').textContent = data.usage
         ? `${t('insp.usage.tokens', { n: num(data.usage.total_tokens) })}${data.usage_complete ? '' : t('insp.usage.partial')}`
         : t('insp.usage.none');
+      if (data.output_contract)
+        $('run-usage').textContent +=
+          ` · ${t('insp.contract', { kind: data.output_contract.kind })}${data.output_contract.repairs ? t('insp.contract.repairs', { n: data.output_contract.repairs }) : ''}`;
       $('run-error').hidden = !data.error;
       $('run-error').replaceChildren(...(data.error ? [runErrorNode(data.error)] : []));
       $('output-count').textContent = t('insp.output_chars', { n: num(data.output.characters) });
       renderQueue(data);
       notes.render(data);
+      renderImages(v, data.images);
       if (!v.filterChosen && !v.steps && data.steps.uncertain) {
         v.stepFilter = 'uncertain';
         $('step-filter').value = 'uncertain';

@@ -15,10 +15,15 @@ const GROUPS: Group[] = [
     lines: [
       'oaa quickstart [--dir .oaa] [--port 8787]',
       'oaa connect codex|claude|agy|ACP_PRESET [--dir .oaa]',
+      'oaa connect MODEL_PRESET [--model M] [--key-env NAME | --key-file FILE] [--base-url URL] [--agent agent/assistant] [--name NAME] [--definition FILE.oaa] [--test]',
+      'oaa connect    (lists external agents and model presets)',
+      'oaa models [--dir .oaa] [--check] [--json]',
       'oaa init [--dir .oaa]',
       'oaa serve [--config .oaa/config.json] [--detach]',
       'oaa stop [--config .oaa/config.json]',
       'oaa doctor [--config .oaa/config.json] [--write]',
+      'oaa status [--dir .oaa] [--json]',
+      'oaa prune [--older-than 30d] [--dry-run] [--vacuum] [--config .oaa/config.json]',
     ],
   },
   {
@@ -53,8 +58,23 @@ const GROUPS: Group[] = [
       'oaa artifacts RESPONSE_ID [--offset 0] [--limit 10]',
       'oaa cancel RESPONSE_ID',
       'oaa resume RESPONSE_ID',
+      'oaa approvals [--watch] [--json] [--dir .oaa]',
+      'oaa approve RESPONSE_ID [--action ACTION_ID] [--all] [--yes] [--dir .oaa]',
+      'oaa deny RESPONSE_ID [--action ACTION_ID] [--all] [--reason TEXT] [--dir .oaa]',
+      'oaa webhook add URL [--event EVENT]... [--agent AGENT]... [--include-output] [--out SECRET_FILE] [--dir .oaa]',
+      'oaa webhook list|remove ID|test ID|deliveries ID [--json] [--dir .oaa]',
       'oaa upload SELECTED_FILE [--allowed-node NODE]',
       'oaa download FILE_ID --out NEW_FILE',
+    ],
+  },
+  {
+    title: [
+      '验证智能体（不带 --confirm-live-cost 只打印计划，不运行）',
+      'Verify an agent (without --confirm-live-cost it only prints the plan and runs nothing)',
+    ],
+    lines: [
+      'oaa verify AGENT [--model default] [--scenarios chat,approvals] [--out DIR] [--executable PATH] [--timeout-ms 300000] [--dir .oaa]',
+      'oaa verify AGENT ... --confirm-live-cost',
     ],
   },
   {

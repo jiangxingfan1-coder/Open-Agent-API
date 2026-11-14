@@ -113,15 +113,23 @@ test('quickstart: next steps name installed agents, otherwise built-in agent wit
     { localWorker: workerSchema.parse({ nodeId: 'local', dataDir: bin }) },
     p,
   ).join('\n');
-  assert.match(none, /OPENAI_API_KEY/);
-  assert.match(none, /examples\/research\.oaa/);
+  assert.match(none, /^    oaa connect ollama$/m);
+  assert.match(found, /connect deepseek --key-file/);
 });
 
 test('sample agent: offline ACP process does steps, a tool call and an approved write', async (t) => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'oaa-sample-'));
-  t.after(() => rm(cwd, { recursive: true, force: true }));
   const child = spawn(process.execPath, [path.resolve('examples/sample-agent.mjs')], { cwd });
-  t.after(() => child.kill());
+  // End the agent before removing its working directory: Windows cannot remove a directory that
+  // is a live process's cwd, and a failed hook would leave the child (and this file) running.
+  t.after(async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      const closed = new Promise((resolve) => child.once('close', resolve));
+      child.kill();
+      await closed;
+    }
+    await rm(cwd, { recursive: true, force: true });
+  });
   const messages: Record<string, unknown>[] = [];
   let buffer = '';
   const waiters: [(m: Record<string, unknown>) => boolean, (m: Record<string, unknown>) => void][] =
@@ -280,7 +288,7 @@ test('gateway: 401 says where keys come from; a restricted key gets the GET /v1/
 
 test('init summary and Claude SDK hint are actionable for installer users', () => {
   const s = initSummary('/d/.oaa/config.json', '.oaa', 'en');
-  assert.equal(s.admin_token_file, '/d/.oaa/admin.token');
+  assert.equal(s.admin_token_file, path.join('/d/.oaa', 'admin.token'));
   assert.match(s.next, /oaa quickstart/);
   const status = claudeSdkStatus({
     specifier: '@oaa-test/missing-sdk',

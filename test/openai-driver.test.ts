@@ -77,7 +77,8 @@ test('HTTP 错误、限流、连接失败和流里的错误都映射成稳定的
   for (const [status, code, http] of [
     [429, 'upstream_rate_limited', 429],
     [500, 'upstream_failed', 502],
-    [401, 'upstream_failed', 502],
+    [401, 'upstream_auth_failed', 502],
+    [404, 'upstream_model_not_found', 502],
   ] as const)
     await withServer(
       (_req, res) => {
@@ -95,7 +96,8 @@ test('HTTP 错误、限流、连接失败和流里的错误都映射成稳定的
           (e: Fault) =>
             e.code === code &&
             e.status === http &&
-            e.message === `Model provider returned HTTP ${status}.` &&
+            e.message.includes(`HTTP ${status}`) &&
+            e.message.includes(baseUrl) &&
             !e.message.includes('secret'),
         );
       },

@@ -150,3 +150,27 @@ test('architecture: the product version matches package.json and is defined once
     .map((s) => s.file);
   assert.deepEqual(stray, []);
 });
+
+test('architecture: desktop/ and scripts/ never hard-code the product version', async () => {
+  const pkg = JSON.parse(await readFile('package.json', 'utf8')) as { version: string };
+  // The version only counts as a hard-coded literal when it is not part of a longer number or
+  // dotted version (0.0.640, 10.0.64 and 0.0.64.1 are different strings).
+  const literal = new RegExp(`(?<![\\d.])${pkg.version.replace(/\./g, '\\.')}(?![\\d.]*\\d)`);
+  // A version printed after the product name is the same mistake even when it is stale
+  // ("Open Agent API 0.6.4" lived in the macOS About dialog after the renumbering to 0.0.64).
+  const named = /Open Agent API v?\d+\.\d+\.\d+/;
+  const problems: string[] = [];
+  let checked = 0;
+  for (const dir of ['desktop', 'scripts']) {
+    for (const entry of await readdir(dir, { recursive: true })) {
+      if (!/\.(swift|mjs|js|ts|sh|ps1|cmd|vbs|plist|json|yml|yaml)$/.test(entry)) continue;
+      const text = await readFile(path.join(dir, entry), 'utf8');
+      checked++;
+      const file = `${dir}/${entry.split(path.sep).join('/')}`;
+      if (literal.test(text)) problems.push(`${file}: contains ${pkg.version}`);
+      if (named.test(text)) problems.push(`${file}: prints a version after the product name`);
+    }
+  }
+  assert.ok(checked >= 10, `expected to scan desktop/ and scripts/, saw ${checked} files`);
+  assert.deepEqual(problems, []);
+});

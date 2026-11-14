@@ -1,4 +1,5 @@
 /** 外部智能体回合：把一整轮交给执行机器并落盘它的回复与产物。 */
+import { runSandboxed } from '../core/contracts.js';
 import type {
   AgentBundle,
   AgentDefinition,
@@ -9,6 +10,7 @@ import type {
 } from '../core/contracts.js';
 import { Fault, checkAbort, faultOf } from '../core/util.js';
 import { RunTextSink } from './text-sink.js';
+import { addUsage } from './run-state.js';
 import { storeNativeArtifacts } from './agent-events.js';
 import type { KernelRuntime } from './runtime.js';
 
@@ -34,8 +36,10 @@ export async function runNativeAgent(
     failure: () => Fault | undefined;
     /** 桥接调用把流式文本分成了多条输出消息：结束时不再整段补发 `text`。 */
     split?: () => boolean;
+    /** A correction prompt for the resumed session (structured output); the run's own input otherwise. */
+    input?: string;
   },
-): Promise<void> {
+): Promise<string> {
   const nativeKey = run.checkpoint.byok ? rt.byokKeys.get(run.id) : undefined;
   if (run.checkpoint.byok && nativeKey === undefined)
     throw new Fault(
@@ -44,7 +48,7 @@ export async function runNativeAgent(
       409,
     );
   const nativeStep: ExecutionStep = {
-    id: `native_${run.id}`,
+    id: nativeStepId(run),
     runId: run.id,
     callId: 'native',
     name: agent.engine,
@@ -60,12 +64,14 @@ export async function runNativeAgent(
       {
         kind: 'native',
         agent,
-        input: run.checkpoint.handoffBrief
-          ? `${run.checkpoint.handoffBrief}\n\n新要求：\n${run.input}`
-          : run.input,
+        input:
+          session.input ??
+          (run.checkpoint.handoffBrief
+            ? `${run.checkpoint.handoffBrief}\n\n新要求：\n${run.input}`
+            : run.input),
         nativeState: run.checkpoint.nativeState,
         context: await rt.context(run),
-        ...(run.checkpoint.execution === 'sandbox' ? { isolation: 'sandbox' as const } : {}),
+        ...(runSandboxed(run) ? { isolation: 'sandbox' as const } : {}),
         ...(nativeKey !== undefined ? { credential: { apiKey: nativeKey } } : {}),
         ...(run.checkpoint.bridge?.tools.length
           ? { clientTools: run.checkpoint.bridge.tools.map((t) => ({ ...t })) }
@@ -111,7 +117,9 @@ export async function runNativeAgent(
   const failure = session.failure();
   if (failure) throw failure;
   run.checkpoint.nativeState = { ...native.nativeState, nodeId: result.nodeId };
-  run.usage = native.usage;
+  // A correction round adds to the usage of the rounds before it.
+  if (session.input !== undefined) addUsage(run, native.usage);
+  else run.usage = native.usage;
   session.pending(false);
   if (!native.usage) run.metadata['oaa.usage_complete'] = 'false';
   // 产物全部校验并落盘之后，步骤完成、产物 ID 与检查点才在同一次提交里落盘。
@@ -125,4 +133,9 @@ export async function runNativeAgent(
   nativeStep.status = 'completed';
   rt.store.checkpointNativeStep(run, nativeStep, session.writer.finish('completed'), artifactIds);
   session.writer.close();
+  return native.text;
 }
+
+/** The step of the external agent's turn: the first round `native_<run>`, each correction round its own. */
+export const nativeStepId = (run: Run): string =>
+  `native_${run.id}${run.checkpoint.outputContract?.used ? `_r${run.checkpoint.outputContract.used}` : ''}`;

@@ -11,6 +11,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Anthropic from '@anthropic-ai/sdk';
 import { principal } from './helpers.js';
+
+const PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 import { gateway, runCount, user } from './anthropic-sdk-gateway.js';
 
 type Body = {
@@ -76,7 +79,8 @@ test('anthropic sdk: auth, permission, not-found and bad-request errors map to t
           {
             role: 'user',
             content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+              // A valid PNG: the fixture agent has no image-capable route, so it is refused.
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } },
             ],
           },
         ],
@@ -84,7 +88,7 @@ test('anthropic sdk: auth, permission, not-found and bad-request errors map to t
       (e: InstanceType<typeof Anthropic.APIError>) => {
         assert.ok(e instanceof Anthropic.BadRequestError, String(e));
         assert.equal(body(e).error.code, 'unsupported_content');
-        assert.match(body(e).error.message, /POST \/v1\/files/);
+        assert.match(body(e).error.message, /does not accept images/);
         return true;
       },
     );
@@ -295,14 +299,19 @@ test('anthropic sdk: streamed bridge turns assemble input_json_delta into object
   }
 });
 
-test('anthropic sdk: managed mode (no bridge header) ignores tools and says so', async () => {
+test('anthropic sdk: explicit managed mode ignores tools and says so; the default hands them to a kernel agent', async () => {
   const { s, client } = await gateway();
   try {
-    const { data, response } = await client()
+    const { data, response } = await client({ defaultHeaders: { 'x-oaa-client-tools': 'managed' } })
       .messages.create({ model: 'agent/test', max_tokens: 10, tools: [tool], messages: user('hi') })
       .withResponse();
     assert.equal(data.stop_reason, 'end_turn');
     assert.equal(response.headers.get('x-oaa-client-tools'), 'ignored');
+    // No mode chosen: the kernel agent can take the tools over, and the header says so.
+    const auto = await client()
+      .messages.create({ model: 'agent/test', max_tokens: 10, tools: [tool], messages: user('hi') })
+      .withResponse();
+    assert.equal(auto.response.headers.get('x-oaa-client-tools'), 'bridge');
   } finally {
     await s.cleanup();
   }

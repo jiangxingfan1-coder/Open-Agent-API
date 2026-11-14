@@ -1,68 +1,85 @@
-# 参与贡献
+# Contributing
 
-感谢你愿意改进 Open Agent API。本文说明怎么搭环境、怎么验证改动、代码要守哪些约定，以及怎么提 issue 和 PR。更细的工程规则见 [docs/engineering.md](docs/engineering.md)，规则与仓库里的检查不一致时，以检查为准。
+English · [简体中文](CONTRIBUTING.zh-CN.md)
 
-参与本项目即表示你同意遵守[行为准则](CODE_OF_CONDUCT.md)。安全漏洞请不要公开提 issue，按 [SECURITY.md](SECURITY.md) 私下报告。
+Thank you for helping improve Open Agent API. This guide explains how to set up the environment, how to verify a change, which conventions the code follows, and how to file issues and pull requests. More detailed engineering rules are in [docs/engineering.md](docs/engineering.md); when a rule and a check in the repository disagree, the check wins.
 
-## 许可证
+By taking part in this project you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Please do not file security vulnerabilities as public issues; report them privately as described in [SECURITY.md](SECURITY.md).
 
-本项目使用 [Apache License 2.0](LICENSE)。按该许可证第 5 条，你有意提交到本项目的贡献，除非你明确另行声明，否则按同一许可证授权。请不要提交你无权以该许可证授权的代码、图标或文档；引入第三方素材时，请同时更新 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 并附上许可证原文（放在 `licenses/`）。
+## Language
 
-## 环境要求
+The project serves readers in English and in Chinese, so the repository is bilingual. The conventions are:
 
-- Node.js 24.18 及以上的 24.x（`package.json` 的 `engines` 为 `>=24.18.0 <25`，CI 用 24.18）。
-- 不需要 Docker、Redis 或全局安装的包。
+- **Code comments, test names, commit messages, issues and pull requests**: English is preferred; Chinese is also welcome, and nobody will turn a contribution away because of its language. A lot of existing code still has Chinese comments and test names; you do not need to translate code you are not changing, and new code should use English.
+- **Documentation**: English first. Each document `docs/X.md` has a Chinese counterpart `docs/zh-CN/X.md`, and the root files have `*.zh-CN.md` counterparts (`README.zh-CN.md`, `CONTRIBUTING.zh-CN.md`, `SECURITY.zh-CN.md`, `CODE_OF_CONDUCT.zh-CN.md`, `CHANGELOG.zh-CN.md`, `ROADMAP.zh-CN.md`). When you change one side, update the other in the same pull request. If you can only write one language, say so in the pull request description and a maintainer will help with the other.
+- **User-visible text must be bilingual (Chinese and English)**. In particular:
+  - console strings in `web/lib/messages-*-zh.js` and `web/lib/messages-*-en.js` (the developer portal uses `web/portal/messages-zh.js` and `web/portal/messages-en.js`); the two languages must have exactly the same keys;
+  - error text: `zh` / `next` in `src/core/errors.ts` and `en` / `nextEn` in `src/core/errors-en.ts`;
+  - command-line and gateway messages, written with `bi(zh, en)` from `src/core/locale.ts`;
+  - the showcase pages `site/index.html` (Chinese) and `site/en/index.html` (English).
+- Protocol fields, JSON field names, error codes, commands and file paths always stay in English.
+
+## License
+
+This project uses the [Apache License 2.0](LICENSE). Under section 5 of that license, a contribution you intentionally submit to this project is licensed under the same license unless you explicitly state otherwise. Do not submit code, icons or documentation that you have no right to license under it; when you bring in third-party material, also update [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and add the license text (in `licenses/`).
+
+## Requirements
+
+- Node.js 24.18 or newer on the 24 or 26 line (`engines` in `package.json` is `>=24.18.0 <27`; CI runs Node 24 and Node 26, the latest of each line).
+- No Docker, Redis or globally installed packages are needed.
 
 ```sh
 npm ci --omit=optional --ignore-scripts
 npm run build
 ```
 
-CI（`.github/workflows/ci.yml`）用的就是上面的安装参数，然后运行 `npm run verify`。
+CI (`.github/workflows/ci.yml`) uses exactly the install flags above and then runs `npm run verify`.
 
-## 构建与测试
+## Build and test
 
-| 命令 | 作用 |
+| Command | What it does |
 | --- | --- |
-| `npm run check` | 只做类型检查 |
-| `npm run format` / `npm run format:check` | 用 Prettier 排版 / 只检查排版（单引号、行宽 100、尾随逗号） |
-| `npm run test:offline` | 先 build，再运行**不监听端口**的测试 |
-| `npm test` | 先 build，再运行全部测试 |
-| `npm run verify` | `check` + `format:check` + `test`，提交 PR 前请跑通 |
+| `npm run check` | Type check only |
+| `npm run format` / `npm run format:check` | Format with Prettier / only check formatting (single quotes, line width 100, trailing commas) |
+| `npm run test:offline` | Build first, then run the tests that **do not listen on a port** |
+| `npm test` | Build first, then run all tests |
+| `npm run verify` | `check` + `format:check` + `test`; make sure it passes before you open a pull request |
 
-测试用 Node 自带的 `node:test`，源码在 `test/*.test.ts`。其中一部分测试（文件里含 `.listen(`、`WebSocketServer(` 或 `createServer(` 的，目前 17 个）会在 `127.0.0.1` 的随机端口上临时监听，用本地替身代替真实模型，不访问外网；其余测试不监听任何端口，可以用 `npm run test:offline` 单独跑。改动过程中可以频繁跑 `npm run check` 与 `npm run test:offline`，提交前再跑完整的 `npm run verify`。测试里用到的外部智能体、模型提供方都是本地夹具，不需要真实账号或密钥。
+Tests use Node's built-in `node:test`, with sources in `test/*.test.ts`. Some of them (the files containing `.listen(`, `WebSocketServer(` or `createServer(`; 17 at the moment) briefly listen on a random port on `127.0.0.1` and use local stand-ins instead of real models, without reaching the outside network; the rest listen on no port and can be run on their own with `npm run test:offline`. While you work, run `npm run check` and `npm run test:offline` often, and run the full `npm run verify` before you commit. The external agents and model providers used in the tests are all local fixtures, so no real account or key is needed.
 
-## 代码约定
+## Code conventions
 
-下面每一条都能在仓库里找到依据（`docs/engineering.md` 或 `test/architecture.test.ts`）。
+Each point below has a basis in the repository (`docs/engineering.md` or `test/architecture.test.ts`).
 
-- **分层与引用方向**：`src/` 下除 `src/cli.ts` 外，每个文件都放在一个分层目录里（`core`、`config`、`lang`、`store`、`providers`、`engines`、`fabric`、`kernel`、`gateway`、`client`），只能引用同目录或更低层的目录，不能形成循环引用（`import type` 也算）。新增文件前先想清楚它属于哪一层。
-- **文件行数**：每个文件默认不超过 600 行；少数超过的文件登记在 `test/architecture.test.ts` 的 `LINE_BUDGETS`，上限只许调低，不许调高或新增登记，文件太长先拆分。
-- **不许用 `any`**：`as any` 与 `: any` 的数量上限为 0。外部输入先用 `unknown` 接住，再用 zod 校验或 `typeof` 收窄。
-- **错误码走错误目录**：新增错误码要在 `src/core/errors.ts` 的 `ROWS` 里登记，用 `new Fault(code, message, status)` 抛出，并在 `docs/protocol.md` 的错误码表里补一行；`test/error-catalog.test.ts` 会核对。已发布的错误码、事件字段是稳定接口，不要改名或复用旧码表达新含义。运行事件同理，见 `docs/engineering.md` 第 4 节。
-- **TypeScript 与命名**：ES 模块，相对引用写 `.js` 后缀；文件名小写短横线；类型与类 PascalCase，函数与变量 camelCase，模块级常量 UPPER_SNAKE_CASE；协议字段与错误码保持英文，错误码用 snake_case。
-- **文案**：面向用户的文案用简体中文；注释沿用所在文件已有的语言。
-- **依赖**：不随意新增运行时依赖；确需新增时单独提交并说明理由。
-- **兼容性红线**：既有请求在既有条件下的线上输出一个字节都不能变，也不改 SQLite 结构、节点线协议已有字段、已发布的错误码与事件（见 `docs/engineering.md` 第 7 节）。
-- **署名**：`src/config/agent-presets.ts` 文件头与 `THIRD_PARTY_NOTICES.md` 里的 Apache-2.0 署名必须保留。
-- **测试**：功能改动先写会失败的测试，再实现；纯重构不改测试断言，只允许改 import 路径。
+- **Layers and import direction**: every file under `src/` except `src/cli.ts` sits in a layer directory (`core`, `config`, `lang`, `store`, `providers`, `engines`, `fabric`, `kernel`, `gateway`, `client`) and may import only from the same directory or a lower layer, with no import cycles (`import type` counts too). Think about which layer a new file belongs to before adding it.
+- **File length**: each file is at most 600 lines by default; the few that exceed it are registered in `LINE_BUDGETS` in `test/architecture.test.ts`. Those limits may only be lowered, never raised or newly registered; split a file that has grown too long.
+- **No `any`**: the count of `as any` and `: any` is capped at 0. Take external input as `unknown` first, then validate with zod or narrow with `typeof`.
+- **Error codes go through the error catalog**: a new error code is registered in `ROWS` in `src/core/errors.ts` (with its English text in `src/core/errors-en.ts`), thrown with `new Fault(code, message, status)`, and added as a row to the error-code table in both `docs/protocol.md` and `docs/zh-CN/protocol.md`; `test/error-catalog.test.ts` checks this. Published error codes and event fields are stable interfaces: do not rename them or reuse an old code for a new meaning. The same goes for run events, see section 4 of `docs/engineering.md`.
+- **TypeScript and naming**: ES modules, with the `.js` suffix on relative imports; lowercase kebab-case file names; PascalCase for types and classes, camelCase for functions and variables, UPPER_SNAKE_CASE for module-level constants; protocol fields and error codes stay in English, and error codes use snake_case.
+- **Text**: user-visible text must be bilingual (see [Language](#language)); comments in English.
+- **Dependencies**: do not add runtime dependencies casually; when one is really needed, commit it separately and explain why.
+- **Compatibility red lines**: the wire output of an existing request under existing conditions must not change by a single byte, and neither may the SQLite schema, the existing fields of the node wire protocol, or published error codes and events (see section 7 of `docs/engineering.md`).
+- **Attribution**: the Apache-2.0 attribution in the header of `src/config/agent-presets.ts` and in `THIRD_PARTY_NOTICES.md` must be kept.
+- **Tests**: for a functional change, write the failing test first and then implement; a pure refactor does not change test assertions, only import paths may change.
 
-## 提交信息
+## Commit messages
 
-- 用中文，格式为 `范围：做了什么`，例如 `工程：新增离线测试入口 test:offline 与一键校验 verify`、`类型：消除 src 里全部 any`。常见范围：`工程`、`结构`、`类型`、`测试`、`排版`、`依赖`、`规划`、`OAA-Lang`。
-- 一个提交只做一件事；只 `git add` 自己改的文件，不用 `git add -A`。
-- 有用户可见的变化时，在 `CHANGELOG.md` 顶部的「未发布」小节里记一笔。
+- English is preferred; Chinese is also welcome. The format is `scope: what changed`, for example `engineering: add the offline test entry test:offline and one-step verify`, `types: remove every any in src`. Common scopes: `engineering`, `structure`, `types`, `tests`, `formatting`, `deps`, `planning`, `OAA-Lang`, `docs`. The Chinese form is `范围：做了什么`.
+- One commit does one thing; `git add` only the files you changed, and do not use `git add -A`.
+- For a user-visible change, add a line under `## Unreleased` at the top of `CHANGELOG.md` (and in `CHANGELOG.zh-CN.md`, under `## 未发布`).
 
-## 提 issue
+## Filing an issue
 
-- 缺陷：请使用 Bug 报告模板，写清楚版本（`package.json` 的 `version`）、Node 版本、操作系统、复现步骤、期望与实际结果。**不要贴密钥、令牌、`.oaa/admin.token` 的内容或未脱敏的日志。**
-- 功能建议：请使用功能建议模板，先讲你要解决的问题，再讲想要的做法。
-- 安全问题：不要提公开 issue，见 [SECURITY.md](SECURITY.md)。
+The issue and pull request templates are in English, and you are welcome to fill them in Chinese.
 
-## 提 Pull Request
+- Bugs: please use the bug report template and state the version (`version` in `package.json`), the Node version, the operating system, the steps to reproduce, and the expected and actual results. **Do not paste keys, tokens, the contents of `.oaa/admin.token`, or unredacted logs.**
+- Feature requests: please use the feature request template, and describe the problem you want to solve before the approach you want.
+- Security issues: do not file a public issue; see [SECURITY.md](SECURITY.md).
 
-1. 在 issue 里先说一下你想做的事，较大的改动尤其如此，避免白做。
-2. 从 `main` 切出分支，改动保持小而聚焦。
-3. 本地跑通 `npm run verify`；改了排版相关文件就先 `npm run format`。
-4. 按模板填写 PR 说明：改了什么、为什么、怎么验证、有没有兼容性影响。
-5. 维护者会在评审中提出意见；请在同一个 PR 里更新，不要另开新的。
+## Opening a pull request
+
+1. Say in an issue what you would like to do, especially for larger changes, so that no work is wasted.
+2. Branch from `main` and keep the change small and focused.
+3. Make `npm run verify` pass locally; run `npm run format` first if you touched files that are formatted.
+4. Fill in the pull request description following the template: what changed, why, how it was verified, and whether there is any compatibility impact.
+5. Maintainers will leave comments during review; please update the same pull request rather than opening a new one.

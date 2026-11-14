@@ -17,6 +17,11 @@ export type ListingRecord = {
   /** Micro-points per 1,000 tokens. */
   per1kTokens: number;
   enabled: boolean;
+  /**
+   * The owner's explicit choice to let account keys run this agent with `host` authority (it is
+   * an external agent or uses host tools). Absent in rows written before the switch: false.
+   */
+  hostExecution?: boolean;
   updatedAt: number;
 };
 export type ListingPatch = {
@@ -26,6 +31,7 @@ export type ListingPatch = {
   perRun?: number;
   per1kTokens?: number;
   enabled?: boolean;
+  hostExecution?: boolean;
 };
 
 /** Largest price (micro-points): 1,000 points, so per-token charges stay exact integers. */
@@ -45,6 +51,7 @@ function price(value: number, field: string): number {
 
 export class PlatformListings {
   private enabled: string[] = [];
+  private host: string[] = [];
   constructor(
     private readonly db: DatabaseSync,
     private readonly owner: string,
@@ -53,13 +60,17 @@ export class PlatformListings {
     this.refresh();
   }
   private refresh(): void {
-    this.enabled = this.list()
-      .filter((l) => l.enabled)
-      .map((l) => l.agentId);
+    const enabled = this.list().filter((l) => l.enabled);
+    this.enabled = enabled.map((l) => l.agentId);
+    this.host = enabled.filter((l) => l.hostExecution === true).map((l) => l.agentId);
   }
   /** IDs of enabled listings (snapshot; a fresh array each call). */
   enabledIds(): string[] {
     return [...this.enabled];
+  }
+  /** IDs of enabled listings opted into host execution (snapshot; a fresh array each call). */
+  hostIds(): string[] {
+    return [...this.host];
   }
   list(): ListingRecord[] {
     return prepared(
@@ -90,6 +101,7 @@ export class PlatformListings {
       perRun: price(patch.perRun ?? prior?.perRun ?? 0, 'price.per_run'),
       per1kTokens: price(patch.per1kTokens ?? prior?.per1kTokens ?? 0, 'price.per_1k_tokens'),
       enabled: patch.enabled ?? prior?.enabled ?? true,
+      hostExecution: patch.hostExecution ?? prior?.hostExecution ?? false,
       updatedAt: Date.now(),
     };
     prepared(

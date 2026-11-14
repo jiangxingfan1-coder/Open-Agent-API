@@ -1,0 +1,37 @@
+# Open Agent API in Docker.   docker compose up --build        (from a checkout of this repository)
+#                              docker compose up -d             (once the release image is published)
+# The gateway listens on 0.0.0.0 inside the container, but the port is published on the host's loopback
+# address only: it is not reachable from other machines. To expose it, put a TLS reverse proxy in front
+# (docs/deploy-public.md) instead of changing the mapping to 0.0.0.0.
+#
+# First start: the data volume is initialized, the offline sample agent agent/sample is published and a
+# caller key file is written; the log prints the key file locations (never the keys). Read a key with
+#   docker compose exec oaa cat /data/.oaa/keys/quickstart.key
+# Container limits (details in docs/install.md): there is no Codex / Claude Code CLI inside the image.
+# Use built-in agents with your own model key, ACP / A2A remote agents, or execution nodes that connect in.
+name: open-agent-api
+
+services:
+  oaa:
+    image: ${OAA_IMAGE:-ghcr.io/jiangxingfan1-coder/open-agent-api:latest}
+    build: .
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - oaa-data:/data
+    environment:
+      OAA_LOCALE: "zh" # message language of the gateway: zh or en
+      # Keys for built-in agents: uncomment and fill in locally (placeholder below); never commit a real key.
+      # OPENAI_API_KEY: "sk-replace-with-your-key"
+      # Behind a reverse proxy: the public URL and the extra Host values the gateway should accept.
+      # OAA_PUBLIC_BASE_URL: "https://api.example.com"
+      # OAA_ALLOWED_HOSTS: "api.example.com"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  oaa-data:

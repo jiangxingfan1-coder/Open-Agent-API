@@ -179,6 +179,7 @@ test('gemini bridge: streaming gives the calls as whole parts in one chunk, then
       assert.ok(!all.some((c) => 'error' in c), first.body);
       const streamedText = all
         .slice(0, -1)
+        .filter((c) => !(partsOf(c as never)[0] as { thought?: boolean } | undefined)?.thought)
         .map((c) => partsOf(c as never)[0]?.text ?? '')
         .join('');
       assert.equal(streamedText, text);
@@ -193,7 +194,13 @@ test('gemini bridge: streaming gives the calls as whole parts in one chunk, then
         (next.at(-1) as { candidates: { finishReason: string }[] }).candidates[0]!.finishReason,
         'STOP',
       );
-      assert.equal(next.map((c) => partsOf(c as never)[0]?.text ?? '').join(''), 'R:ok');
+      assert.equal(
+        next
+          .filter((c) => !(partsOf(c as never)[0] as { thought?: boolean } | undefined)?.thought)
+          .map((c) => partsOf(c as never)[0]?.text ?? '')
+          .join(''),
+        'R:ok',
+      );
     } finally {
       await s.cleanup();
     }
@@ -280,10 +287,14 @@ test('gemini bridge: built-in tools are refused; bad declarations are invalid; t
   }
 });
 
-test('gemini: managed mode is unchanged by bridging; inlineData stays unsupported', async () => {
+test('gemini: managed mode is unchanged by bridging; an image for a text-only agent is refused', async () => {
   const s = await bridgeSetup(new FixtureModel(() => ({ text: 'Done.' })));
   try {
-    const managed = await gemini(s, { contents: [USER] }, { headers: {} });
+    const managed = await gemini(
+      s,
+      { contents: [USER] },
+      { headers: { 'x-oaa-client-tools': 'managed' } },
+    );
     assert.equal(managed.statusCode, 200, managed.body);
     assert.equal(managed.headers['x-oaa-client-tools'], 'ignored');
     assert.ok(partsOf(managed.json()).every((p) => !p.functionCall));
@@ -297,7 +308,17 @@ test('gemini: managed mode is unchanged by bridging; inlineData stays unsupporte
     assert.equal(builtinManaged.statusCode, 200, 'managed still ignores built-in tools');
     const inline = await gemini(s, {
       contents: [
-        { role: 'user', parts: [{ inlineData: { mimeType: 'image/png', data: 'AA==' } }] },
+        {
+          role: 'user',
+          parts: [
+            {
+              inlineData: {
+                mimeType: 'image/png',
+                data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+              },
+            },
+          ],
+        },
       ],
     });
     assert.equal(inline.statusCode, 400);

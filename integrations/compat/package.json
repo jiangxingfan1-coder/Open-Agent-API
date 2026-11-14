@@ -1,0 +1,18 @@
+{
+  "name": "open-agent-api-compat-lab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Third-party clients used by the compatibility lab. Not a dependency of the gateway itself.",
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.105",
+    "@ai-sdk/google": "4.0.121",
+    "@ai-sdk/openai": "4.0.118",
+    "@ai-sdk/openai-compatible": "3.0.92",
+    "@anthropic-ai/sdk": "1.8.0",
+    "@google/genai": "3.3.0",
+    "ai": "7.0.173",
+    "openai": "7.57.0",
+    "zod": "4.6.7"
+  }
+}

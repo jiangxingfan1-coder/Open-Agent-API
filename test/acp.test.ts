@@ -333,7 +333,8 @@ test('an ACP agent that ignores cancel and SIGTERM is still terminated', async (
     assert.ok(Date.now() - started < 10_000);
     const log = await fixtureLog(dir);
     const pid = Number(log.find((l) => l.startsWith('started:stubborn:'))!.split(':')[2]);
-    assert.ok(log.includes('sigterm-ignored'));
+    // Windows has no catchable SIGTERM: the tree is ended with taskkill /F directly.
+    if (process.platform !== 'win32') assert.ok(log.includes('sigterm-ignored'));
     await waitFor(() => {
       try {
         process.kill(pid, 0);

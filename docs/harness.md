@@ -1,52 +1,64 @@
-# 双层 Harness：调用方自己也是智能体时
+# Two-layer harness: when the caller is itself an agent
 
-## 问题是什么
+English · [简体中文](zh-CN/harness.md)
 
-传统的调用是「应用 → 模型」。OAA 是「应用 → 智能体 → 模型」。而调用方往往自己也是一个智能体（Cursor、Cline、Codex CLI、Claude Code、各种 Agent SDK）：它有自己的循环、自己的系统提示、自己的工具，把 OAA 当成一个「模型」来调。于是一次调用里有两层 Harness（工具循环）：
+## What the problem is
+
+A traditional call is "app → model". OAA is "app → agent → model". And the caller is often an agent itself (Cursor, Cline, Codex CLI, Claude Code, assorted agent SDKs): it has its own loop, its own system prompt, and its own tools, and it calls OAA as if it were a "model". So one call involves two harnesses (tool loops):
 
 ```text
-外层 Harness（调用方智能体：自己的工具、自己的循环）
-      │  OpenAI / Claude / Gemini 协议 —— 它以为对面是模型，请求里带着 tools
+Outer harness (the caller agent: its own tools, its own loop)
+      │  OpenAI / Claude / Gemini protocol — it thinks a model is on the other side, and the request carries tools
       ▼
-OAA 内核（准入、身份、持久化、审批、事件）
+OAA kernel (admission, identity, persistence, approval, events)
       │
       ▼
-内层 Harness（被发布的智能体：内核循环，或 Codex / Claude Code / ACP 智能体自己的循环）
+Inner harness (the published agent: the kernel loop, or the loop of a Codex / Claude Code / ACP agent)
       │
       ▼
-    模型
+    model
 ```
 
-两层各有一套工具。如果只是把外层的 `tools` 悄悄丢掉，外层系统提示里「必须调用 edit_file」之类的话会原样交给内层智能体，而内层并没有这个工具，容易在正文里编造工具调用。所以 OAA 让调用方明确选择外层工具怎么处理。
+Each layer has its own set of tools. If the outer `tools` were silently dropped, lines in the outer system prompt such as "you must call edit_file" would reach the inner agent unchanged, and the inner agent has no such tool, so it tends to invent a tool call in its text. That is why OAA lets the caller choose explicitly what happens to the outer tools.
 
-## 三种模式
+## The modes
 
-| 模式 | 含义 | 谁执行工具 | 适用场景 |
+| Mode | Meaning | Who runs the tools | When to use |
 | --- | --- | --- | --- |
-| `managed` 托管（默认） | 内层智能体全权完成任务。外层传入的工具不执行，并明确告知：响应头 `X-OAA-Client-Tools: ignored`；同时在交给智能体的输入末尾加一段固定说明（外部工具在这里不可用，请用自己的工具完成并直接给出结果，不要在正文里写工具调用） | 内层智能体 | 把 OAA 智能体当作「会自己干活的模型」接进现有工具 |
-| `bridge` 桥接 | 外层的工具投射给内层智能体；内层调用时运行停车，以标准 `tool_calls` 返回给调用方，调用方执行后回传结果，同一个运行接着做 | 调用方（由内层发起） | 工具必须在调用方本机执行（例如编辑调用方工作区里的文件） |
-| `reject` 拒绝 | 只要传了工具就报错 `client_tools_unsupported`，不降级 | — | 需要严格语义、不接受工具被忽略的调用方 |
+| `auto` (default) | The gateway decides when the agent is known: when the agent can take the caller's tools over it behaves as `bridge`, otherwise it does what the entry did before (see "What auto does") | As in the mode it picks | Almost always: callers do not have to know which kind of agent is behind the name |
+| `managed` | The inner agent completes the task on its own. The tools passed by the outer layer are not run, and this is stated explicitly: the response header `X-OAA-Client-Tools: ignored`; in addition, a fixed note is appended to the input given to the agent (external tools are not available here; complete the task with your own tools and give the result directly, and do not write tool calls in the text) | The inner agent | Wiring an OAA agent into an existing tool as "a model that does the work by itself", or keeping the behaviour of versions before `auto` |
+| `bridge` | The outer tools are projected to the inner agent; when the inner agent calls one, the run parks and returns it to the caller as standard `tool_calls`; the caller runs it and sends the result back, and the same run carries on | The caller (initiated by the inner agent) | The tool must run on the caller's machine (for example editing files in the caller's workspace) |
+| `reject` | Any request that passes tools fails with `client_tools_unsupported`, with no fallback | — | Callers that need strict semantics and do not accept tools being ignored |
 
-> **桥接已对内置内核智能体提供，支持 Chat Completions、Responses、Claude Messages 与 Gemini `generateContent`。** 不支持桥接的外部智能体请求 `bridge` 会得到 `client_tools_bridge_unsupported`（400），UAP/1 不接受 `tools` 字段；这些情况下任何运行都不会创建。
+> **Bridge is available for built-in kernel agents and ACP external agents, and supports Chat Completions, Responses, Claude Messages, and Gemini `generateContent`.** Requesting `bridge` for an external agent that cannot bridge returns `client_tools_bridge_unsupported` (400), and UAP/1 does not accept a `tools` field; in these cases no run is created.
 
-只有请求里的 `tools` 是**非空数组**时才会按模式处理。没有 `tools`、或者 `tools: []`，行为与以前完全相同，模式请求头也不起作用。
+## What auto does
 
-## 怎么选
+A request that declares tools and chooses no mode gets `auto` (the gateway configuration `clientTools.default` can change that default to `managed`, `bridge` or `reject`; an explicit `auto` in the header beats the configuration). The rule, with the agent known at submit time:
 
-- 不确定就用默认的 `managed`：调用方照常拿到最终结果，响应头告诉你工具被忽略了。
-- 调用方必须知道「工具没被执行」并据此改变行为（例如换一个模型）时，用 `reject`，按错误码分支。
-- 智能体必须调用你本机的工具才能完成任务、而且背后是内核智能体或 ACP 外部智能体时，用 `bridge`。其它外部智能体可以先把这些工具发布成 OAA 智能体自己的工具（MCP 导入或节点工具），再用 `managed`。
+1. The agent can take the tools over (kernel agent, or an ACP agent with an online execution machine that declared `client-tools-v1` for it), the tools are plain functions with names that do not collide with the agent's own, and no tool choice is forced: the request is handled as `bridge`. The response carries `X-OAA-Client-Tools: bridge`; the agent's calls come back as `tool_calls` / `function_call` / `tool_use` / `functionCall`.
+2. Anything else gets what the entry did before. OpenAI's default endpoints (`/v1/chat/completions`, `/v1/responses` without `X-OAA-Compat`) refuse with 400 `unsupported_parameter` (`error.param` `tools`): the message says this agent cannot take the tools over, gives the reason (a native engine that runs its own tool loop, no execution machine for client tools, a name collision, tools that are not functions, a forced tool choice), and names the three ways out: the Base URL `<origin>/v1/compat`, `X-OAA-Compat: true`, `X-OAA-Client-Tools: managed`. The compatibility endpoints, Claude Messages and Gemini continue as `managed` (the agent finishes with its own tools; `X-OAA-Client-Tools: ignored`).
 
-## 怎么传
+So only two situations changed: a request to an agent that can bridge now bridges (on the default OpenAI endpoints it used to be a 400; elsewhere it used to be `managed`). Agents that cannot bridge (Codex, Claude Code, Antigravity, A2A, HTTP adapters) behave on every entry exactly as before. Forced tool choices cannot be honoured by the gateway or the upstream model, so they never bridge; on the default endpoints a forced `tool_choice` is refused (`unsupported_parameter`, `error.param` `tool_choice`) and elsewhere it is ignored as before. The permission of an external agent's own approval requests in a bridged turn is unchanged (see "How bridging works for external agents"): `auto` does not widen what is auto-approved.
 
-两种写法，请求头优先：
+Modes apply only when `tools` in the request is a **non-empty array**. With no `tools`, or with `tools: []`, behavior is exactly as before and the mode header has no effect.
 
-1. 请求头 `X-OAA-Client-Tools: managed | bridge | reject`（大小写不敏感）。
-2. 请求体 `metadata["oaa.client_tools"]`，取值同上。
+## How to choose
 
-其它取值报 `invalid_request`（400），消息里列出三个合法值。
+- When in doubt, keep the default `auto`: an agent that can use your tools gets them, any other agent works as it did before, and the response header (`bridge` or `ignored`) says which happened.
+- When the caller must know that "the tools were not run" and change its behavior accordingly (for example switch to another model), use `reject` and branch on the error code.
+- When the agent must call tools on your machine to finish the task, and what is behind it is a kernel agent or an ACP external agent, use `bridge`. For other external agents, you can first publish those tools as the OAA agent's own tools (MCP import or node tools) and then use `managed`.
 
-Chat Completions（兼容模式），用请求头：
+## How to pass it
+
+There are two ways, and the header wins:
+
+1. The request header `X-OAA-Client-Tools: auto | managed | bridge | reject` (case-insensitive).
+2. The request body `metadata["oaa.client_tools"]`, with the same values.
+
+Any other value returns `invalid_request` (400), and the message lists the valid values.
+
+Chat Completions (compatibility mode), with the header:
 
 ```bash
 curl http://127.0.0.1:8787/v1/chat/completions \
@@ -56,190 +68,193 @@ curl http://127.0.0.1:8787/v1/chat/completions \
   -H "X-OAA-Client-Tools: reject" \
   -d '{
     "model": "agent/coder",
-    "messages": [{ "role": "user", "content": "修复登录页的报错" }],
+    "messages": [{ "role": "user", "content": "Fix the error on the login page" }],
     "tools": [{ "type": "function", "function": { "name": "edit_file", "parameters": { "type": "object" } } }]
   }'
 ```
 
-Claude Messages，用 metadata：
+Claude Messages, with metadata:
 
 ```json
 {
   "model": "agent/coder",
   "max_tokens": 1024,
-  "messages": [{ "role": "user", "content": "修复登录页的报错" }],
+  "messages": [{ "role": "user", "content": "Fix the error on the login page" }],
   "tools": [{ "name": "edit_file", "input_schema": { "type": "object" } }],
   "metadata": { "oaa.client_tools": "managed" }
 }
 ```
 
-Responses（`/v1/compat/responses`）与 Gemini（`tools[].functionDeclarations`）写法相同：带工具的同时加请求头，或在 `metadata` 里写 `oaa.client_tools`。
+Responses (`/v1/compat/responses`) and Gemini (`tools[].functionDeclarations`) work the same way: send the header together with the tools, or put `oaa.client_tools` in `metadata`.
 
-## 响应头
+## Response headers
 
-| 情况 | 响应头 |
+| Case | Response header |
 | --- | --- |
-| `managed` 且请求确实带了工具 | `X-OAA-Client-Tools: ignored`（流式与非流式都有） |
-| 没有带工具 | 不出现，响应头集合与以前一致 |
-| 请求里有被接受但不转发的参数（`temperature` 等，见 protocol.md「兼容入口的参数、错误与结束原因」） | `X-OAA-Ignored-Params: <参数名, …>`；没有时不出现 |
+| The agent keeps its own tools and the request did carry tools (`managed`, or `auto` falling back) | `X-OAA-Client-Tools: ignored` (both streaming and non-streaming) |
+| The tools were handed to the agent (`bridge`, or `auto` choosing it) | `X-OAA-Client-Tools: bridge` |
+| No tools carried | Absent; the set of response headers is the same as before |
+| The request has parameters that are accepted but not forwarded (`temperature` and so on; see "Parameters, errors and finish reasons of the compatibility endpoints" in protocol.md) | `X-OAA-Ignored-Params: <parameter name, …>`; absent when there are none |
 
-运行记录的 `metadata` 里同时可见 `oaa.client_tools: "managed"` 与 `oaa.client_tools_ignored: "<工具个数>"`。
+The run record's `metadata` also shows the mode that was used: `oaa.client_tools: "managed"` with `oaa.client_tools_ignored: "<number of tools>"`, or `oaa.client_tools: "bridge"`.
 
-## 当前支持矩阵
+## Current support matrix
 
-接入方式 × 模式（智能体画像 `conversion.client_tools` 给出每个智能体的取值：内核与 ACP 为 `bridge`，其余为 `managed`）：
+Agent connection type × mode (the agent profile's `conversion.client_tools` gives each agent's value: `bridge` for kernel and ACP, `managed` for the rest; `auto` picks the one in that column):
 
-| 智能体接入方式 | `managed` | `reject` | `bridge` |
+| Agent connection type | `managed` | `reject` | `bridge` |
 | --- | --- | --- | --- |
-| 内置内核智能体（`engine: kernel`） | 支持 | 支持 | 支持 ✓（Chat、Responses、Claude Messages） |
-| ACP 外部智能体（`adapter/<name>`，`transport: "acp"`） | 支持 | 支持 | 支持 ✓（经 MCP 中继，见下文「外部智能体的桥接是怎么工作的」） |
-| Codex / Claude Code / Antigravity / DSH | 支持 | 支持 | 仅托管：报 `client_tools_bridge_unsupported` |
-| A2A / oaa-1 HTTP 适配器 | 支持 | 支持 | 仅托管：报 `client_tools_bridge_unsupported` |
+| Built-in kernel agent (`engine: kernel`) | Supported | Supported | Supported ✓ (Chat, Responses, Claude Messages) |
+| ACP external agent (`adapter/<name>`, `transport: "acp"`) | Supported | Supported | Supported ✓ (through an MCP relay; see "How bridging works for external agents" below) |
+| Codex / Claude Code / Antigravity / DSH | Supported | Supported | Managed only: returns `client_tools_bridge_unsupported` |
+| A2A / oaa-1 HTTP adapters | Supported | Supported | Managed only: returns `client_tools_bridge_unsupported` |
 
-桥接运行只会放到在握手里声明了 `client-tools-v1`、且对这个引擎声明了支持的执行机器上（内置执行机器总是声明 `kernel` 与已启用的 ACP 适配器）；没有这样的机器时，提交阶段就报 `client_tools_bridge_unsupported`（400），不会建运行。0.2.0 的旧版远程执行机器不声明这个特性，因此不会收到桥接任务（以前是到执行时才报 `manifest_mismatch`）。
+A bridged run is placed only on an execution machine that declared `client-tools-v1` in the handshake and declared support for this engine (the built-in execution machine always declares `kernel` and the enabled ACP adapters). When there is no such machine, submission returns `client_tools_bridge_unsupported` (400) and no run is created. Legacy 0.2.0 remote execution machines do not declare this feature, so they never receive bridged tasks (previously this surfaced only at execution time as `manifest_mismatch`).
 
-外部协议 × 模式：
+External protocol × mode:
 
-| 接口 | `managed` | `reject` | `bridge` |
+| Endpoint | `managed` | `reject` | `bridge` |
 | --- | --- | --- | --- |
-| Chat Completions（`X-OAA-Compat: true` 或 `/v1/compat/chat/completions`） | 支持 | 支持 | 支持（内核与 ACP 智能体） |
-| Responses（`X-OAA-Compat: true` 或 `/v1/compat/responses`） | 支持 | 支持 | 支持（内核与 ACP 智能体；只接受 `type: "function"` 工具） |
-| Claude Messages（`/v1/messages`、`/v1/compat/messages`） | 支持 | 支持 | 支持（内核与 ACP 智能体；带 `type` 的服务端工具被拒） |
-| Gemini `generateContent` / `streamGenerateContent`（`/v1beta` 与 `/v1`） | 支持 | 支持 | 支持（内核与 ACP 智能体；只接受 `functionDeclarations`，`googleSearch` 等内置工具被拒） |
-| 严格接口（不带 `X-OAA-Compat` 的 `/v1/chat/completions`、`/v1/responses`） | — | — | — |
-| UAP/1（`/v1/uap`） | — | — | — |
+| Chat Completions (`X-OAA-Compat: true` or `/v1/compat/chat/completions`) | Supported | Supported | Supported (kernel and ACP agents) |
+| Responses (`X-OAA-Compat: true` or `/v1/compat/responses`) | Supported | Supported | Supported (kernel and ACP agents; only `type: "function"` tools are accepted) |
+| Claude Messages (`/v1/messages`, `/v1/compat/messages`) | Supported | Supported | Supported (kernel and ACP agents; server tools that carry a `type` are rejected) |
+| Gemini `generateContent` / `streamGenerateContent` (`/v1beta` and `/v1`) | Supported | Supported | Supported (kernel and ACP agents; only `functionDeclarations` are accepted, and built-in tools such as `googleSearch` are rejected) |
+| Strict endpoints (`/v1/chat/completions` and `/v1/responses` without `X-OAA-Compat`) | Supported (explicit header) | Supported (explicit header) | Supported (kernel and ACP agents); with no mode chosen an agent that cannot bridge is refused (see "What auto does") |
+| UAP/1 (`/v1/uap`) | — | — | — |
 
-严格接口与 UAP/1 的请求结构不接受 `tools` 字段，不受模式影响：严格接口报 `unsupported_parameter`（`error.param: "tools"`，0.6.0 起；以前是 `invalid_request`），UAP/1 按未知字段报 `invalid_request`。
+The strict endpoints take part in the modes like the others; what is different is only the fallback of `auto` (a refusal instead of `managed`). `functions` / `function_call` (legacy) stay refused there, and an empty `tools: []` is accepted as no tools. UAP/1 does not take part: it returns `invalid_request` for a `tools` field.
 
-## 与人工审批的区别
+## How this differs from human approval
 
-桥接的「等调用方回传工具结果」和人工审批都会让运行停车，但决定权不同：
+Bridge's "wait for the caller to return the tool result" and human approval both park a run, but the decision belongs to different parties:
 
-- 人工审批由 owner（需要 `approve` 权限）决定是否放行已发布工具的某一步。
-- 调用方工具的结果由**调用方自己**回传（同一数据分区、`invoke` 权限即可），不经过 owner。
+- Human approval is decided by the owner (who needs the `approve` scope) and lets one step of a published tool go ahead.
+- The result of a caller tool is returned by **the caller itself** (the same data partition, and the `invoke` scope is enough), without going through the owner.
 
-托管与拒绝模式不会产生任何待办。
+Managed and reject modes never create any pending item.
 
-## 桥接怎么用（内核智能体）
+## Using bridge (kernel agents)
 
-以 Chat Completions 为例，Responses、Claude Messages 与 Gemini 见下一节。
+Chat Completions is the example here; Responses, Claude Messages, and Gemini are in the next section.
 
-1. 第一次请求带上 `tools` 和 `X-OAA-Client-Tools: bridge`。智能体调用到调用方工具时，运行停车，响应是标准的 `finish_reason: "tool_calls"`：`message.tool_calls` 列出这一轮全部待执行的调用（并行的多个调用一次给全），`id` 以 `call_` 开头，`function.arguments` 是 JSON 字符串，`message.content` 是这一段新产生的文本（没有则为 `null`）。响应头 `X-Run-ID` 是运行 ID。
-2. 调用方执行这些工具，照 OpenAI 的写法在 `messages` 末尾追加 `role: "tool"` 消息（`tool_call_id` 填上一步的 `id`），带着同样的 `tools` 与请求头再发一次。
-3. 网关按 `tool_call_id` 找到停车的运行，写入结果，**同一个运行**接着做（`X-Run-ID` 不变），不需要把历史压平重放。响应只含上次交付之后的新输出：可能是最终结果，也可能是下一批 `tool_calls`。只回传了一部分结果时，运行再次停车并返回剩下的调用。
+1. The first request carries `tools` and `X-OAA-Client-Tools: bridge`. When the agent calls a caller tool, the run parks and the response is the standard `finish_reason: "tool_calls"`: `message.tool_calls` lists all the calls to execute in this round (parallel calls are all given at once), `id` starts with `call_`, `function.arguments` is a JSON string, and `message.content` is the new text produced in this segment (`null` if there is none). The response header `X-Run-ID` is the run ID.
+2. The caller runs the tools, appends `role: "tool"` messages to the end of `messages` the OpenAI way (`tool_call_id` is the `id` from the previous step), and sends the request again with the same `tools` and the same header.
+3. The gateway finds the parked run by `tool_call_id`, writes in the results, and the **same run** carries on (`X-Run-ID` does not change); the history does not need to be flattened and replayed. The response contains only the new output since the last delivery: it may be the final result, or the next batch of `tool_calls`. If only some of the results were returned, the run parks again and returns the remaining calls.
 
-要点：
+Key points:
 
-- 只有 `messages` **末尾连续的** `role: "tool"` 消息算本次回传的结果；更早的历史照旧压平成文本。
-- 续接凭据就是 `tool_call_id`。网关要求它属于同一 owner、同一数据分区（或 owner 级可见的密钥）、对该智能体有 `invoke` 权限，且全部属于同一个运行；任何一条不满足（不认识、过期、属于别人）都当作新请求处理，不影响原运行，也不会透露这个 ID 是否存在。
-- 同一批结果重复回传（网络重试）不会改写已写入的结果，会接到同一个运行上。
-- 流式（`stream: true`）：停车时依次发出角色帧（之前没发过时，`content: null`）、每个调用一帧 `tool_calls` 增量（`index` 从 0 起）、`finish_reason: "tool_calls"` 收尾帧、（请求了 `include_usage` 时）用量帧与 `[DONE]`；续接后的流从上次之后开始，不重放之前的文本。
-- 模型给出的参数不符合调用方的 schema 时，这次调用不会交给调用方，而是把 `{"error":"invalid_arguments","detail":...}` 作为工具结果交回模型，让它改了再调。这与已发布工具的参数错误（`invalid_tool_arguments`，运行直接失败）不同：调用方的 schema 不受发布者控制。
-- 名字：须匹配 `^[a-zA-Z0-9_-]{1,64}$`；内部别名把 `-` 换成 `_`，首字符不是字母时加 `t_`，对外一律用原名。与已发布的工具、工作流、委托、`execute_graph` 或另一个调用方工具冲突报 `client_tool_conflict`；已发布工具加调用方工具超过 100 个报 `client_tools_too_many`；schema 无法编译报 `invalid_client_tool`。这些都在任何执行之前检查。调用方工具不能出现在 `execute_graph` 与工作流里。
-- 等待期限沿用网关的 `approvalTimeoutMs`，到期未回传时运行以 `client_tool_timeout`（409）结束。停车期间不占运行槽，但仍计入未完成请求数上限；可以照常取消。网关重启后，只等调用方的停车运行保持停车，仍可续接。
-- 这类待办在 `GET /v1/runs/{id}/actions` 里可见（`kind: "client_tool"`），但 `POST /v1/runs/{id}/actions/{action}` 会报 `action_kind_mismatch`；概览的「需要处理」计数不包含它们（计入进行中，另有 `awaiting_caller` 计数），时间线里显示为 `client_tool` 类的等待。
-- 同一个运行里同时有人工审批时，先按人工审批的既有方式呈现：非流式 Chat / Claude 返回 422 `action_required`，带 `x-should-retry: false` 与运行 ID。调用方不要重发请求（那会新建一个运行）：等 owner 用 `POST /v1/runs/{id}/actions/{action_id}` 决定之后，用 `GET /v1/responses/{id}` 读结果，或者继续回传调用方工具的结果。
-- **响应 ID 不随续接改变**：续接是同一个运行，返回的仍是同一个 `resp_…`（Chat 的 `chatcmpl_resp_…`、Claude 的 `msg_resp_…`）；调用方续接时把这个 ID 作为 `previous_response_id` 传回。这与 OpenAI「每次 `responses.create` 一个新 Response」不同，是「一个任务一个 ID、一次计费」的有意设计：以响应 ID 为键缓存历史的客户端（例如 Agents SDK 的会话存储）会看到同一个 ID 的内容被新的一段覆盖，`GET /v1/responses/{id}` 只给最新状态，不保留上一段的 `function_call` 快照。需要逐段历史时请在客户端按请求保存。
-- 调用方回传的结果写回对话时：能解析成 JSON 对象或数组就按解析后的值写回，否则按原字符串写回、不加引号。
-- 待办与协议无关：用一种协议发起的运行可以用另一种协议回传（例如 Chat 发起、Responses 回传），响应按这次请求的协议渲染。原则上建议同一种协议到底。
+- Only the **consecutive** `role: "tool"` messages at the **end** of `messages` count as the results returned this time; earlier history is flattened into text as before.
+- The continuation credential is the `tool_call_id`. The gateway requires that it belong to the same owner and the same data partition (or an owner-level visible key), that the key have the `invoke` scope on the agent, and that all of them belong to the same run; if any condition fails (unknown, expired, belongs to someone else), the request is treated as new, the original run is not affected, and it is not revealed whether the ID exists.
+- Returning the same batch of results twice (a network retry) does not overwrite results already written; it attaches to the same run.
+- Streaming (`stream: true`): when the run parks, the frames are sent in this order: the role frame (with `content: null`, if one has not been sent before), one `tool_calls` delta frame per call (`index` starting at 0), the closing frame with `finish_reason: "tool_calls"`, then (if `include_usage` was requested) the usage frame and `[DONE]`. After continuation, the stream starts from where the last one ended and does not replay earlier text.
+- When the arguments the model produces do not match the caller's schema, the call is not handed to the caller. Instead `{"error":"invalid_arguments","detail":...}` is returned to the model as the tool result so that it can fix the call and try again. This differs from argument errors of published tools (`invalid_tool_arguments`, where the run fails outright): the caller's schema is not under the publisher's control.
+- Names: must match `^[a-zA-Z0-9_-]{1,64}$`. The internal alias replaces `-` with `_` and prepends `t_` when the first character is not a letter; the original name is always used externally. A conflict with a published tool, workflow, delegate, `execute_graph`, or another caller tool returns `client_tool_conflict`; more than 100 published tools plus caller tools returns `client_tools_too_many`; a schema that cannot be compiled returns `invalid_client_tool`. All of these are checked before any execution. Caller tools cannot appear in `execute_graph` or in workflows.
+- The wait period follows the gateway's `approvalTimeoutMs`; if the caller has not returned results by then, the run ends with `client_tool_timeout` (409). A parked run does not occupy a run slot but still counts toward the limit on unfinished requests, and it can be cancelled as usual. After a gateway restart, a run that is waiting only for the caller stays parked and can still be continued.
+- These pending items are visible in `GET /v1/runs/{id}/actions` (`kind: "client_tool"`), but `POST /v1/runs/{id}/actions/{action}` returns `action_kind_mismatch` for them. The "needs attention" count in the overview does not include them (they count as in progress, and there is a separate `awaiting_caller` count), and the timeline shows them as a wait of kind `client_tool`.
+- When the same run also has a human approval, it is presented the way human approvals already are: non-streaming Chat / Claude returns 422 `action_required`, with `x-should-retry: false` and the run ID. The caller must not resend the request (that would create a new run): after the owner decides with `POST /v1/runs/{id}/actions/{action_id}`, read the result with `GET /v1/responses/{id}`, or keep returning the results of the caller tools.
+- **The response ID does not change on continuation**: continuing is the same run, so the same `resp_…` is returned (`chatcmpl_resp_…` for Chat, `msg_resp_…` for Claude); when continuing, the caller passes this ID back as `previous_response_id`. This differs from OpenAI's "a new Response for every `responses.create`" and is a deliberate "one task, one ID, one charge" design: a client that caches history keyed by response ID (for example the session store of the Agents SDK) will see the content under the same ID overwritten by a new segment, and `GET /v1/responses/{id}` gives only the latest state, without keeping a snapshot of the previous segment's `function_call`. If you need per-segment history, save it on the client, per request.
+- When the results the caller returns are written back into the conversation: a result that parses as a JSON object or array is written back as the parsed value; otherwise it is written back as the original string, without quotation marks.
+- Pending items are independent of the protocol: a run started with one protocol can have its results returned with another (for example started with Chat and returned with Responses), and the response is rendered in the protocol of that request. In principle we recommend using the same protocol throughout.
 
-## Responses、Claude Messages 与 Gemini
+## Responses, Claude Messages, and Gemini
 
-**Responses**（`/v1/compat/responses`，或带 `X-OAA-Compat: true` 的 `/v1/responses`）：`tools` 里扁平的 `{"type":"function","name",...,"parameters"}` 是调用方工具，其它类型（如内置的 `web_search`）在 bridge 下报 `client_tools_unsupported`（managed 下照旧忽略）。`input` 末尾连续的 `function_call_output` 条目是回传结果；以 `call_id` 为准找运行，`previous_response_id` 给了但不是那个运行时按未命中处理。
+**Responses** (`/v1/compat/responses`, or `/v1/responses` with `X-OAA-Compat: true`): the flat `{"type":"function","name",...,"parameters"}` entries in `tools` are caller tools; other types (such as the built-in `web_search`) return `client_tools_unsupported` under bridge (they are still ignored under managed). The consecutive `function_call_output` entries at the end of `input` are the returned results; the run is found by `call_id`, and a `previous_response_id` that is given but is not that run is treated as a miss.
 
 ```json
-{ "model": "agent/coder", "input": "修复登录页的报错",
+{ "model": "agent/coder", "input": "Fix the error on the login page",
   "tools": [{ "type": "function", "name": "edit_file", "parameters": { "type": "object" } }] }
 ```
 
-停车响应：`status: "completed"`，`metadata["oaa.status"] = "requires_action"`，`output` 先是本段新文本的 message 条目，再是每个调用一个条目：
+Parked response: `status: "completed"`, `metadata["oaa.status"] = "requires_action"`, and `output` is first a message item with the new text of this segment, then one item per call:
 
 ```json
 { "type": "function_call", "id": "fc_8c1…", "call_id": "call_8c1…", "name": "edit_file",
   "arguments": "{\"path\":\"login.ts\"}", "status": "completed" }
 ```
 
-回传：
+Returning results:
 
 ```json
 { "model": "agent/coder", "previous_response_id": "resp_…", "tools": [ … ],
-  "input": [{ "type": "function_call_output", "call_id": "call_8c1…", "output": "已修改" }] }
+  "input": [{ "type": "function_call_output", "call_id": "call_8c1…", "output": "Done" }] }
 ```
 
-流式：停车时为每个调用依次发 `response.output_item.added`（arguments 为空串）、`response.function_call_arguments.delta`、`response.function_call_arguments.done`、`response.output_item.done`，最后 `response.completed`（response 同非流式）并关闭。`sequence_number`（与 SSE `id:`）：0.6.0 起所有 Responses 流都是这条流里帧的序号，从 0 起连续，合成帧同样计数（以前直接用事件 ID，桥接流取事件 ID 与已发出最大值 + 1 中较大的一个）。续接流是新的一段，从停车游标之后的真实事件开始，序号也从 0 起。序号只在一条流内有意义，不要跨流比较。
+Streaming: when the run parks, each call gets, in order, `response.output_item.added` (with an empty-string arguments), `response.function_call_arguments.delta`, `response.function_call_arguments.done`, and `response.output_item.done`, and finally `response.completed` (the response is the same as in non-streaming), and the stream closes. `sequence_number` (and the SSE `id:`): since 0.6.0 every Responses stream uses the sequence number of the frame within that stream, consecutive from 0, with synthesized frames counted too (previously the event ID was used directly, and a bridged stream took the larger of the event ID and the maximum already sent + 1). A continuation stream is a new segment: it starts from the real events after the parking cursor, and its sequence numbers also start at 0. Sequence numbers are meaningful only within one stream; do not compare them across streams.
 
-**Claude Messages**（`/v1/compat/messages` 与 `/v1/messages`，两者用同一个兼容解析器）：带 `name` 与 `input_schema` 的条目是调用方工具，带 `type` 的服务端工具（`web_search_*`、`bash_*`、`computer_*` 等）在 bridge 下报 `client_tools_unsupported`。最后一条 `user` 消息里的 `tool_result` 块是回传结果（`content` 为字符串或 text 块数组；`is_error: true` 时包成 `{"error": …}` 交给模型）。
+**Claude Messages** (`/v1/compat/messages` and `/v1/messages`, which use the same compatibility parser): entries with `name` and `input_schema` are caller tools, while server tools that carry a `type` (`web_search_*`, `bash_*`, `computer_*`, and so on) return `client_tools_unsupported` under bridge. `tool_result` blocks in the last `user` message are the returned results (`content` is a string or an array of text blocks; with `is_error: true` it is wrapped as `{"error": …}` and given to the model).
 
 ```json
 { "model": "agent/coder", "max_tokens": 1024,
   "tools": [{ "name": "edit_file", "input_schema": { "type": "object" } }],
-  "messages": [{ "role": "user", "content": "修复登录页的报错" }] }
+  "messages": [{ "role": "user", "content": "Fix the error on the login page" }] }
 ```
 
-停车响应：`stop_reason: "tool_use"`，`content` 先是本段新文本的 text 块，再是 `{"type":"tool_use","id":"call_8c1…","name":"edit_file","input":{"path":"login.ts"}}`。`tool_use.id` 直接用待办 ID（`call_` 前缀，不是 Claude 惯例的 `toolu_`），客户端应把它当作不透明字符串。回传：
+Parked response: `stop_reason: "tool_use"`, and `content` is first a text block with the new text of this segment, then `{"type":"tool_use","id":"call_8c1…","name":"edit_file","input":{"path":"login.ts"}}`. `tool_use.id` is the pending item ID as is (with the `call_` prefix, not Claude's usual `toolu_`), and clients should treat it as an opaque string. Returning results:
 
 ```json
-{ "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "call_8c1…", "content": "已修改" }] }
+{ "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "call_8c1…", "content": "Done" }] }
 ```
 
-流式：停车时（还没发过时）先补发 `message_start`；已打开的 text 块先 `content_block_stop`；每个调用 `content_block_start`（tool_use，`input: {}`）、一个 `input_json_delta`（完整 JSON）、`content_block_stop`，index 依次递增；最后 `message_delta`（`stop_reason: "tool_use"`）与 `message_stop`，然后关闭。
+Streaming: when the run parks, `message_start` is sent first (if it has not been sent yet); a text block that is already open gets `content_block_stop`; each call then gets `content_block_start` (tool_use, `input: {}`), one `input_json_delta` (the complete JSON), and `content_block_stop`, with the index increasing; finally `message_delta` (`stop_reason: "tool_use"`) and `message_stop`, and the stream closes.
 
-**Gemini**（`/v1beta/models/{agent}:generateContent` 与 `:streamGenerateContent`，`/v1/models/...` 相同）：`tools[].functionDeclarations[]` 是调用方工具，参数取 `parametersJsonSchema`（JSON Schema，原样）或 `parameters`（Gemini 的 OpenAPI 子集：`type: "OBJECT"` 等大写类型转成小写，`nullable: true` 并入类型）。`googleSearch`、`codeExecution`、`urlContext` 等内置工具（或与 `functionDeclarations` 写在同一条里）在 bridge 下报 `client_tools_unsupported`，managed 下照旧忽略。`toolConfig`（含 `functionCallingConfig` 的 `mode`、`allowedFunctionNames`）与其它协议的 `tool_choice` 一样不转发，列在 `X-OAA-Ignored-Params` 里。
+**Gemini** (`/v1beta/models/{agent}:generateContent` and `:streamGenerateContent`, and the same under `/v1/models/...`): `tools[].functionDeclarations[]` are caller tools, and the parameters are taken from `parametersJsonSchema` (JSON Schema, as is) or `parameters` (Gemini's OpenAPI subset: uppercase types such as `type: "OBJECT"` are converted to lowercase, and `nullable: true` is merged into the type). Built-in tools such as `googleSearch`, `codeExecution`, and `urlContext` (or ones written in the same entry as `functionDeclarations`) return `client_tools_unsupported` under bridge and are still ignored under managed. `toolConfig` (including the `mode` and `allowedFunctionNames` of `functionCallingConfig`) is not forwarded, just like `tool_choice` in other protocols, and is listed in `X-OAA-Ignored-Params`.
 
 ```json
-{ "contents": [{ "role": "user", "parts": [{ "text": "修复登录页的报错" }] }],
+{ "contents": [{ "role": "user", "parts": [{ "text": "Fix the error on the login page" }] }],
   "tools": [{ "functionDeclarations": [{ "name": "edit_file", "parameters": { "type": "OBJECT" } }] }] }
 ```
 
-停车响应：`candidates[0].content.parts` 先是本段新文本的 text part，再是每个调用一个 `{"functionCall":{"id":"call_8c1…","name":"edit_file","args":{"path":"login.ts"}}}`（`args` 是对象，并行调用是多个 part），`finishReason: "STOP"`（Gemini 的函数调用本来就以 STOP 结束），`usageMetadata` 照常，`responseId` 是运行 ID、续接时不变。回传：`contents` 最后一条（`role: "user"` 或 `"function"`）里的 `functionResponse` part：
+Parked response: `candidates[0].content.parts` is first a text part with the new text of this segment, then one `{"functionCall":{"id":"call_8c1…","name":"edit_file","args":{"path":"login.ts"}}}` per call (`args` is an object; parallel calls are multiple parts), with `finishReason: "STOP"` (a Gemini function call ends with STOP anyway), `usageMetadata` as usual, and `responseId` is the run ID, unchanged on continuation. Returning results: a `functionResponse` part in the last entry of `contents` (`role: "user"` or `"function"`):
 
 ```json
-{ "role": "user", "parts": [{ "functionResponse": { "id": "call_8c1…", "name": "edit_file", "response": { "output": "已修改" } } }] }
+{ "role": "user", "parts": [{ "functionResponse": { "id": "call_8c1…", "name": "edit_file", "response": { "output": "Done" } } }] }
 ```
 
-`response` 按 JSON 写回对话。带 `id` 时按 `id` 配对；不带 `id` 时（官方 `@google/genai` 的 `chats` 会把模型回合的 `functionCall`（含 `id`）原样留在历史里，但调用方自己写的 `functionResponse` 往往不带 `id`），按上一条 `role: "model"` 内容里 `functionCall` 的 `name` 与出现顺序配对。配不上（不认识的 `id`、没有可配对的 `functionCall`、名字对不上）时与其它协议的未知 ID 一样，整体当作新请求处理，原运行保持停车。
+`response` is written into the conversation as JSON. When `id` is present, pairing is by `id`. When it is absent (the official `@google/genai` `chats` keep the model turn's `functionCall`, with its `id`, in the history as is, but a `functionResponse` the caller writes itself often has no `id`), pairing is by the `name` and order of occurrence of the `functionCall` parts in the previous `role: "model"` content. When pairing fails (an unknown `id`, no `functionCall` to pair with, or a name mismatch), it is the same as an unknown ID in other protocols: the whole request is treated as new and the original run stays parked.
 
-流式（`?alt=sse` 或分块 JSON 数组）：停车时一个分片给出全部 `functionCall` part（Gemini 不对参数分片），同一分片带 `finishReason: "STOP"` 与 `usageMetadata`，然后关闭；此前已流式发出的文本不重复。
+Streaming (`?alt=sse` or a chunked JSON array): when the run parks, one chunk delivers all the `functionCall` parts (Gemini does not chunk arguments), the same chunk carries `finishReason: "STOP"` and `usageMetadata`, and then the stream closes; text already streamed earlier is not repeated.
 
-## 外部智能体的桥接是怎么工作的
+<a id="外部智能体的桥接是怎么工作的"></a>
+## How bridging works for external agents
 
-ACP 外部智能体有自己的工具循环，OAA 插不进去。但 ACP 建会话时可以交给智能体一组 MCP 服务（`session/new` 的 `mcpServers`，stdio 形式是 ACP 要求所有智能体都支持的基线），OAA 就用这个口子把你的工具交给它：
+An ACP external agent has its own tool loop, and OAA cannot get into it. But when ACP creates a session it can hand the agent a set of MCP servers (`mcpServers` in `session/new`; the stdio form is the baseline ACP requires every agent to support), and OAA uses that opening to give it your tools:
 
 ```
-调用方 ─tools─▶ 网关 ─▶ 内核 ─任务（带调用方工具）─▶ 执行机器
-                                                       │ session/new { mcpServers: [oaa-caller] }
-                                                       ▼
-                                        ACP 智能体 ─MCP tools/call─▶ 中继进程（oaa mcp-relay）
-                                                                       │ 本机 Unix 域套接字
-                                        执行机器 ◀─────────────────────┘
-                                           ▼
-                        内核登记待办，运行进入 requires_action ─▶ 网关以 tool_calls 交给调用方
-                        调用方回传结果 ─▶ 结果原路回到 MCP tools/call，智能体接着做
+caller ─tools─▶ gateway ─▶ kernel ─task (with caller tools)─▶ execution machine
+                                                               │ session/new { mcpServers: [oaa-caller] }
+                                                               ▼
+                                              ACP agent ─MCP tools/call─▶ relay process (oaa mcp-relay)
+                                                                            │ local Unix domain socket
+                                              execution machine ◀───────────┘
+                                                 ▼
+                       the kernel registers a pending item, the run enters requires_action ─▶ the gateway hands it to the caller as tool_calls
+                       the caller returns the result ─▶ the result goes back along the same path to the MCP tools/call, and the agent carries on
 ```
 
-使用者需要知道的几点：
+What users need to know:
 
-- **中继**：每一轮给智能体一个固定名为 `oaa-caller` 的 stdio MCP 服务。它是 `oaa mcp-relay` 子命令启动的小进程，只做两件事：`tools/list` 列出你的工具（名字、说明、参数 schema 原样给出），`tools/call` 经本机 Unix 域套接字转给执行机器。套接字放在该运行私有的 0700 目录里（工作区路径过长时改用系统临时目录下的短路径），套接字与一次性令牌文件都是 0600，只接受持有令牌的第一个连接；不监听任何网络端口。这一轮结束（完成、失败、取消、超时）时套接字关闭、文件删除，中继随之退出。
-- **对你来说**和内核智能体一样：响应里是标准的 `tool_calls`（或 `function_call`、`tool_use`），名字是你的原名，回传后**同一个运行**接着做。同一时刻发出的多个调用一次给全（中继把 5 毫秒内到达的调用合成一次转发，内核在下一个事件循环合并通知）；智能体晚一点才发出的调用，在你下一次回传时一并返回。
-- **内层智能体看到的工具名**是 MCP 的命名，由智能体自己决定（常见的是加服务名前缀，例如 `oaa-caller` 下的 `edit-file`）。外部智能体没有已发布的工具，不做别名，原名里的 `-` 在 MCP 里也合法。
-- **等待期间内层进程保持存活**：这与外部智能体的人工审批一样，占着进程与运行槽，不是可迁移的停车。期限沿用 `approvalTimeoutMs`，到期以 `client_tool_timeout` 结束；可以照常取消。
-- **网关重启会中断这类运行**（`interrupted`，与其它外部智能体运行一致），不会像内核智能体那样保持停车等你续接。
-- 参数不符合你的 schema、或智能体调用了清单里没有的名字时，不会交给你，而是直接以 MCP 的错误结果（`isError: true`）交回智能体，运行不失败。
-- 运行事件：新的调用方待办出现后发出 `run.awaiting_caller`（载荷是此刻全部待处理的待办 ID），它在外部智能体的桥接运行里代替内核的 `run.parked`。
-- **对调用方工具的权限请求自动放行**：有的智能体（如 Qoder）在调用 MCP 工具前先发 `session/request_permission`。这些工具由你自己提供、自己执行，所以只在桥接回合里、且请求针对的确实是中继提供的工具时，OAA 直接选「允许一次」（`allow_once`），不创建 owner 审批，并记一条进度 `{ event: "permission_auto_allowed", tool }`。判断是保守的，两条必须同时满足：标题或 `rawInput` 的工具标识里出现 `oaa-caller`（大小写不敏感）；标题分词后有一个词等于你的某个工具名，或以 `_<工具名>` 结尾（覆盖 `mcp_oaa-caller_<name>` 写法）。不按 `kind` 判断。**安全边界**：自动放行只发生在桥接回合、只针对中继提供的工具；智能体自带工具（读写文件、执行命令等）的权限请求照旧走 owner 审批。
-- 调用前已经输出的文本作为一条输出消息结束，续接后的新文本是新的一条；响应只含上次交付之后的新输出。
+- **The relay**: in each round the agent is given a stdio MCP server with the fixed name `oaa-caller`. It is a small process started by the `oaa mcp-relay` subcommand that does only two things: `tools/list` lists your tools (names, descriptions, and parameter schemas given as is), and `tools/call` is forwarded to the execution machine through a local Unix domain socket. The socket sits in a 0700 directory private to that run (when the workspace path is too long, a short path under the system temp directory is used instead), the socket and the one-time token file are both 0600, and only the first connection holding the token is accepted; it listens on no network port. When the round ends (completed, failed, cancelled, timed out), the socket is closed, the files are deleted, and the relay exits with it.
+- **From your side** it is the same as for a kernel agent: the response has standard `tool_calls` (or `function_call`, `tool_use`), the names are your original names, and after you return results the **same run** carries on. Multiple calls issued at the same moment are all given at once (the relay merges calls arriving within 5 milliseconds into one forward, and the kernel merges notifications in the next event loop turn); calls the agent issues a little later are returned together the next time you send results.
+- **The tool names the inner agent sees** follow MCP naming and are decided by the agent itself (a common choice is to prefix the server name, for example `edit-file` under `oaa-caller`). An external agent has no published tools, so no aliases are made, and `-` in the original name is also legal in MCP.
+- **The inner process stays alive while waiting**: as with human approval for an external agent, it holds the process and a run slot; this is not a migratable park. The period follows `approvalTimeoutMs`, and on expiry the run ends with `client_tool_timeout`; it can be cancelled as usual.
+- **A gateway restart interrupts this kind of run** (`interrupted`, like other external agent runs); unlike a kernel agent, it does not stay parked waiting for you to continue.
+- When the arguments do not match your schema, or the agent calls a name that is not on the list, the call is not handed to you; an MCP error result (`isError: true`) is returned straight to the agent instead, and the run does not fail.
+- Run events: after a new caller pending item appears, `run.awaiting_caller` is emitted (its payload is the IDs of all pending items at that moment); in a bridged run of an external agent it replaces the kernel's `run.parked`.
+- **Permission requests for caller tools are allowed automatically**: some agents (such as Qoder) send `session/request_permission` before calling an MCP tool. These tools are provided and executed by you, so only in a bridged round, and only when the request really targets a tool provided by the relay, OAA directly picks "allow once" (`allow_once`), creates no owner approval, and records a progress entry `{ event: "permission_auto_allowed", tool }`. The judgment is conservative, and every condition must hold: `oaa-caller` appears in the title or in the tool identifier of `rawInput` (case-insensitive); after tokenizing the title, one token equals one of your tool names, or ends with `_<tool name>` (covering the `mcp_oaa-caller_<name>` form); every other token of the title is filler (`run`, `call`, `calling`, `use`, `using`, `tool`, `mcp`, `server`, `oaa-caller`), so a shell command whose title merely mentions the relay and a tool name is not allowed automatically; and the call is not one that the agent itself classifies, through the ACP tool `kind`, as running a command or changing files (`execute`, `edit`, `delete`, `move`), whatever its title says. **Security boundary**: automatic allowance happens only in bridged rounds and only for tools provided by the relay; permission requests for the agent's own tools (reading and writing files, running commands, and so on) still go through owner approval as before.
+- Text output before a call ends as one output message, and the new text after continuation is a new one; the response contains only the new output since the last delivery.
 
-### 限制与未验证项
+<a id="限制与未验证项"></a>
+### Limitations and unverified items
 
-- **没有对真实 ACP 智能体联调**。测试用的是协议级假智能体（`test/fixtures/acp-caller-agent.mjs`：读取 `mcpServers`、用 MCP SDK 启动中继、`tools/list`、`tools/call`）。`mcpServers` 条目的字段形状（`{ name, command, args, env: [{ name, value }] }`）依据 ACP 规范的公开描述，仓库里没有 ACP 的类型定义可以对照。 （2026-11-11 更新：已对本机 Antigravity 命令行（`agy` 1.5.5）的 ACP 入口用 Gemini 3.8 Flash 做过一次真实联调，托管与桥接各一次调用均通过，`mcpServers` 的 stdio 条目形状被接受；并行调用、流式、慢回传与其它 ACP 智能体仍未验证。联调结果见 [evidence.md](evidence.md)。）
-- 智能体自己的 MCP 调用超时（例如 MCP SDK 默认 60 秒）可能比 `approvalTimeoutMs` 短：调用方回传太慢时，智能体可能先放弃这次调用。
-  - **保活**：等待调用方期间，中继对请求里带了 `_meta.progressToken` 的 `tools/call` 每 15 秒发一次 `notifications/progress`（`progress` 递增，`message` 说明在等调用方；间隔可用 `oaa mcp-relay --progress-interval-ms` 或环境变量 `OAA_MCP_RELAY_PROGRESS_MS` 调整）。没带令牌时不发。这**不保证**能延长超时：要智能体的 MCP 客户端启用了「收到进度即重置超时」（MCP SDK 的 `resetTimeoutOnProgress`），而且它确实给了 progressToken。建议把网关的 `approvalTimeoutMs` 与智能体的 MCP 请求超时对齐（不长于后者），或把智能体的 MCP 超时调大。
-  - **放弃后的收尾**：智能体放弃调用时如果关掉了中继（关闭 MCP 服务，或超时后重启服务），中继到执行机器的套接字会断开；仍在等待的调用随即以 `client_tool_abandoned` 结束：对应步骤失败、待办标为过期，运行不因此失败（智能体还在继续），没有其它待办时状态回到 `in_progress`。之后再回传这个 `call_id` 不会续接，按新请求处理。智能体只是让请求超时、却不关闭中继时，这次调用仍会挂到 `approvalTimeoutMs`，以 `client_tool_timeout` 结束运行。
-- 只支持 ACP 接入；Codex、Claude Code、Antigravity、DSH、A2A 与 oaa-1 适配器仍是仅托管。
+- **Not tested together with a real ACP agent.** The tests use a protocol-level fake agent (`test/fixtures/acp-caller-agent.mjs`: it reads `mcpServers`, starts the relay with the MCP SDK, then does `tools/list` and `tools/call`). The field shape of an `mcpServers` entry (`{ name, command, args, env: [{ name, value }] }`) follows the public description of the ACP specification; the repository has no ACP type definitions to compare against. (Updated 2026-11-11: the ACP entry of the local Antigravity command line (`agy` 1.5.5) was tested for real once with Gemini 3.8 Flash; one managed call and one bridged call both passed, and the stdio entry shape of `mcpServers` was accepted. Parallel calls, streaming, slow returns, and other ACP agents are still unverified. For the results see [evidence.md](evidence.md).)
+- The agent's own MCP call timeout (for example the MCP SDK's default of 60 seconds) may be shorter than `approvalTimeoutMs`: if the caller returns results too slowly, the agent may give up on the call first.
+  - **Keep-alive**: while waiting for the caller, the relay sends a `notifications/progress` every 15 seconds for a `tools/call` whose request carries `_meta.progressToken` (`progress` increases, and `message` says it is waiting for the caller; the interval can be changed with `oaa mcp-relay --progress-interval-ms` or the environment variable `OAA_MCP_RELAY_PROGRESS_MS`). Without a token, nothing is sent. This does **not** guarantee a longer timeout: the agent's MCP client must have enabled "reset the timeout on progress" (the MCP SDK's `resetTimeoutOnProgress`), and it must actually have provided a progressToken. We recommend aligning the gateway's `approvalTimeoutMs` with the agent's MCP request timeout (not longer than the latter), or raising the agent's MCP timeout.
+  - **Cleanup after abandonment**: if the agent closes the relay when it gives up on the call (shuts down the MCP server, or restarts it after a timeout), the socket from the relay to the execution machine disconnects, and the call still waiting ends with `client_tool_abandoned`: the corresponding step fails, the pending item is marked expired, and the run does not fail because of it (the agent is still going); when there are no other pending items, the status goes back to `in_progress`. Returning that `call_id` afterwards does not continue anything and is treated as a new request. If the agent merely lets the request time out without closing the relay, the call still hangs until `approvalTimeoutMs` and the run ends with `client_tool_timeout`.
+- Only ACP connections are supported; Codex, Claude Code, Antigravity, DSH, A2A, and oaa-1 adapters remain managed only.
 
-## 路线
+## Roadmap
 
-- 已提供：内置内核智能体与 ACP 外部智能体在 Chat Completions、Responses、Claude Messages、Gemini 上的 `bridge`（`/health` 的 `features` 含 `harness-bridge-v1`、`harness-bridge-acp-v1`）。UAP/1 不做桥接。Gemini 的桥接线上格式测试只用了内核智能体；ACP 智能体走的是与协议无关的同一套停车与续接，没有单独经 Gemini 入口测试。
-- 后续：其它外部智能体（Claude Agent SDK 的进程内 MCP 服务、Codex 的 MCP 配置）要逐个引擎联调。
+- Available: `bridge` for built-in kernel agents and ACP external agents over Chat Completions, Responses, Claude Messages, and Gemini (`features` in `/health` contains `harness-bridge-v1` and `harness-bridge-acp-v1`). UAP/1 has no bridging. The wire-format tests for Gemini bridging used only kernel agents; ACP agents go through the same protocol-independent parking and continuation, and have not been tested separately through the Gemini endpoint.
+- Later: other external agents (the in-process MCP server of the Claude Agent SDK, the MCP configuration of Codex) must be tested engine by engine.
 
-`/health` 的 `features` 含 `client-tools-policy-v1` 时，本页描述的托管与拒绝模式可用。错误码见 [protocol.md](protocol.md)「错误码」一章。
+When `features` in `/health` contains `client-tools-policy-v1`, the managed and reject modes described on this page are available. For error codes see the "Error codes" chapter of [protocol.md](protocol.md).

@@ -44,6 +44,8 @@ export type AuditInput = {
 /** `note` 接受的两类记录：智能体策略变更，与运营者对平台账号的操作。 */
 export type AuditNote =
   | (AuditInput & { code: 'approval_policy_auto'; agentId: string })
+  // 上架项「允许平台账号以本机权限运行」的打开与关闭：detail 为 `on` 或 `off`。
+  | (AuditInput & { code: 'platform_listing_host_execution'; agentId: string; detail: string })
   | (AuditInput & { code: PlatformAuditCode; accountId: string; detail?: string })
   | (AuditInput & { code: 'platform_setup'; detail: string });
 export type AuditEvent = {
@@ -117,12 +119,14 @@ export class AuditLog {
       suppressed: 0,
       ...(input.code === 'approval_policy_auto'
         ? { agent_id: input.agentId }
-        : input.code === 'platform_setup'
-          ? { detail: input.detail.slice(0, 200) }
-          : {
-              account_id: input.accountId,
-              ...(input.detail ? { detail: input.detail.slice(0, 200) } : {}),
-            }),
+        : input.code === 'platform_listing_host_execution'
+          ? { agent_id: input.agentId, detail: input.detail.slice(0, 200) }
+          : input.code === 'platform_setup'
+            ? { detail: input.detail.slice(0, 200) }
+            : {
+                account_id: input.accountId,
+                ...(input.detail ? { detail: input.detail.slice(0, 200) } : {}),
+              }),
     };
     this.store
       .prepare('INSERT INTO audit_events(owner,time,code,payload) VALUES(?,?,?,?)')

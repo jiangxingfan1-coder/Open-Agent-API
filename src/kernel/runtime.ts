@@ -25,6 +25,8 @@ export interface KernelRuntime {
   readonly byokExpiry: Map<string, NodeJS.Timeout>;
   readonly shutdown: AbortController;
   readonly ajv: JsonSchemas;
+  /** Validator of caller-requested output contracts: also enforces `format`. */
+  readonly outputSchemas: JsonSchemas;
   readonly cache: ToolCache;
   readonly delegation: DelegateRuntime;
   /** 网关是否正在关闭。 */

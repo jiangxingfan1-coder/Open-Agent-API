@@ -1,9 +1,22 @@
 import { Ajv, type ErrorObject, type ValidateFunction } from 'ajv';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { Ajv2019 } from 'ajv/dist/2019.js';
+import addFormatsModule from 'ajv-formats';
 import { Fault, canonical, sha } from './util.js';
 
+// ajv-formats is CommonJS with a default export: under NodeNext the function sits on `.default`.
+const addFormats = addFormatsModule as unknown as typeof addFormatsModule.default;
+
+/** The `format` names that an output contract enforces (everything ajv-formats knows). */
+export function knownFormats(): Set<string> {
+  const probe = new Ajv();
+  addFormats(probe);
+  return new Set(Object.keys(probe.formats));
+}
+
 export class JsonSchemas {
+  /** `formats`: enforce the standard `format` keywords (date-time, email, uuid, ...), for output contracts. */
+  constructor(private readonly options: { formats?: boolean } = {}) {}
   private compiled = new Map<string, ValidateFunction>();
   private formatter = new Ajv();
   private errors: ErrorObject[] | null | undefined;
@@ -36,6 +49,7 @@ export class JsonSchemas {
         'schema_dialect_unsupported',
         'Supported JSON schema drafts are 2020-12, 2019-09, and draft-07.',
       );
+    if (this.options.formats) addFormats(validator);
     if (dialect === 'https://json-schema.org/draft-07/schema') {
       const meta = validator.getSchema('http://json-schema.org/draft-07/schema')?.schema;
       if (meta && typeof meta === 'object')

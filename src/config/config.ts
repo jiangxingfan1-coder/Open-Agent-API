@@ -1,3 +1,4 @@
+import { applySecurityProfile } from './security-profile.js';
 import { z } from 'zod';
 import { readFile, mkdir, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -10,6 +11,7 @@ import {
   keyQuotaSchema,
 } from '../core/contracts.js';
 import { Fault, writePrivate } from '../core/util.js';
+import { whichSync } from '../core/which.js';
 import { discoverAcpAgents, discoveredAdapterEntry, nativeEngines } from './agent-presets.js';
 
 const tokenRef = { tokenEnv: z.string().optional(), tokenFile: z.string().optional() };
@@ -18,6 +20,17 @@ export const providerSchema = z
     kind: z.enum(['openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-generate']),
     baseUrl: z.string().url().default('https://api.openai.com/v1'),
     apiKeyEnv: z.string().default('OPENAI_API_KEY'),
+    /** Read the key from this file instead (wins over `apiKeyEnv`; trimmed; never logged). */
+    apiKeyFile: z.string().min(1).max(4096).optional(),
+    /** The endpoint needs no key (local services such as Ollama); no auth header is sent. */
+    noApiKey: z.boolean().optional(),
+    /** Preset this entry was written from (`oaa connect <preset>`); informational only. */
+    preset: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
+      .optional(),
+    /** Chat Completions: send `stream_options.include_usage` (default true). */
+    streamUsage: z.boolean().optional(),
     /**
      * Accept caller-supplied keys (BYOK) for this provider. The caller's key is then sent to
      * `baseUrl`. Without an `apiKeyEnv` value the provider serves BYOK requests only.
@@ -28,9 +41,37 @@ export const providerSchema = z
       .enum(['max_tokens', 'max_completion_tokens'])
       .default('max_completion_tokens'),
     anthropicVersion: z.string().min(1).max(64).optional(),
+    /**
+     * Image input (docs/images.md): `none`, `inline` (base64 bytes) or `url` (bytes and https
+     * URLs the provider fetches itself). Unset: by kind (providerImageInput).
+     */
+    imageInput: z.enum(['none', 'inline', 'url']).optional(),
   })
   .strict();
 export type ProviderConfig = z.infer<typeof providerSchema>;
+const MIB = 1024 * 1024;
+export const imageConfigSchema = z
+  .object({
+    maxImageBytes: z
+      .number()
+      .int()
+      .min(1024)
+      .max(8 * MIB)
+      .default(5 * MIB),
+    maxImagesPerRequest: z.number().int().min(1).max(20).default(10),
+    maxTotalBytes: z
+      .number()
+      .int()
+      .min(1024)
+      .max(8 * MIB)
+      .default(8 * MIB),
+    /** Let the gateway fetch https image URLs itself (off: URLs reach URL-capable providers only). */
+    fetchRemote: z.boolean().default(false),
+    fetchTimeoutMs: z.number().int().min(500).max(60_000).default(10_000),
+  })
+  .strict()
+  .prefault({});
+export type ImageConfig = z.infer<typeof imageConfigSchema>;
 const mcpSchema = z.discriminatedUnion('transport', [
   z
     .object({
@@ -171,6 +212,8 @@ export const workerSchema = z
                * Absent means `oaa/1`.
                */
               protocol: z.enum(['oaa/1', 'oaa/1-stream']).optional(),
+              /** Image inputs as workspace files (docs/images.md); false refuses images. */
+              imageFiles: z.boolean().optional(),
             })
             .strict(),
           z
@@ -210,6 +253,8 @@ export const workerSchema = z
                 .string()
                 .regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
                 .optional(),
+              /** Image inputs as workspace files when the agent declares no image support. */
+              imageFiles: z.boolean().optional(),
             })
             .strict(),
         ]),
@@ -244,7 +289,7 @@ export const platformSchema = z
     sessionTtlHours: z.number().int().min(1).max(8760).default(720),
   })
   .strict();
-export const gatewaySchema = z
+const gatewayObject = z
   .object({
     host: z.string().default('127.0.0.1'),
     port: z.number().int().min(0).max(65535).default(8787),
@@ -302,10 +347,61 @@ export const gatewaySchema = z
     defaultKeyExecution: z.enum(executionLevels).default('host'),
     /** Optional per-caller cap on unfinished requests (below the owner-wide cap of 32). */
     maxActiveRunsPerSubject: z.number().int().min(1).max(32).optional(),
+    /** Optional per-caller cap on stored file bytes (uploads and artifacts). Unset: unlimited. */
+    maxStoredBytesPerSubject: z.number().int().min(1).optional(),
     approvalTimeoutMs: z.number().int().min(50).max(86_400_000).default(600_000),
+    /**
+     * What a request that declares caller tools gets when it does not choose a mode itself
+     * (X-OAA-Client-Tools / metadata): `auto` bridges them when the agent can take them over and
+     * falls back to the entry's older behaviour otherwise; `managed`, `bridge`, `reject` apply to every request.
+     */
+    /** Structured output (response_format and friends): how often a wrong answer is sent back for correction. */
+    structuredOutput: z
+      .object({ maxRepairs: z.number().int().min(0).max(3).default(1) })
+      .strict()
+      .default({ maxRepairs: 1 }),
+    clientTools: z
+      .object({ default: z.enum(['auto', 'managed', 'bridge', 'reject']).default('auto') })
+      .strict()
+      .default({ default: 'auto' }),
+    /** Stream progress (docs/progress.md): per protocol, `reasoning` puts run progress into the protocol's thinking shape. */
+    streamProgress: z
+      .object({
+        chat: z.enum(['off', 'reasoning']).default('off'),
+        responses: z.enum(['off', 'reasoning']).default('reasoning'),
+        claude: z.enum(['off', 'reasoning']).default('off'),
+        gemini: z.enum(['off', 'reasoning']).default('reasoning'),
+      })
+      .strict()
+      .default({ chat: 'off', responses: 'reasoning', claude: 'off', gemini: 'reasoning' }),
     leaseMs: z.number().int().min(100).max(120_000).default(15_000),
     /** Developer platform (accounts, account keys, listings, credits). Unset: nothing changes. */
     platform: platformSchema.optional(),
+    /** Image input limits and the remote-image fetch switch (docs/images.md). */
+    images: imageConfigSchema,
+    /** `public` fills stricter defaults for unset settings (security-profile.ts). */
+    security: z
+      .object({
+        profile: z.enum(['local', 'public']).default('local'),
+        /** Time to receive one request (not the response). Unset: no limit. */
+        requestTimeoutMs: z.number().int().min(1000).max(3_600_000).optional(),
+      })
+      .strict()
+      .default({ profile: 'local' }),
+    /**
+     * Data retention (docs/stability.md). Unset: nothing is ever deleted automatically. With
+     * `runsDays`, finished runs older than that (and their events, artifacts and unreferenced
+     * uploads/workspaces) are pruned every `intervalMinutes`. `warnDatabaseMb` only makes
+     * `oaa doctor` warn when the database grows past it.
+     */
+    retention: z
+      .object({
+        runsDays: z.number().positive().max(36_500).optional(),
+        intervalMinutes: z.number().positive().max(10_080).default(60),
+        warnDatabaseMb: z.number().int().min(1).max(10_000_000).default(1024),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((gateway, context) => {
@@ -330,6 +426,7 @@ export const gatewaySchema = z
         });
     }
   });
+export const gatewaySchema = z.preprocess(applySecurityProfile, gatewayObject);
 export type GatewayConfig = z.infer<typeof gatewaySchema>;
 export async function loadConfig(file: string): Promise<GatewayConfig> {
   return gatewaySchema.parse(JSON.parse(await readFile(file, 'utf8')));
@@ -364,16 +461,9 @@ export async function initialize(root: string): Promise<string> {
     antigravity: 'agy',
     dsh: 'dsh',
   })) {
-    for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-      const candidate = path.join(dir, command);
-      try {
-        await access(candidate, constants.X_OK);
-        native[engine] = { executable: candidate, enabled: false, args: [] };
-        break;
-      } catch {
-        // Not executable here; try the next candidate.
-      }
-    }
+    // PATHEXT-aware on Windows (`codex` -> `codex.cmd`); the resolved file is recorded.
+    const candidate = whichSync(command);
+    if (candidate) native[engine] = { executable: candidate, enabled: false, args: [] };
   }
   // ACP agents found on PATH are recorded disabled; nothing is executed or enabled here.
   const adapters = Object.fromEntries(

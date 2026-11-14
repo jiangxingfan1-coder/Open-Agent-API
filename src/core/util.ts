@@ -1,4 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { resolveWindowsCommand } from './which.js';
+import { restrictToOwner } from './win-acl.js';
+import { windowsUnsafeSegment } from './win-path.js';
 import { constants, accessSync, statSync } from 'node:fs';
 import { mkdir, lstat, realpath, readFile, open } from 'node:fs/promises';
 import path from 'node:path';
@@ -110,20 +113,11 @@ export function executableExists(command: string, options: { fresh?: boolean } =
   return ok;
 }
 function probeExecutable(command: string, pathLike: boolean): boolean {
+  // Windows: PATHEXT applies to bare names and extension-less paths alike (`codex` -> `codex.cmd`).
+  if (process.platform === 'win32') return resolveWindowsCommand(command) !== undefined;
   const candidates = pathLike
     ? [command]
-    : (process.env.PATH ?? '')
-        .split(path.delimiter)
-        .flatMap((dir) =>
-          process.platform === 'win32'
-            ? [
-                path.join(dir, command),
-                ...(process.env.PATHEXT ?? '.EXE;.CMD')
-                  .split(';')
-                  .map((ext) => path.join(dir, command + ext)),
-              ]
-            : [path.join(dir, command)],
-        );
+    : (process.env.PATH ?? '').split(path.delimiter).map((dir) => path.join(dir, command));
   return candidates.some((candidate) => {
     try {
       accessSync(candidate, constants.X_OK);
@@ -179,7 +173,8 @@ export function relativeName(name: string): string {
     name.includes('\\') ||
     /[\x00-\x1f]/.test(name) ||
     path.posix.isAbsolute(name) ||
-    name.split('/').some((p) => !p || p === '.' || p === '..')
+    name.split('/').some((p) => !p || p === '.' || p === '..') ||
+    (process.platform === 'win32' && name.split('/').some(windowsUnsafeSegment))
   ) {
     throw new Fault('invalid_path', 'Expected a bounded relative path without traversal.');
   }
@@ -224,6 +219,8 @@ export async function writePrivate(
   } finally {
     await handle.close();
   }
+  // Mode bits mean nothing on Windows; narrow the ACL to the current user (best effort).
+  if (process.platform === 'win32') await restrictToOwner(target);
 }
 export async function readBounded(
   root: string,
@@ -261,6 +258,11 @@ export async function secret(ref: {
 export const redact = (message: string) =>
   message
     .replace(/(?:sk-|Bearer\s+)[A-Za-z0-9_.\-]{8,}|\boaa_[A-Za-z0-9_-]{32,}/gi, '[REDACTED]')
+    // Node and portal-session tokens, and common upstream formats (Google, GitHub, Slack, AWS).
+    .replace(
+      /\b(?:oa[ns]_[A-Za-z0-9_-]{32,}|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|(?:AKIA|ASIA)[A-Z0-9]{16})/g,
+      '[REDACTED]',
+    )
     .replace(/(api[_-]?key|token|password|secret)(["'\s:=]+)[^\s,;}]+/gi, '$1$2[REDACTED]');
 export function faultOf(error: unknown): Fault {
   if (error instanceof Fault) return error;
@@ -269,4 +271,30 @@ export function faultOf(error: unknown): Fault {
     redact(error instanceof Error ? error.message : 'Execution failed.'),
     500,
   );
+}
+/**
+ * Like `AbortSignal.timeout(ms)`, but `clear()` cancels the timer. A pending `AbortSignal.timeout`
+ * stays referenced (with every `AbortSignal.any` built on it) until it fires, so a long deadline
+ * on short work would otherwise hold memory for the whole deadline.
+ */
+export function deadlineTimer(ms: number): { signal: AbortSignal; clear: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('The operation timed out.', 'TimeoutError')),
+    ms,
+  );
+  timer.unref();
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
+/**
+ * Delay for an unref'd timer that is often cleared and re-armed, rounded up to two significant
+ * digits (at most about 10% late). Node keeps one internal timer list per distinct duration, and
+ * clearing an unref'd timer leaves its emptied list behind until that duration has elapsed, so
+ * arbitrary long durations (`deadline - Date.now()`) piled up one list per re-arm under load;
+ * rounded durations reuse a small set of lists.
+ */
+export function coarseDelay(ms: number): number {
+  if (!(ms > 1)) return 1;
+  const step = 10 ** Math.max(0, Math.floor(Math.log10(ms)) - 1);
+  return Math.ceil(ms / step) * step;
 }

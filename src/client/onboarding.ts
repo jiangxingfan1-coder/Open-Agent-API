@@ -2,7 +2,7 @@
  * 新手上手用的两个小命令：`oaa key create`（不打开控制台也能拿到调用方密钥）与 `oaa stop`
  * （停掉 `oaa serve --detach` 启动的网关）。只经网关的公开接口或本机 pid 文件工作。
  */
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import { closeSync, openSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -63,6 +63,7 @@ export async function stopDetachedGateway(
   url: string,
   kill: (pid: number, signal: NodeJS.Signals) => void = (pid, signal) => process.kill(pid, signal),
   probe: (url: string) => Promise<number | undefined> = healthPid,
+  graceful?: () => Promise<boolean>,
 ) {
   const pidFile = path.join(dataDir, 'server.pid');
   let pid: number;
@@ -83,7 +84,12 @@ export async function stopDetachedGateway(
       404,
     );
   }
-  kill(pid, 'SIGTERM');
+  // Windows: SIGTERM is TerminateProcess, so ask the gateway to close itself first (admin key,
+  // loopback only) and fall back to the signal only if it is still the same process afterwards.
+  let asked = false;
+  if (graceful) asked = await graceful().catch(() => false);
+  for (let i = 0; asked && i < 100 && (await probe(url)) === pid; i++) await sleep(100);
+  if (!asked || (await probe(url)) === pid) kill(pid, 'SIGTERM');
   for (let i = 0; i < 50 && (await probe(url)) === pid; i++) await sleep(100);
   await rm(pidFile, { force: true });
   return { stopped: true, pid, url };
@@ -102,6 +108,7 @@ export async function startDetached(
 ): Promise<{ url: string; pid: number }> {
   await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
   const logFile = path.join(config.dataDir, 'server.log');
+  await rotateLog(logFile);
   const log = openSync(logFile, 'a', 0o600);
   const child = spawn(
     process.execPath,
@@ -112,7 +119,8 @@ export async function startDetached(
       file,
       ...toolConfigs.flatMap((tool) => ['--tool-config', path.resolve(tool)]),
     ],
-    { cwd: process.cwd(), detached: true, stdio: ['ignore', log, log] },
+    // windowsHide: on Windows a detached child otherwise gets its own visible console window.
+    { cwd: process.cwd(), detached: true, windowsHide: true, stdio: ['ignore', log, log] },
   );
   closeSync(log);
   child.unref();
@@ -133,11 +141,46 @@ export async function startDetached(
   throw new Fault('startup_timeout', 'Service readiness was not observed. Inspect its log.', 500);
 }
 
+/** `oaa stop` on Windows: ask the gateway at `url` to close itself with the configured admin key. */
+export function adminShutdown(config: GatewayConfig, url: string): () => Promise<boolean> {
+  return async () => {
+    const tokenFile = config.keys.find((k) => k.scopes.includes('admin') && k.tokenFile)?.tokenFile;
+    if (!tokenFile) return false;
+    const token = (await readFile(tokenFile, 'utf8')).trim();
+    const r = await fetch(`${url}/v1/gateway/shutdown`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(3000),
+    });
+    return r.ok;
+  };
+}
+
 export async function healthPid(url: string): Promise<number | undefined> {
   try {
     const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(500) });
     return r.ok ? ((await r.json()) as { pid?: number }).pid : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/** Above this size `server.log` is moved to `server.log.1` (one generation) at startup. */
+export const LOG_ROTATE_BYTES = 10 * 1024 * 1024;
+/** The detached gateway appends to server.log for its lifetime; rotate it between starts. */
+export async function rotateLog(file: string, limit = LOG_ROTATE_BYTES): Promise<boolean> {
+  const size = await stat(file).then(
+    (s) => s.size,
+    () => 0,
+  );
+  if (size <= limit) return false;
+  // Best effort: on Windows a log still held open by another process cannot be renamed (or an
+  // old server.log.1 may be locked); the gateway then keeps appending, and startup goes on.
+  try {
+    await rm(`${file}.1`, { force: true });
+    await rename(file, `${file}.1`);
+    return true;
+  } catch {
+    return false;
   }
 }

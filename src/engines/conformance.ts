@@ -52,6 +52,13 @@ export type ConversionProfile = {
    * tools are not executed (`X-OAA-Client-Tools: ignored`).
    */
   client_tools: 'bridge' | 'managed';
+  /**
+   * Image input (docs/images.md): `route` (kernel; per model route, see `providers.*.imageInput`),
+   * `native` (the engine's own image input), `agent-declared` (ACP `promptCapabilities.image`,
+   * else workspace files), `workspace-file` (image files in the task workspace, named in the
+   * input), `none` (images are refused).
+   */
+  image_input: 'route' | 'native' | 'agent-declared' | 'workspace-file' | 'none';
 };
 
 /**
@@ -81,6 +88,7 @@ const NATIVE: Record<NativeEngine, ConversionProfile> = {
     usage: 'none',
     artifacts: true,
     model_selection: 'declared',
+    image_input: 'native',
   }),
   claude: complete({
     access: 'native',
@@ -93,6 +101,7 @@ const NATIVE: Record<NativeEngine, ConversionProfile> = {
     usage: 'reported',
     artifacts: true,
     model_selection: 'declared',
+    image_input: 'native',
   }),
   antigravity: complete({
     access: 'native',
@@ -105,6 +114,7 @@ const NATIVE: Record<NativeEngine, ConversionProfile> = {
     usage: 'partial',
     artifacts: true,
     model_selection: 'agent-confirmed',
+    image_input: 'workspace-file',
   }),
   dsh: complete({
     access: 'native',
@@ -117,6 +127,7 @@ const NATIVE: Record<NativeEngine, ConversionProfile> = {
     usage: 'none',
     artifacts: true,
     model_selection: 'allowlist',
+    image_input: 'workspace-file',
   }),
 };
 const KERNEL = complete({
@@ -130,6 +141,7 @@ const KERNEL = complete({
   usage: 'reported',
   artifacts: true,
   model_selection: 'route',
+  image_input: 'route',
 });
 const ACP = complete({
   access: 'acp',
@@ -142,6 +154,7 @@ const ACP = complete({
   usage: 'agent-reported',
   artifacts: true,
   model_selection: 'agent-confirmed',
+  image_input: 'agent-declared',
 });
 const UNKNOWN = complete({
   access: 'unknown',
@@ -154,6 +167,7 @@ const UNKNOWN = complete({
   usage: 'none',
   artifacts: false,
   model_selection: 'declared',
+  image_input: 'none',
 });
 
 /** Evidence from an owner-requested handshake (ACP initialize or A2A agent card). */
@@ -161,6 +175,8 @@ export type HandshakeEvidence = {
   load_session?: boolean;
   resume_session?: boolean;
   streaming?: boolean;
+  /** ACP `promptCapabilities.image`. */
+  image?: boolean;
 };
 
 /**
@@ -183,6 +199,11 @@ export function conversionProfile(
     return complete({
       ...ACP,
       resume: evidence.load_session || evidence.resume_session ? 'native' : 'none',
+      image_input: evidence.image
+        ? 'native'
+        : adapter.imageFiles === false
+          ? 'none'
+          : 'workspace-file',
     });
   }
   if (adapter.transport === 'a2a')
@@ -197,6 +218,7 @@ export function conversionProfile(
       usage: 'none',
       artifacts: false,
       model_selection: 'declared',
+      image_input: 'none',
     });
   if (adapter.transport === 'http')
     return complete({
@@ -210,7 +232,9 @@ export function conversionProfile(
       usage: 'reported',
       artifacts: false,
       model_selection: 'declared',
+      image_input: 'none',
     });
+  const files = adapter.imageFiles === false ? 'none' : 'workspace-file';
   return adapter.protocol === 'oaa/1-stream'
     ? complete({
         access: 'oaa-adapter',
@@ -223,6 +247,7 @@ export function conversionProfile(
         usage: 'reported',
         artifacts: true,
         model_selection: 'declared',
+        image_input: files,
       })
     : complete({
         access: 'oaa-adapter',
@@ -235,6 +260,7 @@ export function conversionProfile(
         usage: 'reported',
         artifacts: true,
         model_selection: 'declared',
+        image_input: files,
       });
 }
 

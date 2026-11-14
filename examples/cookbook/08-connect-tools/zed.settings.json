@@ -1,0 +1,10 @@
+{
+  "language_models": {
+    "openai_compatible": {
+      "oaa": {
+        "api_url": "http://127.0.0.1:8787/v1",
+        "available_models": [{ "name": "agent/sample", "max_tokens": 128000 }]
+      }
+    }
+  }
+}

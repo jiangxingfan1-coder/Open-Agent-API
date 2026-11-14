@@ -547,7 +547,8 @@ test('generated stdio launcher and CLI inspect and download the same immutable p
     ]);
     assert.equal(JSON.parse(downloaded.stdout).agent_version, bundle.digest);
     assert.equal(JSON.parse(await readFile(out, 'utf8')).version, bundle.digest);
-    assert.equal((await stat(out)).mode & 0o777, 0o600);
+    // Mode bits exist only on POSIX; Windows relies on the ACL (docs/windows.md).
+    if (process.platform !== 'win32') assert.equal((await stat(out)).mode & 0o777, 0o600);
     await assert.rejects(
       exec(process.execPath, [cli, 'agent', bundle.agent.id, '--out', out, ...common]),
       /EEXIST|exists/,

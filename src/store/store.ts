@@ -27,6 +27,7 @@ import {
 } from './output.js';
 
 import { refreshWaiting, waitingOn } from './waiting.js';
+import { backupBeforeMigration } from './backup.js';
 type Row = Record<string, unknown>;
 /**
  * v4 partitions caller data by `subject` (normally the API key ID): runs, summaries, files,
@@ -127,7 +128,7 @@ export class Store {
       this.db.exec(
         'PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-16000',
       );
-      this.backupBeforeMigration(root);
+      backupBeforeMigration(this.db, root, SCHEMA_VERSION, () => this.leaseHolderAlive());
       this.db.exec('BEGIN IMMEDIATE');
       const version = Number(this.prepare('PRAGMA user_version').get()!.user_version);
       if (version > SCHEMA_VERSION)
@@ -212,21 +213,6 @@ export class Store {
       if ((e as NodeJS.ErrnoException).code === 'ESRCH') return false;
     }
     return true;
-  }
-  /**
-   * Schema upgrades cannot be undone by an older gateway, so an existing database is copied to
-   * `backups/` before its first v4 migration. Fresh databases and live peers are skipped; a
-   * failed copy aborts startup rather than migrating without a restore point.
-   */
-  private backupBeforeMigration(root: string): void {
-    const version = Number(this.db.prepare('PRAGMA user_version').get()!.user_version);
-    if (version >= SCHEMA_VERSION || !this.columns('runs').size) return;
-    if (this.columns('gateway_owner').size && this.leaseHolderAlive()) return;
-    const dir = path.join(root, 'backups');
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const file = path.join(dir, `state-v${version}-before-subjects-${Date.now()}.sqlite`);
-    this.db.prepare('VACUUM INTO ?').run(file);
-    chmodSync(file, 0o600);
   }
   /**
    * v4: attribute existing rows to a subject inside the startup transaction. Malformed payloads

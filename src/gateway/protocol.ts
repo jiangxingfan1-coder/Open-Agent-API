@@ -6,11 +6,26 @@ import {
   resolveModelSelector,
   type RoutingStrategy,
 } from '../kernel/routing.js';
-import { invocationSchema, type Invocation } from '../kernel/invocation.js';
-import { compatInput } from './client-tools.js';
+import { invocationSchema, type ImageInput, type Invocation } from '../kernel/invocation.js';
+import { openAIImage } from './image-parts.js';
+import { compatInput, type ToolsFallback } from './client-tools.js';
 import { chatFinish, finishOf, runFailure } from './compat-errors.js';
-import { applyMaxTokens, attachResolutionMetadata, unsupportedParameter } from './compat-params.js';
 import {
+  applyMaxTokens,
+  applyReasoningEffort,
+  attachResolutionMetadata,
+  chatChecked,
+  chatTolerated,
+  carriesCallerTools,
+  rejectUnsatisfiable,
+  responsesChecked,
+  responsesTolerated,
+  unsupportedParameter,
+} from './compat-params.js';
+import { chatContract, instructionFor, responsesContract } from './structured-output.js';
+import {
+  rejectNonMessageItems,
+  withoutReasoningItems,
   rejectUnsupportedParts,
   renderOpenAIPart,
   renderToolOutput,
@@ -20,7 +35,7 @@ import {
 export { attachResolutionMetadata } from './compat-params.js';
 
 /** 严格端点也接受、但不转发的采样类参数（经 X-OAA-Ignored-Params 告知）。 */
-const ignoredNumber = z.number().optional();
+const ignoredNumber = z.number().nullish();
 const strictCommon = {
   temperature: ignoredNumber,
   top_p: ignoredNumber,
@@ -59,13 +74,22 @@ export {
 } from '../kernel/invocation.js';
 export { responseObject } from '../kernel/response-object.js';
 
+// Parts and items drop unknown keys (`id`, `status`, `annotations`, `cache_control`, ...): they carry
+// bookkeeping, not meaning. `output_text` is how clients replay earlier assistant turns.
 const inputPart = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('input_text'), text: z.string().max(200_000) }).strict(),
-  z.object({ type: z.literal('input_file'), file_id: z.string() }).strict(),
+  z.object({ type: z.literal('input_text'), text: z.string().max(200_000) }),
+  z.object({ type: z.literal('output_text'), text: z.string().max(200_000) }),
+  z.object({ type: z.literal('input_file'), file_id: z.string() }),
+  z.object({
+    type: z.literal('input_image'),
+    image_url: z.string().nullish(),
+    file_id: z.string().nullish(),
+    detail: z.enum(['auto', 'low', 'high']).nullish(),
+  }),
 ]);
 
-const STRICT_RESPONSES_PARTS = new Set(['input_text', 'input_file']);
-const STRICT_CHAT_PARTS = new Set(['text', 'input_text', 'file']);
+const STRICT_RESPONSES_PARTS = new Set(['input_text', 'output_text', 'input_file', 'input_image']);
+const STRICT_CHAT_PARTS = new Set(['text', 'input_text', 'file', 'image_url']);
 
 const responsesSchema = z
   .object({
@@ -74,24 +98,27 @@ const responsesSchema = z
       z.string(),
       z
         .array(
-          z
-            .object({
-              role: z.enum(['user', 'assistant', 'system', 'developer']),
-              content: z.union([z.string(), z.array(inputPart)]),
-            })
-            .strict(),
+          z.object({
+            type: z.literal('message').optional(),
+            role: z.enum(['user', 'assistant', 'system', 'developer']),
+            content: z.union([z.string(), z.array(inputPart)]),
+          }),
         )
         .min(1)
         .max(100),
     ]),
+    instructions: z.string().max(200_000).nullish(),
+    reasoning: z.object({ effort: z.string().nullish() }).nullish(),
     stream: z.boolean().default(false),
     background: z.boolean().default(false),
     previous_response_id: z.string().optional(),
     metadata: z.record(z.string().max(64), z.string().max(512)).default({}),
     max_output_tokens: z.number().int().positive().optional(),
     ...strictCommon,
-    top_logprobs: z.number().int().optional(),
-    truncation: z.enum(['auto', 'disabled']).optional(),
+    ...responsesTolerated,
+    ...responsesChecked,
+    top_logprobs: z.number().int().nullish(),
+    truncation: z.enum(['auto', 'disabled']).nullish(),
   })
   .strict();
 
@@ -117,35 +144,60 @@ export function parseInvocation(value: unknown, headers?: Record<string, unknown
 }
 
 export function parseResponse(value: unknown, headers?: Record<string, unknown>): Invocation {
+  value = withoutReasoningItems(value);
   const compatHeader = String(headers?.['x-oaa-compat'] ?? '').toLowerCase();
   if (compatHeader === 'true' || compatHeader === '1') {
     return parseCompatResponse(value, headers);
   }
+  // Caller tools (and their calls and results) are handed to the shared compat path; every other
+  // field is still checked here, so a typo is not swallowed. A request nobody can bridge is refused
+  // there with the message that names the way out.
+  if (carriesCallerTools('responses', value)) {
+    rejectUnsatisfiable('responses', value as Record<string, unknown>, '/v1/responses');
+    strictParse(
+      responsesSchema,
+      { ...(value as object), input: 'x', tools: undefined },
+      '/v1/responses',
+      '/v1/compat/responses',
+    );
+    return parseCompatResponse(value, headers, 'reject');
+  }
+  rejectNonMessageItems(value, '/v1/compat/responses');
   rejectUnsupportedParts(value, 'input', STRICT_RESPONSES_PARTS);
   const req = strictParse(responsesSchema, value, '/v1/responses', '/v1/compat/responses');
+  rejectUnsatisfiable('responses', value as Record<string, unknown>, '/v1/responses');
   const files: string[] = [];
+  const contract = responsesContract(req.text);
+  const images: ImageInput[] = [];
+  const system = req.instructions?.trim() ? `[system]\n${req.instructions.trim()}\n\n` : '';
   const rawText =
-    typeof req.input === 'string'
+    system +
+    (typeof req.input === 'string'
       ? req.input
       : req.input
-          .map((m) => {
+          .map((m, i) => {
             const content =
               typeof m.content === 'string'
                 ? m.content
                 : m.content
-                    .map((p) => {
-                      if (p.type === 'input_text') return p.text;
+                    .map((p, j) => {
+                      if (p.type === 'input_image')
+                        return openAIImage(p, `input.${i}.content.${j}`, images)!;
+                      if (p.type !== 'input_file') return p.text;
                       files.push(p.file_id);
                       return `[Attached file ${p.file_id}]`;
                     })
                     .join('\n');
             return `[${m.role}]\n${content}`;
           })
-          .join('\n\n');
+          .join('\n\n')) +
+    (contract ? `\n\n${instructionFor(contract)}` : '');
 
   const directive = extractInlineDirective(rawText);
-  const resolved = resolveModelSelector(req.model, req.metadata, headers, directive);
-  const meta = attachResolutionMetadata(req.metadata, resolved);
+  const rawMeta = { ...req.metadata };
+  applyReasoningEffort(rawMeta, req.reasoning?.effort);
+  const resolved = resolveModelSelector(req.model, rawMeta, headers, directive);
+  const meta = attachResolutionMetadata(rawMeta, resolved);
   applyMaxTokens(meta, req.max_output_tokens);
 
   return invocationSchema.parse({
@@ -153,11 +205,13 @@ export function parseResponse(value: unknown, headers?: Record<string, unknown>)
     model: resolved.model,
     input: directive.cleanedInput,
     file_ids: [...new Set(files)],
+    ...(images.length ? { images } : {}),
     stream: req.stream,
     background: req.background,
     previous_response_id: req.previous_response_id,
     agent_version: resolved.agent_version,
     metadata: meta,
+    ...(contract ? { output_contract: contract } : {}),
   });
 }
 
@@ -184,9 +238,14 @@ const compatResponsesSchema = z
   })
   .passthrough();
 
-export function parseCompatResponse(value: unknown, headers?: Record<string, unknown>): Invocation {
-  const req = compatResponsesSchema.parse(value);
+export function parseCompatResponse(
+  value: unknown,
+  headers?: Record<string, unknown>,
+  fallback: ToolsFallback = 'managed',
+): Invocation {
+  const req = compatResponsesSchema.parse(withoutReasoningItems(value));
   const files: string[] = [];
+  const images: ImageInput[] = [];
   const sections: string[] = [];
   if (req.instructions && req.instructions.trim()) {
     sections.push(`[system]\n${req.instructions.trim()}`);
@@ -216,23 +275,15 @@ export function parseCompatResponse(value: unknown, headers?: Record<string, unk
                 'message content must be a string or an array of content parts.',
               );
             const rendered = rawContent
-              .map((p, j) => renderOpenAIPart(p, `input.${i}.content.${j}`, files))
+              .map((p, j) => renderOpenAIPart(p, `input.${i}.content.${j}`, files, images))
               .join('\n');
             return `[${role}]\n${rendered}`;
           })
           .join('\n\n');
   sections.push(inputText);
 
-  const textFormat = req.text?.format as { type?: unknown; schema?: unknown } | null | undefined;
-  if (
-    textFormat &&
-    typeof textFormat === 'object' &&
-    (textFormat.type === 'json_object' || textFormat.type === 'json_schema')
-  ) {
-    sections.push(
-      `[Response Format Requirement: Respond with valid JSON${textFormat.schema ? ` matching schema ${JSON.stringify(textFormat.schema).slice(0, 1500)}` : ''}.]`,
-    );
-  }
+  const contract = responsesContract(req.text);
+  if (contract) sections.push(instructionFor(contract));
 
   const rawMeta: Record<string, string> = {};
   if (req.metadata) {
@@ -241,15 +292,7 @@ export function parseCompatResponse(value: unknown, headers?: Record<string, unk
     }
   }
   rawMeta['oaa.compat_mode'] = 'true';
-  const effort =
-    typeof req.reasoning?.effort === 'string' ? req.reasoning.effort.toLowerCase() : undefined;
-  if (effort) {
-    rawMeta['oaa.reasoning_effort'] = effort.slice(0, 32);
-    if (!rawMeta['oaa.routing_strategy']) {
-      if (effort === 'high' || effort === 'xhigh') rawMeta['oaa.routing_strategy'] = 'quality';
-      else if (effort === 'low' || effort === 'minimal') rawMeta['oaa.routing_strategy'] = 'speed';
-    }
-  }
+  applyReasoningEffort(rawMeta, req.reasoning?.effort);
   if (req.max_output_tokens !== undefined) {
     rawMeta['oaa.compat_max_tokens'] = String(req.max_output_tokens);
   }
@@ -264,25 +307,27 @@ export function parseCompatResponse(value: unknown, headers?: Record<string, unk
   return invocationSchema.parse({
     agent: resolved.agent,
     model: resolved.model,
-    ...compatInput('responses', req, headers, meta, directive.cleanedInput),
+    ...compatInput('responses', req, headers, meta, directive.cleanedInput, fallback),
     file_ids: [...new Set(files)],
+    ...(images.length ? { images } : {}),
     stream: req.stream,
     background: req.background,
     previous_response_id: req.previous_response_id,
     agent_version: resolved.agent_version,
     metadata: meta,
+    ...(contract ? { output_contract: contract } : {}),
   });
 }
 
+// Unknown keys on parts are dropped (`cache_control` markers and similar bookkeeping).
 const chatContentPart = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('text'), text: z.string().max(200_000) }).strict(),
-  z.object({ type: z.literal('input_text'), text: z.string().max(200_000) }).strict(),
-  z
-    .object({
-      type: z.literal('file'),
-      file: z.object({ file_id: z.string() }).strict(),
-    })
-    .strict(),
+  z.object({ type: z.literal('text'), text: z.string().max(200_000) }),
+  z.object({ type: z.literal('input_text'), text: z.string().max(200_000) }),
+  z.object({ type: z.literal('file'), file: z.object({ file_id: z.string() }) }),
+  z.object({
+    type: z.literal('image_url'),
+    image_url: z.object({ url: z.string(), detail: z.enum(['auto', 'low', 'high']).nullish() }),
+  }),
 ]);
 
 const chatSchema = z
@@ -294,22 +339,27 @@ const chatSchema = z
           .object({
             role: z.enum(['user', 'assistant', 'system', 'developer']),
             content: z.union([z.string().max(200_000), z.array(chatContentPart).min(1).max(100)]),
+            name: z.string().optional(),
           })
           .strict(),
       )
       .min(1)
       .max(100),
     stream: z.boolean().default(false),
-    stream_options: z.object({ include_usage: z.boolean().optional() }).strict().optional(),
+    // `include_usage` is honoured; other keys (`include_obfuscation`, ...) are dropped.
+    stream_options: z.object({ include_usage: z.boolean().nullish() }).nullish(),
     metadata: z.record(z.string(), z.string()).optional(),
-    max_tokens: z.number().int().positive().optional(),
-    max_completion_tokens: z.number().int().positive().optional(),
+    max_tokens: z.number().int().positive().nullish(),
+    max_completion_tokens: z.number().int().positive().nullish(),
     ...strictCommon,
+    ...chatTolerated,
+    ...chatChecked,
+    reasoning_effort: z.string().nullish(),
     seed: ignoredNumber,
-    stop: z.union([z.string(), z.array(z.string()).max(4), z.null()]).optional(),
+    stop: z.union([z.string(), z.array(z.string()), z.null()]).optional(),
     presence_penalty: ignoredNumber,
     frequency_penalty: ignoredNumber,
-    n: z.number().int().optional(),
+    n: z.number().int().nullish(),
   })
   .strict();
 
@@ -318,25 +368,40 @@ export function parseChat(value: unknown, headers?: Record<string, unknown>): In
   if (compatHeader === 'true' || compatHeader === '1') {
     return parseCompatChat(value, headers);
   }
+  if (carriesCallerTools('chat', value)) {
+    rejectUnsatisfiable('chat', value as Record<string, unknown>, '/v1/chat/completions');
+    strictParse(
+      chatSchema,
+      { ...(value as object), messages: [{ role: 'user', content: 'x' }], tools: undefined },
+      '/v1/chat/completions',
+      '/v1/compat/chat/completions',
+    );
+    return parseCompatChat(value, headers, 'reject');
+  }
   rejectUnsupportedParts(value, 'messages', STRICT_CHAT_PARTS);
   const req = strictParse(chatSchema, value, '/v1/chat/completions', '/v1/compat/chat/completions');
-  if (req.n !== undefined && req.n !== 1)
+  rejectUnsatisfiable('chat', value as Record<string, unknown>, '/v1/chat/completions');
+  if (req.n !== undefined && req.n !== null && req.n !== 1)
     throw unsupportedParameter(
       'n',
       '/v1/chat/completions',
       'Only n=1 is supported: an agent returns one answer per run.',
     );
+  // Same as OpenAI: stream_options is only valid together with stream=true.
   if (req.stream_options && !req.stream)
     throw new Fault('invalid_request', 'stream_options requires stream=true.');
 
   const files: string[] = [];
+  const images: ImageInput[] = [];
   const rawInput = req.messages
-    .map((m) => {
+    .map((m, i) => {
       const content =
         typeof m.content === 'string'
           ? m.content
           : m.content
-              .map((p) => {
+              .map((p, j) => {
+                if (p.type === 'image_url')
+                  return openAIImage(p, `messages.${i}.content.${j}`, images)!;
                 if (p.type === 'file') {
                   files.push(p.file.file_id);
                   return `[Attached file ${p.file.file_id}]`;
@@ -347,10 +412,14 @@ export function parseChat(value: unknown, headers?: Record<string, unknown>): In
       return `[${m.role}]\n${content}`;
     })
     .join('\n\n');
+  const contract = chatContract(req.response_format);
+  const rawInputWithFormat = contract ? `${rawInput}\n\n${instructionFor(contract)}` : rawInput;
 
-  const directive = extractInlineDirective(rawInput);
-  const resolved = resolveModelSelector(req.model, req.metadata, headers, directive);
-  const meta = attachResolutionMetadata(req.metadata, resolved);
+  const directive = extractInlineDirective(rawInputWithFormat);
+  const rawMeta = { ...req.metadata };
+  applyReasoningEffort(rawMeta, req.reasoning_effort);
+  const resolved = resolveModelSelector(req.model, rawMeta, headers, directive);
+  const meta = attachResolutionMetadata(rawMeta, resolved);
   applyMaxTokens(meta, req.max_completion_tokens ?? req.max_tokens);
 
   return invocationSchema.parse({
@@ -358,9 +427,11 @@ export function parseChat(value: unknown, headers?: Record<string, unknown>): In
     model: resolved.model,
     input: directive.cleanedInput,
     file_ids: [...new Set(files)],
+    ...(images.length ? { images } : {}),
     stream: req.stream,
     metadata: meta,
     agent_version: resolved.agent_version,
+    ...(contract ? { output_contract: contract } : {}),
   });
 }
 
@@ -409,16 +480,21 @@ const compatChatSchema = z
   })
   .passthrough();
 
-export function parseCompatChat(value: unknown, headers?: Record<string, unknown>): Invocation {
+export function parseCompatChat(
+  value: unknown,
+  headers?: Record<string, unknown>,
+  fallback: ToolsFallback = 'managed',
+): Invocation {
   const req = compatChatSchema.parse(value);
   const files: string[] = [];
+  const images: ImageInput[] = [];
   const renderedMessages = req.messages.map((m, i) => {
     let text = '';
     if (typeof m.content === 'string') {
       text = m.content;
     } else if (Array.isArray(m.content)) {
       text = m.content
-        .map((p, j) => renderOpenAIPart(p, `messages.${i}.content.${j}`, files))
+        .map((p, j) => renderOpenAIPart(p, `messages.${i}.content.${j}`, files, images))
         .join('\n');
     }
     if (Array.isArray(m.tool_calls) && m.tool_calls.length) {
@@ -437,14 +513,8 @@ export function parseCompatChat(value: unknown, headers?: Record<string, unknown
     return `[${label}]\n${text}`;
   });
 
-  if (
-    req.response_format &&
-    (req.response_format.type === 'json_object' || req.response_format.type === 'json_schema')
-  ) {
-    renderedMessages.push(
-      `[Response Format Requirement: Respond with valid JSON${req.response_format.json_schema ? ` matching schema ${JSON.stringify(req.response_format.json_schema).slice(0, 1500)}` : ''}.]`,
-    );
-  }
+  const contract = chatContract(req.response_format);
+  if (contract) renderedMessages.push(instructionFor(contract));
 
   const rawMeta: Record<string, string> = {};
   if (req.metadata) {
@@ -453,14 +523,7 @@ export function parseCompatChat(value: unknown, headers?: Record<string, unknown
     }
   }
   rawMeta['oaa.compat_mode'] = 'true';
-  if (req.reasoning_effort) {
-    const effort = req.reasoning_effort.toLowerCase();
-    rawMeta['oaa.reasoning_effort'] = effort.slice(0, 32);
-    if (!rawMeta['oaa.routing_strategy']) {
-      if (effort === 'high' || effort === 'xhigh') rawMeta['oaa.routing_strategy'] = 'quality';
-      else if (effort === 'low' || effort === 'minimal') rawMeta['oaa.routing_strategy'] = 'speed';
-    }
-  }
+  applyReasoningEffort(rawMeta, req.reasoning_effort);
   const maxTok = req.max_completion_tokens ?? req.max_tokens;
   if (maxTok !== undefined) rawMeta['oaa.compat_max_tokens'] = String(maxTok);
   if (req.temperature !== undefined) rawMeta['oaa.compat_temperature'] = String(req.temperature);
@@ -475,11 +538,13 @@ export function parseCompatChat(value: unknown, headers?: Record<string, unknown
   return invocationSchema.parse({
     agent: resolved.agent,
     model: resolved.model,
-    ...compatInput('chat', req, headers, meta, directive.cleanedInput),
+    ...compatInput('chat', req, headers, meta, directive.cleanedInput, fallback),
     file_ids: [...new Set(files)],
+    ...(images.length ? { images } : {}),
     stream: req.stream,
     metadata: meta,
     agent_version: resolved.agent_version,
+    ...(contract ? { output_contract: contract } : {}),
   });
 }
 

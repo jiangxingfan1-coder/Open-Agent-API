@@ -1,0 +1,586 @@
+{
+  "client": "librechat",
+  "label": "LibreChat",
+  "version": "v0.8.8 (latest non-prerelease tag, 2026-10-01; main was fad2c51 on 2026-11-13, v0.8.9-rc1 prerelease exists) + @librechat/agents v4.0.1 (locked by v0.8.8) + @langchain/openai 1.5.8 (nested in agents 4.0.1). Repo moved to LibreChat-AI/LibreChat.",
+  "retrieved": "2026-11-14",
+  "overall": "partial",
+  "sources": [
+    {
+      "url": "https://github.com/LibreChat-AI/LibreChat/blob/v0.8.8/packages/api/src/endpoints/custom/initialize.ts#L178-L354",
+      "note": "Custom endpoint init: baseURL/apiKey from librechat.yaml; modelOptions = {...model_parameters, user: userId} (the LibreChat user id is sent as the OpenAI 'user' field); useLegacyContent = true; titleMethod default 'completion'."
+    },
+    {
+      "url": "https://github.com/LibreChat-AI/LibreChat/blob/v0.8.8/packages/api/src/endpoints/openai/config.ts#L93-L334",
+      "note": "getOpenAIConfig: streaming default true, configOptions.baseURL = configured baseURL, defaultHeaders only from yaml headers (HTTP-Referer/X-Title only for OpenRouter/Vercel gateways)."
+    },
+    {
+      "url": "https://github.com/LibreChat-AI/LibreChat/blob/v0.8.8/packages/api/src/endpoints/openai/llm.ts#L593-L700",
+      "note": "getOpenAILLMConfig: frequency/presence_penalty mapped to camelCase fields, verbosity into modelKwargs, max_tokens to maxTokens; reasoning handling lines 444-511 and 860-912 (reasoning_effort goes to modelKwargs for Chat Completions)."
+    },
+    {
+      "url": "https://github.com/LibreChat-AI/LibreChat/blob/v0.8.8/packages/api/src/endpoints/models.ts#L154-L305",
+      "note": "fetchModels: GET {baseURL}/models via axios, Authorization: Bearer <key> unless yaml headers already set Authorization, 5 s timeout, models = response.data[].id; any failure is swallowed and yields an empty list (falls back to models.default from yaml)."
+    },
+    {
+      "url": "https://github.com/LibreChat-AI/LibreChat/blob/v0.8.8/packages/api/src/utils/tokens.ts#L850-L935",
+      "note": "Optional token-config parsing of the /models response (needs pricing.prompt/completion strings and context_length); only used for OpenRouter-like endpoints, failure is harmless."
+    },
+    {
+      "url": "https://github.com/LibreChat-AI/agents/blob/v4.0.1/src/llm/openai/index.ts#L1854-L1900",
+      "note": "LibreChatOpenAICompletions extends LangChain's ChatOpenAICompletions; invocationParams = LangChain params + optional safety_identifier / prompt_cache_options (only when configured)."
+    },
+    {
+      "url": "https://github.com/LibreChat-AI/agents/blob/v4.0.1/src/llm/openai/index.ts#L1380-L1402",
+      "note": "OpenAI SDK client built with maxRetries 0 and defaultHeaders passed through getHeadersWithUserAgent."
+    },
+    {
+      "url": "https://unpkg.com/@langchain/openai@1.5.8/dist/chat_models/completions.js",
+      "note": "L19-L63 invocationParams: keys model, temperature, top_p, frequency_penalty, presence_penalty, logprobs, top_logprobs, n, logit_bias, stop, user, stream, tools, tool_choice, response_format, seed, stream_options ({include_usage:true} when streaming and streamUsage, which defaults to true), parallel_tool_calls, ...modelKwargs, max_tokens (max_completion_tokens for reasoning model ids), reasoning_effort; undefined keys vanish in JSON. L176-L240 stream parsing."
+    },
+    {
+      "url": "https://unpkg.com/@langchain/openai@1.5.8/dist/converters/completions.js",
+      "note": "L570-L598 message conversion: content is the LangChain content (string stays string, arrays kept), name added when set, tool_calls from AIMessage.tool_calls, tool_call_id on tool messages; system becomes developer only for reasoning model ids. L254-L312 delta conversion (role = delta.role ?? previous role)."
+    },
+    {
+      "url": "https://unpkg.com/@langchain/openai@1.5.8/dist/utils/azure.js",
+      "note": "L89-L97 getHeadersWithUserAgent: User-Agent = langchainjs-openai/1.0.0 (<runtime env>)."
+    },
+    {
+      "url": "https://github.com/LibreChat-AI/LibreChat/blob/v0.8.8/packages/data-provider/src/schemas.ts#L1639-L1671",
+      "note": "openAIBaseSchema/openAISchema (used for custom endpoints): user-settable keys temperature, top_p, presence_penalty, frequency_penalty, stop, max_tokens, reasoning_effort, reasoning_summary, reasoning_mode, reasoning_context, verbosity, useResponsesApi, web_search, disableStreaming; nullish values removed."
+    },
+    {
+      "url": "https://github.com/LibreChat-AI/LibreChat/blob/v0.8.8/api/server/controllers/agents/client.js#L5954-L6135",
+      "note": "titleConvo: uses endpoint config titleConvo/titleModel/titleMethod, strips maxTokens, then run.generateTitle. The exact set of options removed by omitTitleOptions (incl. streaming) was NOT located, hence the title case is unverified."
+    },
+    {
+      "url": "https://github.com/LibreChat-AI/agents/blob/v4.0.1/src/utils/title.ts#L130-L160",
+      "note": "titleMethod 'completion' (default): a single prompt 'Provide a concise, 5-word-or-less title for the conversation, using title case conventions. Only return the title itself.' + conversation, invoked on the chat model."
+    },
+    {
+      "url": "https://www.librechat.ai/docs/configuration/librechat_yaml/object_structure/custom_endpoint",
+      "note": "Docs: baseURL is the API root (app appends /chat/completions), models.fetch, titleConvo, titleModel, titleMethod, dropParams, addParams, headers, directEndpoint; the Mistral example documents that stop, user, frequency_penalty and presence_penalty are default-sent parameters."
+    }
+  ],
+  "setup": {
+    "baseUrl": "In librechat.yaml: endpoints.custom[].baseURL: 'http://<gateway-host>:8787/v1'  (WITH /v1: the client appends /chat/completions for chat and /models for the list; set directEndpoint: true only if you give the full /chat/completions URL)",
+    "model": "models.default: ['agent/sample', ...] and/or models.fetch: true to call GET /v1/models (failure silently falls back to the default list). The model picker then sends the chosen name as 'model'.",
+    "apiKey": "endpoints.custom[].apiKey: 'user_provided' or a literal/${ENV} key; sent as Authorization: Bearer",
+    "notes": "Custom endpoints exist only in librechat.yaml (no UI form). All calls are made server-side by the LibreChat Node API (OpenAI Node SDK through LangChain), no CORS. In Docker use http://host.docker.internal:8787/v1. Recommended for the gateway: titleConvo: false (or titleModel set to a cheap agent) and dropParams: ['stop','user'] if the gateway rejects those; the gateway should simply ignore unknown fields."
+  },
+  "cases": [
+    {
+      "id": "models-list",
+      "title": "Model list fetch (models.fetch: true)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/LibreChat-AI/LibreChat/blob/v0.8.8/packages/api/src/endpoints/models.ts#L237-L301",
+        "note": "Authorization header and URL are verified in code; Accept and User-Agent are axios defaults (inferred, not set by LibreChat)."
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/models",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Accept": "application/json, text/plain, */*",
+          "User-Agent": "axios/1.x"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "models.object_list",
+        "models.nonempty",
+        "models.id_string"
+      ],
+      "notes": "Code does input.data.map(item => item.id): data must be an array of objects with id. Anything else throws inside try/catch and results in an empty list. Optional pricing/context_length are only used when the endpoint is a known FetchTokenConfig endpoint. 5 s timeout. Results are cached for 2 minutes."
+    },
+    {
+      "id": "chat-stream",
+      "title": "Streaming chat, default settings",
+      "evidence": {
+        "status": "verified",
+        "source": "https://unpkg.com/@langchain/openai@1.5.8/dist/chat_models/completions.js",
+        "note": "Keys verified from LangChain invocationParams + LibreChat initialize.ts (user = LibreChat user id, streaming default true, streamUsage default true). Header set (Accept, User-Agent, X-Stainless-*) is inferred from the OpenAI Node SDK plus getHeadersWithUserAgent; the values shown are examples."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "langchainjs-openai/1.0.0 (node/v22.0.0; linux; x64)",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "user": "65a1b2c3d4e5f60718293a4b",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.first_delta_role_assistant",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "LibreChat user id is always sent as 'user'. temperature/top_p/frequency_penalty/presence_penalty/stop/max_tokens are present only if the user (or a preset) set them; the yaml docs, however, list stop, user, frequency_penalty, presence_penalty as 'default parameters', so a fresh preset may include frequency_penalty:0 / presence_penalty:0 / top_p / temperature (inferred, not confirmed). A system message is added only when the conversation/agent has instructions. SDK stream: unknown fields are ignored; chunks without choices[0] are skipped; a final chunk with usage and choices:[] is read for token counts. If the first delta lacks role, LangChain builds a ChatMessageChunk instead of AIMessageChunk (concat across types is likely to fail), so keep delta.role:'assistant' on the first chunk."
+    },
+    {
+      "id": "chat-stream-all-settings",
+      "title": "Streaming chat with every optional setting the LibreChat UI/preset can set",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/LibreChat-AI/LibreChat/blob/v0.8.8/packages/data-provider/src/schemas.ts#L1639-L1671",
+        "note": "Key mapping verified in LangChain invocationParams (temperature, top_p, frequency_penalty, presence_penalty, stop, max_tokens, modelKwargs spread). The UI exposing every value at once is an assumption; n, seed, logit_bias, response_format are not user-settable in this schema."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "langchainjs-openai/1.0.0 (node/v22.0.0; linux; x64)",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "user": "65a1b2c3d4e5f60718293a4b",
+          "temperature": 0.7,
+          "top_p": 0.9,
+          "frequency_penalty": 0.2,
+          "presence_penalty": 0.2,
+          "max_tokens": 512,
+          "stop": [
+            "END"
+          ],
+          "reasoning_effort": "medium",
+          "verbosity": "low",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.first_delta_role_assistant",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "reasoning_effort and verbosity are written to modelKwargs and therefore appear as top-level body keys (verbosity only for non-OpenRouter). For model ids matching o1/o3/gpt-5 LibreChat drops temperature/top_p/penalties/logit_bias and uses max_completion_tokens instead of max_tokens; for ordinary agent names it keeps max_tokens. addParams from yaml are merged on top; dropParams removes keys."
+    },
+    {
+      "id": "chat-basic-nonstream",
+      "title": "Non-streaming chat (conversation option disableStreaming)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://unpkg.com/@langchain/openai@1.5.8/dist/chat_models/completions.js",
+        "note": "disableStreaming is a user-settable conversation field in openAIBaseSchema; with streaming false LangChain emits stream:false and no stream_options (streamUsage is forced off when disableStreaming). Not observed end to end."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "langchainjs-openai/1.0.0 (node/v22.0.0; linux; x64)",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "user": "65a1b2c3d4e5f60718293a4b",
+          "stream": false
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string",
+        "chat.finish_reason_string",
+        "chat.usage_numbers"
+      ],
+      "notes": "Non-stream path loops over data.choices, uses part.message.content (empty string if missing) and finish_reason; usage prompt/completion/total_tokens are read when present."
+    },
+    {
+      "id": "title-generation",
+      "title": "Automatic conversation title (titleConvo, titleMethod: completion)",
+      "evidence": {
+        "status": "unverified",
+        "source": "https://github.com/LibreChat-AI/LibreChat/blob/v0.8.8/api/server/controllers/agents/client.js#L5954-L6135",
+        "note": "Prompt and single-user-message shape come from agents title.ts (verified). Whether the title call streams (stream:true + stream_options) depends on omitTitleOptions, which was not located. maxTokens is explicitly deleted, so no max_tokens key."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "langchainjs-openai/1.0.0 (node/v22.0.0; linux; x64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Provide a concise, 5-word-or-less title for the conversation, using title case conventions. Only return the title itself.\n\nConversation:\nUser: Hello\nAI: Hi there"
+            }
+          ],
+          "user": "65a1b2c3d4e5f60718293a4b"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string"
+      ],
+      "notes": "Body shown lists only keys believed present for certain; the real request may additionally carry stream:true and stream_options:{include_usage:true}. The gateway should answer both forms. Title uses titleModel if configured, else the same agent as the chat, i.e. an extra agent run per new conversation. Set titleConvo: false in librechat.yaml to avoid it."
+    },
+    {
+      "id": "developer-or-system-role",
+      "title": "Agent/preset instructions (role system; developer only for reasoning-model ids)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://unpkg.com/@langchain/openai@1.5.8/dist/converters/completions.js",
+        "note": "LangChain maps system to developer only when isReasoningModel(model) (o1/o3/gpt-5 style ids); other ids keep system. That LibreChat emits a system message for promptPrefix/instructions is standard behaviour but the formatting code in api/ was not read."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "langchainjs-openai/1.0.0 (node/v22.0.0; linux; x64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "user": "65a1b2c3d4e5f60718293a4b",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.first_delta_role_assistant",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "For custom endpoints useLegacyContent is true, so text turns are plain strings, not arrays of text parts. A role 'developer' request should still be accepted by the gateway in case an agent is named like a reasoning model."
+    },
+    {
+      "id": "chat-multimodal-image-part",
+      "title": "User message with an attached image (resendFiles)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://unpkg.com/@langchain/openai@1.5.8/dist/converters/completions.js",
+        "note": "Array content is forwarded as-is by the converter; LibreChat's image encoding (image_url with data: URL and detail from imageDetail, default auto) is assumed from its schema (imageDetail default 'auto'), not read in api/ code."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "langchainjs-openai/1.0.0 (node/v22.0.0; linux; x64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "What is in this picture?"
+                },
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+                    "detail": "auto"
+                  }
+                }
+              ]
+            }
+          ],
+          "user": "65a1b2c3d4e5f60718293a4b",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
+    },
+    {
+      "id": "assistant-tool-calls-history",
+      "title": "Follow-up turn after a tool call by an agent with tools",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://unpkg.com/@langchain/openai@1.5.8/dist/converters/completions.js",
+        "note": "Converter output verified: {role, content} (+name when set) with tool_calls from AIMessage.tool_calls, and tool messages with tool_call_id. Whether content is '' or null or [] for a call-only assistant turn depends on how LibreChat builds the AIMessage (not read); '' is the most likely."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "langchainjs-openai/1.0.0 (node/v22.0.0; linux; x64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_abc123",
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"city\":\"Paris\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_abc123",
+              "name": "get_weather",
+              "content": "{\"temp_c\":18}"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ],
+          "user": "65a1b2c3d4e5f60718293a4b",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.first_delta_role_assistant",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "The gateway should tolerate content as '', null or an empty array on assistant tool-call messages, and an extra name field on tool messages. tool arguments are JSON strings."
+    },
+    {
+      "id": "tools-and-tool-choice",
+      "title": "Request of an agent with tools attached (tools only; tool_choice/parallel_tool_calls not set by default)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://unpkg.com/@langchain/openai@1.5.8/dist/chat_models/completions.js",
+        "note": "tools, tool_choice and parallel_tool_calls are only emitted when LangGraph's bindTools passes them as call options; by default tool_choice and parallel_tool_calls are undefined (dropped from JSON). Tool schema may include strict:true when the agent SDK enables strict tools (stripIntentFromStrictTools exists)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "langchainjs-openai/1.0.0 (node/v22.0.0; linux; x64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ],
+          "user": "65a1b2c3d4e5f60718293a4b",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.first_delta_role_assistant",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "Tool name may be prefixed/sanitised by LibreChat. Gateway agents that do not support client tools may simply ignore tools."
+    },
+    {
+      "id": "reasoning-effort",
+      "title": "Reasoning effort selected in the parameter panel",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/LibreChat-AI/LibreChat/blob/v0.8.8/packages/api/src/endpoints/openai/llm.ts#L444-L511",
+        "note": "For Chat Completions the effort ends up as modelKwargs.reasoning_effort (top-level body key). With useResponsesApi (not default for custom endpoints) it would go to the Responses API instead."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "langchainjs-openai/1.0.0 (node/v22.0.0; linux; x64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "user": "65a1b2c3d4e5f60718293a4b",
+          "reasoning_effort": "high",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.first_delta_role_assistant",
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "Chunks may carry delta.reasoning_content / delta.reasoning which LibreChat renders as thinking; absent is fine."
+    }
+  ]
+}

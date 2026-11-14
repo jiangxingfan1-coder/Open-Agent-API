@@ -15,6 +15,11 @@ import type { ProviderConfig } from '../config/config.js';
 import { validateEndpoint } from '../config/config.js';
 import { Fault, checkAbort } from '../core/util.js';
 import { readSseStream } from './http-stream.js';
+import { providerApiKey, providerKeyHint } from './provider-key.js';
+export { providerApiKey } from './provider-key.js';
+import { upstreamFault } from './upstream-errors.js';
+import * as imageWire from './image-wire.js';
+import type { ProviderImageInput } from './image-wire.js';
 import {
   captureProviderState,
   checkProviderStateProtocol,
@@ -110,6 +115,8 @@ export const graphTool = {
 
 export interface ModelDriver {
   readonly providerStateVersion?: 1;
+  /** Image input of a driver that has no provider config (docs/images.md); unset: `none`. */
+  readonly imageInput?: ProviderImageInput;
   call(
     agent: AgentDefinition,
     messages: ModelMessage[],
@@ -300,15 +307,12 @@ export class OpenAIModel implements ModelDriver {
   constructor(
     readonly config: ProviderConfig,
     apiKey?: string,
+    readonly name?: string,
   ) {
     validateEndpoint(config.baseUrl);
-    const key = apiKey ?? process.env[config.apiKeyEnv];
-    if (!key)
-      throw new Fault(
-        'model_not_configured',
-        `Set ${config.apiKeyEnv} on this worker to enable the model provider.`,
-        503,
-      );
+    const key = apiKey ?? providerApiKey(config);
+    if (key === undefined)
+      throw new Fault('model_not_configured', providerKeyHint(config, name), 503);
     this.apiKey = key;
   }
   private async open(
@@ -324,19 +328,18 @@ export class OpenAIModel implements ModelDriver {
       headers: {
         'content-type': 'application/json',
         accept: 'text/event-stream',
-        authorization: `Bearer ${this.apiKey}`,
+        ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
       },
       body: JSON.stringify(body),
     });
     connected();
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => {});
-      throw new Fault(
-        response.status === 429 ? 'upstream_rate_limited' : 'upstream_failed',
-        `Model provider returned HTTP ${response.status}.`,
-        response.status === 429 ? 429 : 502,
+    if (!response.ok)
+      throw await upstreamFault(
+        this.name,
+        this.config,
+        response,
+        (body as { model: string }).model,
       );
-    }
     return response;
   }
   async call(
@@ -402,7 +405,8 @@ export class OpenAIModel implements ModelDriver {
         }
         input.push(...replayable);
       } else {
-        if (m.content) input.push({ role: m.role, content: m.content });
+        if (m.content || m.images?.length)
+          input.push({ role: m.role, content: imageWire.responsesUserContent(m) });
         for (const c of m.tool_calls ?? [])
           input.push({
             type: 'function_call',
@@ -499,7 +503,7 @@ export class OpenAIModel implements ModelDriver {
         ? { role: 'tool', content: m.content, tool_call_id: m.tool_call_id! }
         : {
             role: m.role,
-            content: m.content,
+            content: imageWire.chatUserContent(m),
             ...(m.tool_calls?.length
               ? {
                   tool_calls: m.tool_calls.map((c) => ({
@@ -520,7 +524,7 @@ export class OpenAIModel implements ModelDriver {
           ? toolDefs.map((t) => ({ type: 'function', function: t }))
           : undefined,
         stream: true,
-        stream_options: { include_usage: true },
+        stream_options: this.config.streamUsage === false ? undefined : { include_usage: true },
         [this.config.maxTokensField]: agent.limits.maxOutputTokens,
       },
       signal,
@@ -585,15 +589,12 @@ export class AnthropicModel implements ModelDriver {
   constructor(
     readonly config: ProviderConfig,
     apiKey?: string,
+    readonly name?: string,
   ) {
     validateEndpoint(config.baseUrl);
-    const key = apiKey ?? process.env[config.apiKeyEnv];
-    if (!key)
-      throw new Fault(
-        'model_not_configured',
-        `Set ${config.apiKeyEnv} on this worker to enable the Anthropic model provider.`,
-        503,
-      );
+    const key = apiKey ?? providerApiKey(config);
+    if (key === undefined)
+      throw new Fault('model_not_configured', providerKeyHint(config, name), 503);
     this.apiKey = key;
   }
 
@@ -652,7 +653,7 @@ export class AnthropicModel implements ModelDriver {
         }
         pushMerged('assistant', blocks);
       } else {
-        pushMerged('user', [{ type: 'text', text: m.content }]);
+        pushMerged('user', imageWire.anthropicUserBlocks(m));
       }
     }
 
@@ -668,7 +669,7 @@ export class AnthropicModel implements ModelDriver {
         signal: combinedSignal,
         headers: {
           'content-type': 'application/json',
-          'x-api-key': this.apiKey,
+          ...(this.apiKey ? { 'x-api-key': this.apiKey } : {}),
           'anthropic-version': this.config.anthropicVersion ?? '2023-06-01',
         },
         body: JSON.stringify({
@@ -681,14 +682,7 @@ export class AnthropicModel implements ModelDriver {
         }),
       });
 
-      if (!response.ok) {
-        await response.body?.cancel().catch(() => {});
-        throw new Fault(
-          response.status === 429 ? 'upstream_rate_limited' : 'upstream_failed',
-          `Anthropic provider returned HTTP ${response.status}.`,
-          response.status === 429 ? 429 : 502,
-        );
-      }
+      if (!response.ok) throw await upstreamFault(this.name, this.config, response, agent.model);
 
       let text = '';
       let inputTokens: number | undefined;
@@ -915,15 +909,12 @@ export class GeminiModel implements ModelDriver {
   constructor(
     readonly config: ProviderConfig,
     apiKey?: string,
+    readonly name?: string,
   ) {
     validateEndpoint(config.baseUrl);
-    const key = apiKey ?? process.env[config.apiKeyEnv];
-    if (!key)
-      throw new Fault(
-        'model_not_configured',
-        `Set ${config.apiKeyEnv} on this worker to enable the Gemini model provider.`,
-        503,
-      );
+    const key = apiKey ?? providerApiKey(config);
+    if (key === undefined)
+      throw new Fault('model_not_configured', providerKeyHint(config, name), 503);
     this.apiKey = key;
   }
 
@@ -1034,7 +1025,7 @@ export class GeminiModel implements ModelDriver {
           },
         ]);
       } else {
-        pushContent('user', [{ text: m.content }]);
+        pushContent('user', imageWire.geminiUserParts(m));
       }
     }
 
@@ -1054,7 +1045,7 @@ export class GeminiModel implements ModelDriver {
         signal: combinedSignal,
         headers: {
           'content-type': 'application/json',
-          'x-goog-api-key': this.apiKey,
+          ...(this.apiKey ? { 'x-goog-api-key': this.apiKey } : {}),
         },
         body: JSON.stringify({
           ...(systemParts.length
@@ -1068,14 +1059,7 @@ export class GeminiModel implements ModelDriver {
         }),
       });
 
-      if (!response.ok) {
-        await response.body?.cancel().catch(() => {});
-        throw new Fault(
-          response.status === 429 ? 'upstream_rate_limited' : 'upstream_failed',
-          `Gemini provider returned HTTP ${response.status}.`,
-          response.status === 429 ? 429 : 502,
-        );
-      }
+      if (!response.ok) throw await upstreamFault(this.name, this.config, response, agent.model);
 
       let text = '';
       let finishReason: string | null = null;
@@ -1224,8 +1208,12 @@ export class GeminiModel implements ModelDriver {
 }
 
 /** `apiKey` overrides the worker's `apiKeyEnv` value (a caller-supplied BYOK key). */
-export function createModelDriver(config: ProviderConfig, apiKey?: string): ModelDriver {
-  if (config.kind === 'anthropic-messages') return new AnthropicModel(config, apiKey);
-  if (config.kind === 'gemini-generate') return new GeminiModel(config, apiKey);
-  return new OpenAIModel(config, apiKey);
+export function createModelDriver(
+  config: ProviderConfig,
+  apiKey?: string,
+  name?: string,
+): ModelDriver {
+  if (config.kind === 'anthropic-messages') return new AnthropicModel(config, apiKey, name);
+  if (config.kind === 'gemini-generate') return new GeminiModel(config, apiKey, name);
+  return new OpenAIModel(config, apiKey, name);
 }

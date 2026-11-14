@@ -17,11 +17,13 @@ import { Fault } from '../src/core/util.js';
 
 const MISSING = '@oaa-test/definitely-not-installed-sdk';
 
-test('固定的 SDK 版本与 package.json 的依赖一致', async () => {
+test('固定的 SDK 版本与 package.json 一致，且它只是开发依赖（npm 包与 Docker 镜像都不带它）', async () => {
   const pkg = JSON.parse(await readFile(path.resolve('package.json'), 'utf8')) as {
     dependencies: Record<string, string>;
+    devDependencies: Record<string, string>;
   };
-  assert.equal(pkg.dependencies[CLAUDE_SDK_PACKAGE], CLAUDE_SDK_VERSION);
+  assert.equal(pkg.devDependencies[CLAUDE_SDK_PACKAGE], CLAUDE_SDK_VERSION);
+  assert.equal(pkg.dependencies[CLAUDE_SDK_PACKAGE], undefined);
 });
 
 test('缺少 SDK 时抛出目录内的错误码，说明另行安装、条款与安装位置', async () => {

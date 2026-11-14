@@ -96,6 +96,7 @@ export function renderListings(body, filter) {
         const id = subLine(`${l.agent_id}${tags}`);
         id.translate = false;
         text.append(name, id);
+        if (l.host_execution && l.requires_host) text.append(subLine(t('platform.hostOn')));
         title.append(agentGlyph(agent?.engine ?? l.agent_id, 'small', agent?.preset), text);
         const actions = el('div', undefined, 'row-action');
         const live = l.enabled && l.agent_exists !== false;
@@ -156,9 +157,11 @@ export function renderListings(body, filter) {
           cell(
             l.agent_exists === false
               ? badge(t('platform.agentRemoved'), 'neutral')
-              : live
-                ? badge(t('platform.listed'), 'good')
-                : badge(t('platform.unlisted'), 'neutral'),
+              : live && l.callable === false
+                ? hostBadge(l)
+                : live
+                  ? badge(t('platform.listed'), 'good')
+                  : badge(t('platform.unlisted'), 'neutral'),
           ),
           cell(actions),
         );
@@ -166,6 +169,14 @@ export function renderListings(body, filter) {
       }),
     ),
   );
+}
+
+// Listed, but account keys are refused (it or a delegate needs the host switch). Not vermilion:
+// nothing is waiting on a person right now; the tooltip says what to turn on.
+function hostBadge(l) {
+  const b = badge(t('platform.needsHost'), 'queued');
+  b.title = t('platform.needsHostTip', { ids: (l.blocked_by ?? []).join(', ') });
+  return b;
 }
 
 /* ── Developers ──────────────────────────────────────────── */

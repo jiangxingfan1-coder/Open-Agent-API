@@ -1,18 +1,13 @@
 #!/usr/bin/env node
 import { parseArgs, type ParseArgsConfig } from 'node:util';
-import { access, readFile, writeFile, mkdir, open } from 'node:fs/promises';
-import { constants, openSync, closeSync } from 'node:fs';
+import { access, readFile, mkdir, open } from 'node:fs/promises';
+import { constants, openSync, closeSync, realpathSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { agentSchema } from './core/contracts.js';
-import { gatewaySchema, initialize, loadConfig, loadWorkerConfig } from './config/config.js';
-import {
-  adapterEnginePattern,
-  discoverAcpAgents,
-  discoveredAdapterEntry,
-  isNativeEngine,
-} from './config/agent-presets.js';
+import { initialize, loadConfig, loadWorkerConfig } from './config/config.js';
+import { adapterEnginePattern, isNativeEngine } from './config/agent-presets.js';
 import { createGateway } from './gateway/server.js';
 import { buildBundle, builtin, makeBundle, validateBundle } from './lang/bundle.js';
 import {
@@ -32,11 +27,14 @@ import {
   healthPid,
   startDetached,
   stopDetachedGateway,
+  adminShutdown,
 } from './client/onboarding.js';
 import { commandPrefix, quickstart } from './client/quickstart.js';
 import { connectAgent } from './client/connect.js';
+import { runModelCommand } from './client/models-cli.js';
+import { doctorReport } from './client/doctor.js';
+import { isOperatorCommand, runOperatorCommand } from './client/operator.js';
 import { bi, pick } from './core/locale.js';
-import { claudeSdkStatus } from './engines/claude-sdk.js';
 import {
   inspectMcp,
   prepareMcp,
@@ -95,8 +93,27 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       write: { type: 'boolean' },
       help: { type: 'boolean' },
       agent: { type: 'string', multiple: true },
+      event: { type: 'string', multiple: true },
+      'include-output': { type: 'boolean' },
       approve: { type: 'boolean' },
       port: { type: 'string' },
+      action: { type: 'string' },
+      scenarios: { type: 'string' },
+      executable: { type: 'string' },
+      all: { type: 'boolean' },
+      watch: { type: 'boolean' },
+      json: { type: 'boolean' },
+      yes: { type: 'boolean' },
+      'confirm-live-cost': { type: 'boolean' },
+      'key-env': { type: 'string' },
+      'key-file': { type: 'string' },
+      'base-url': { type: 'string' },
+      definition: { type: 'string' },
+      check: { type: 'boolean' },
+      test: { type: 'boolean' },
+      'older-than': { type: 'string' },
+      'dry-run': { type: 'boolean' },
+      vacuum: { type: 'boolean' },
     },
   });
   const command = positionals[0];
@@ -149,12 +166,13 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   if (command === 'stop') {
     const config = await loadConfig(file);
-    print(await stopDetachedGateway(config.dataDir, gatewayUrl(config)));
+    const url = gatewayUrl(config);
+    const graceful = process.platform === 'win32' ? adminShutdown(config, url) : undefined;
+    print(await stopDetachedGateway(config.dataDir, url, undefined, undefined, graceful));
     return;
   }
+  if (await runModelCommand(positionals, values, fileURLToPath(import.meta.url))) return;
   if (command === 'connect') {
-    if (!positionals[1])
-      throw new Fault('arguments', 'connect needs an agent name, e.g. connect codex.');
     const dir = path.resolve(values.dir ?? '.oaa');
     const config = await loadConfig(path.join(dir, 'config.json'));
     const url = gatewayUrl(config);
@@ -171,9 +189,15 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     if (!admin) throw new Fault('token_required', 'No admin key with a tokenFile is configured.');
     const cliPath = fileURLToPath(import.meta.url);
     await connectAgent(await GatewayClient.fromOptions(url, admin), {
-      name: positionals[1],
+      name: positionals[1]!,
       keysDir: path.join(dir, 'keys'),
       prefix: commandPrefix(cliPath) + (values.dir ? ` --dir '${dir}'` : ''),
+    });
+    return;
+  }
+  if (isOperatorCommand(command)) {
+    await runOperatorCommand(command, positionals.slice(1), values, {
+      prefix: commandPrefix(fileURLToPath(import.meta.url)),
     });
     return;
   }
@@ -186,105 +210,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     return;
   }
   if (command === 'doctor') {
-    const binaries: Record<string, unknown> = {};
-    for (const name of ['codex', 'claude', 'agy', 'dsh']) {
-      let found: string | undefined;
-      for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-        const p = path.join(dir, name);
-        try {
-          await access(p, constants.X_OK);
-          found = p;
-          break;
-        } catch {}
-      }
-      binaries[name] = {
-        executable: found ?? null,
-        status: found ? 'installed_not_exercised' : 'not_found',
-        // Release packages do not ship the proprietary Claude Agent SDK the Claude engine imports.
-        ...(name === 'claude' ? { sdk: claudeSdkStatus() } : {}),
-      };
-    }
-    let config: unknown;
-    let loaded: Awaited<ReturnType<typeof loadConfig>> | undefined;
-    try {
-      const c = await loadConfig(file);
-      loaded = c;
-      config = {
-        host: c.host,
-        port: c.port,
-        providers: Object.keys(c.localWorker?.providers ?? {}),
-        native: c.localWorker?.native
-          ? Object.fromEntries(
-              Object.entries(c.localWorker.native).map(([k, v]) => [k, { enabled: v?.enabled }]),
-            )
-          : {},
-        adapters: Object.fromEntries(
-          Object.entries(c.localWorker?.adapters ?? {}).map(([k, v]) => [
-            k,
-            {
-              transport: v.transport,
-              enabled: v.enabled,
-              ...(v.transport === 'acp' && v.preset ? { preset: v.preset } : {}),
-            },
-          ]),
-        ),
-      };
-    } catch {
-      config = { status: 'not_initialized' };
-    }
-    // ACP agents are found by executable file name only; nothing is executed or enabled.
-    const configuredAdapters = Object.entries(loaded?.localWorker?.adapters ?? {});
-    const discovered = (await discoverAcpAgents()).map((found) => ({
-      found,
-      configured: configuredAdapters.some(
-        ([name, a]) => a.transport === 'acp' && (a.preset ?? name) === found.preset.id,
-      ),
-    }));
-    let written: string[] | undefined;
-    if (values.write) {
-      if (!loaded?.localWorker) throw new Fault('worker_required', CLI_TEXT.doctorWriteNeedsWorker);
-      const raw = JSON.parse(await readFile(file, 'utf8')) as {
-        localWorker: { adapters?: Record<string, unknown> };
-      };
-      const adapters = (raw.localWorker.adapters ??= {});
-      written = [];
-      for (const { found, configured } of discovered) {
-        if (configured || Object.hasOwn(adapters, found.preset.id)) continue;
-        adapters[found.preset.id] = discoveredAdapterEntry(found);
-        written.push(found.preset.id);
-      }
-      if (written.length) {
-        gatewaySchema.parse(raw);
-        await writePrivate(
-          path.dirname(file),
-          path.basename(file),
-          JSON.stringify(raw, null, 2) + '\n',
-        );
-      }
-    }
-    print({
-      protocol: 'oaa/1',
-      node: process.version,
-      binaries,
-      acp_agents: discovered.map(({ found, configured }) => ({
-        preset: found.preset.id,
-        name: found.preset.name,
-        executable: found.executable,
-        args: found.args,
-        maturity: found.preset.maturity,
-        status: 'installed_not_exercised',
-        configured,
-      })),
-      config,
-      ...(written
-        ? {
-            written_disabled_adapters: written,
-            restart_required: written.length > 0,
-            note: pick(CLI_TEXT.doctorWriteNote),
-          }
-        : {}),
-      live_model_calls: false,
-    });
+    print(await doctorReport(file, Boolean(values.write)));
     return;
   }
   if (command === 'node' && positionals[1] === 'join') {
@@ -659,6 +585,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       cwd: process.cwd(),
       detached: Boolean(values.detach),
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     });
     const publicUrl = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -847,7 +774,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       const child = spawn(
         process.execPath,
         [fileURLToPath(import.meta.url), 'node', 'join', '--config', workerFile],
-        { cwd: process.cwd(), detached: true, stdio: ['ignore', log, log] },
+        { cwd: process.cwd(), detached: true, windowsHide: true, stdio: ['ignore', log, log] },
       );
       closeSync(log);
       child.unref();
@@ -976,7 +903,15 @@ function zNative(value: string | undefined): 'codex' | 'claude' | 'antigravity' 
     );
   return value as 'codex' | 'claude' | 'antigravity' | 'dsh';
 }
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]))
+/** True when this file is the program being run. npm's global `oaa` is a symlink, so compare real paths. */
+function isEntryPoint(): boolean {
+  try {
+    return !!process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+if (isEntryPoint())
   main().catch((error) => {
     const fault = faultOf(error);
     process.stderr.write(cliFailure(fault));

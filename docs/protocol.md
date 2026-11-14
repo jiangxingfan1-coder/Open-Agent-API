@@ -1,170 +1,177 @@
 # OAA/1 Contract
 
+English · [简体中文](zh-CN/protocol.md)
+
 ## Identity and authorization
 
-An invocation resolves `agent -> immutable bundle -> published model route -> eligible worker`. Callers receive a response ID, not an upstream credential. API keys carry an owner, allowed agent IDs, and scopes: `read`, `invoke`, `files`, `approve`, `admin`, `billing` (developer platform only: credit accounts and look them up by email, see 「开发者平台」). Node credentials are separate and cannot call the application API.
+An invocation resolves `agent -> immutable bundle -> published model route -> eligible worker`. Callers receive a response ID, not an upstream credential. API keys carry an owner, allowed agent IDs, and scopes: `read`, `invoke`, `files`, `approve`, `admin`, `billing` (developer platform only: credit accounts and look them up by email, see [Developer platform](#developer-platform)). Node credentials are separate and cannot call the application API.
 
 `POST /v1/invoke` accepts `protocol: "oaa/1"`, `agent`, `model` (`auto`, route ID, or published model name), text `input`, optional `file_ids`, `previous_response_id`, `stream`, `background`, and string-valued `metadata`. Unknown fields are rejected. `Idempotency-Key` binds the normalized request to a single response; different input with the same key returns 409.
 
-### 调用方数据隔离（schema v4，2026-11-08）
+### Caller data isolation (schema v4, 2026-11-08)
 
-同一 owner 下的每个 API 密钥都有自己的数据分区 `subject`，默认就是密钥 ID；子智能体的运行继承父运行的 subject。下列数据按 subject 隔离：
+Every API key under the same owner has its own data partition, the `subject`, which defaults to the key ID. A subagent run inherits the subject of its parent run. The following data is isolated by subject:
 
-- 运行：列表、读取、事件流、时间线、步骤、产物、取消、续接（`resume`）、审批、对账，以及 `previous_response_id`。
-- 文件：上传的文件和运行产物。
-- 记忆：`/v1/memory` 接口和智能体的 `memory_read` / `memory_write` 工具。
-- `Idempotency-Key`：两个调用方用同一个键，各自得到自己的运行。
-- 概览指标和活动脉搏。
+- Runs: listing, reading, event streams, timelines, steps, artifacts, cancellation, resume (`resume`), approvals, reconciliation, and `previous_response_id`.
+- Files: uploaded files and run artifacts.
+- Memory: the `/v1/memory` endpoints and the agent's `memory_read` / `memory_write` tools.
+- `Idempotency-Key`: two callers that use the same key each get their own run.
+- Overview metrics and the activity pulse.
 
-不在自己分区内的运行或文件一律返回 404（`run_not_found` / `file_not_found`），不透露它是否存在。
+A run or file outside the caller's own partition always returns 404 (`run_not_found` / `file_not_found`) and never reveals whether it exists.
 
-**谁能看到全部调用方的数据**
+**Who can see the data of all callers**
 
-- 带 `admin` scope 的密钥，仍然只限于它被授权的智能体。
-- 用 `POST /v1/keys` 创建、并指定 `"data_scope": "owner"` 的密钥，例如只读监控面板。配置文件里的密钥用 `dataScope: "owner"` 指定。
+- A key with the `admin` scope, still limited to the agents it is authorized for.
+- A key created with `POST /v1/keys` and `"data_scope": "owner"`, for example a read-only monitoring dashboard. For keys defined in the configuration file, use `dataScope: "owner"`.
 
-新建密钥默认是 `"data_scope": "own"`。旧版本创建的密钥没有这个字段，升级后也按 `own` 处理：**以前用来查看他人运行的非管理员只读密钥，升级后需要重新创建并指定 `data_scope: "owner"`。**
+New keys default to `"data_scope": "own"`. Keys created by older versions have no such field and are treated as `own` after the upgrade: **a non-admin read-only key that used to be able to view other callers' runs must be recreated with `data_scope: "owner"` after upgrading.**
 
-**记忆的规则更严格**：记忆不按智能体划分，所以只有 owner 级管理员（`admin` scope 且 `agents: ["*"]`）可以用 `subject` 参数读写别人的记忆，包括 `legacy` 分区。其它密钥带着别人的 subject 访问会返回 403。
+**Memory is stricter.** Memory is not partitioned by agent, so only an owner-level admin (the `admin` scope with `agents: ["*"]`) can read or write another subject's memory through the `subject` parameter, including the `legacy` partition. Any other key that passes another subject gets 403.
 
-**限额**：在 owner 总上限（32 个未完成请求）之外，网关配置项 `maxActiveRunsPerSubject` 可以单独限制每个调用方。默认不限制；对外分发密钥时建议设置。
+**Limit**: in addition to the owner-wide cap (32 unfinished requests), the gateway setting `maxActiveRunsPerSubject` can limit each caller separately. It is unlimited by default; setting it is recommended when you hand out keys to others.
 
-**升级迁移**：v3 → v4 在启动事务里完成。迁移前会先把数据库复制到 `<dataDir>/backups/state-v3-before-subjects-<时间戳>.sqlite`，复制失败就停止启动。存量数据的归属规则：
+**Upgrade migration**: v3 to v4 runs inside the startup transaction. Before migrating, the database is copied to `<dataDir>/backups/state-v3-before-subjects-<timestamp>.sqlite`, and startup stops if the copy fails. Existing data is assigned as follows:
 
-- 运行：按提交时记录的密钥归属；子智能体的运行沿父运行链归属。
-- 产物：跟随所属运行。
-- 上传的文件：如果所有用到它的运行都属于同一个调用方，就归这个调用方。
-- 记忆：如果有对应的运行，跟随运行。
-- 其余数据进入 `legacy` 分区，只有管理员能看到。
+- Runs: by the key recorded at submission; a subagent run follows its parent run chain.
+- Artifacts: follow their run.
+- Uploaded files: if every run that uses a file belongs to the same caller, the file belongs to that caller.
+- Memory: follows the run when there is a corresponding run.
+- Everything else goes into the `legacy` partition, visible only to admins.
 
-旧网关打不开 v4 数据库（返回 `schema_too_new`）。需要回退时，恢复上面那个备份文件即可。
+An older gateway cannot open a v4 database (it returns `schema_too_new`). To roll back, restore the backup file above.
 
-### 管理面与 API 域名分离（2026-11-08）
+### Separating the admin plane from the API domain (2026-11-08)
 
-网关配置项 `consoleHosts` 用来列出管理面的域名，例如 `["console.example.com"]`。每一项都必须已被 `allowedHosts` 覆盖，否则加载配置时直接报错。通配项（`*.example.com`）要求 `allowedHosts` 里有完全相同的通配项。
+The gateway setting `consoleHosts` lists the hostnames of the admin plane, for example `["console.example.com"]`. Every entry must already be covered by `allowedHosts`, otherwise loading the configuration fails. A wildcard entry (`*.example.com`) requires the identical wildcard entry in `allowedHosts`.
 
-配置了 `consoleHosts` 后：
+With `consoleHosts` configured:
 
-- 控制台页面和静态资源（`/`、`/console.js`、`/agents/*.svg` 等）只在这些域名上提供。其它域名上访问返回 404 `route_not_found`，就像这些路由不存在一样。
-- 带 `admin` scope 的密钥只能在这些域名上使用。在其它域名上，任何接口都返回 403 `admin_host_denied`，包括 MCP 桥接和 CLI 发起的请求。所以对外的 API 域名上只能使用调用方密钥，发布、密钥管理、节点管理都要通过控制台域名完成。
-- 调用方密钥不受影响，可以在任何允许的域名上使用。Worker 的 `/v1/nodes/connect` 使用独立的节点凭据，也不受影响。
+- The console page and its static assets (`/`, `/console.js`, `/agents/*.svg`, and so on) are served only on these hostnames. On any other hostname they return 404 `route_not_found`, as if the routes did not exist.
+- A key with the `admin` scope works only on these hostnames. On any other hostname every endpoint returns 403 `admin_host_denied`, including requests from the MCP bridge and the CLI. So the public API domain accepts caller keys only; publishing, key management, and node management all go through the console domain.
+- Caller keys are unaffected and work on any allowed hostname. A worker's `/v1/nodes/connect` uses its own node credential and is also unaffected.
 
-不配置 `consoleHosts` 时，行为与以前完全一样。本机桌面版默认就不配置。
+Without `consoleHosts`, behavior is exactly as before. The local desktop app does not configure it by default.
 
-判断依据是请求的 `Host` 头。反向代理需要原样转发 Host，Caddy 默认就这样做；Nginx 需要设置 `proxy_set_header Host $host`。
+The check is based on the request's `Host` header. A reverse proxy must forward Host unchanged: Caddy does this by default; Nginx needs `proxy_set_header Host $host`.
 
-### 执行等级（P1，2026-11-08）
+### Execution levels (P1, 2026-11-08)
 
-每个已发布的智能体都有一个**所需执行等级**，由它的引擎和工具绑定自动计算，发布者不需要声明：
+Every published agent has a **required execution level**, computed automatically from its engine and tool bindings; publishers do not declare it:
 
-| 等级 | 哪些智能体 | 含义 |
+| Level | Which agents | Meaning |
 |---|---|---|
-| `workspace` | `kernel` 引擎，并且只使用内置工具（`read_file`、`write_file`、`list_files`、`read_skill`、`memory_*`） | 模型循环加上只限于会话工作区的文件和记忆工具 |
-| `host` | 原生智能体（Codex、Claude、Antigravity、DSH）、任何适配器（包括 ACP、A2A），以及带 `script` 或 `node` 工具的 kernel 智能体 | 以 worker 宿主机的权限执行 |
+| `workspace` | The `kernel` engine using only built-in tools (`read_file`, `write_file`, `list_files`, `read_skill`, `memory_*`) | A model loop plus file and memory tools confined to the session workspace |
+| `host` | Native agents (Codex, Claude, Antigravity, DSH), any adapter (including ACP and A2A), and kernel agents with `script` or `node` tools | Runs with the permissions of the worker's host machine |
 
-每把 API 密钥有一个**允许的最高等级** `execution`：
+Every API key has a **maximum allowed level**, `execution`:
 
-- 带 `admin` scope 的密钥始终是 `host`。
-- `POST /v1/keys` 可以显式传 `"execution": "workspace" | "host"`；不传时取网关配置 `defaultKeyExecution` 的值，它的默认值是 `host`，与 P1 之前的行为相同。公网部署建议把 `defaultKeyExecution` 设为 `workspace`。
-- 配置文件里的密钥用 `execution` 字段设置，不设时为 `host`。
-- 旧版本创建、没有这个字段的密钥按 `host` 处理。
+- A key with the `admin` scope is always `host`.
+- `POST /v1/keys` can pass `"execution": "workspace" | "host"` explicitly. When omitted, the value of the gateway setting `defaultKeyExecution` applies; its default is `host`, the same as before P1. For public deployments, set `defaultKeyExecution` to `workspace`.
+- Keys in the configuration file use the `execution` field and default to `host`.
+- Keys created by older versions without this field are treated as `host`.
 
-在解析出要运行的版本之后、调用任何模型之前，网关会做检查：如果所需等级高于密钥允许的等级，提交和预览都返回 403 `isolation_required`。检查还会顺着它的委派链（按当前发布的版本，最多 4 层）往下查。子智能体的运行继承父运行的等级（记录在运行检查点里），并且在子运行提交时按它实际运行的版本再检查一次。
+After the version to run is resolved and before any model is called, the gateway checks: if the required level is higher than the key allows, both submit and preview return 403 `isolation_required`. The check also follows the agent's delegation chain (the currently published versions, up to 4 levels). A subagent run inherits the level of its parent run (recorded in the run checkpoint), and is checked again, against the version it actually runs, when the child run is submitted.
 
-`workspace` 是**代码层面**的限制（内置工具只能访问会话工作区），不是操作系统沙箱。
+`workspace` is a **code-level** restriction (built-in tools can only reach the session workspace), not an OS sandbox.
 
-**`sandbox` 等级（沙箱 S1，2026-11-08）**：介于 `workspace` 和 `host` 之间，可以作为密钥的 `execution` 或 `defaultKeyExecution` 的值。
+**The `sandbox` level (sandbox S1, 2026-11-08)**: between `workspace` and `host`; it can be used as a key's `execution` or as `defaultKeyExecution`.
 
-- 这类密钥除了能运行 `workspace` 级智能体，还能运行 **kernel 引擎、工具只有内置工具和 `script` 脚本**的智能体。
-- 这些脚本**只会**被派给已经声明并通过自检的 OS 沙箱节点，在沙箱里运行。worker 收到这类任务但自己没有可用沙箱时，会直接拒绝（`sandbox_unavailable`），不会退回到宿主机上执行。
-- **Claude Code 和 Codex（沙箱 S2a）** 也可以由 `sandbox` 级密钥调用，条件是：
-  - worker 主人在 `sandbox.native.<engine>.providerDomains` 里列出了该引擎，并且启用了它；
-  - 启动自检时，这个 CLI 在沙箱里成功运行了 `--version`，worker 据此上报 `native/<engine>`；
-  - 调用方带上了自己的 `X-OAA-Provider-Key`，否则返回 400 `provider_key_required`。
+- Besides `workspace`-level agents, such a key can run agents on the **kernel engine whose tools are only built-in tools and `script` scripts**.
+- These scripts are **only** dispatched to nodes that have declared an OS sandbox and passed its self-check, and run inside that sandbox. A worker that receives such a task without a usable sandbox rejects it outright (`sandbox_unavailable`) and never falls back to running on the host.
+- **Claude Code and Codex (sandbox S2a)** can also be called with a `sandbox`-level key, provided that:
+  - the worker's owner lists the engine under `sandbox.native.<engine>.providerDomains` and has enabled it;
+  - at startup self-check, the CLI ran `--version` successfully inside the sandbox, so the worker reports `native/<engine>`;
+  - the caller sends its own `X-OAA-Provider-Key`; otherwise the gateway returns 400 `provider_key_required`.
 
-  运行时：
-  - HOME 和 CLI 的配置目录（`CLAUDE_CONFIG_DIR` / `CODEX_HOME`）都位于会话工作区的 `.oaa-home/` 下，主人的登录信息和配置不可见。
-  - 调用方的密钥以 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 注入，除基础变量外不传任何其它环境变量。
-  - Claude 以 `--bare` 启动（只用 API key 认证）；Codex 关闭它自带的沙箱，由外层沙箱负责隔离。
-  - 出网只放行主人列出的提供方域名。
-  - 沙箱里的智能体**能读到**注入的密钥。这是调用方自己的密钥，出网又只能到提供方域名。
-- 用 `host` 级密钥调用原生智能体时，仍然使用主人自己的配置，并且不接受调用方密钥（`byok_not_supported`）。
-- Antigravity、DSH、适配器、`node` 类型的宿主工具，仍然只能用 `host` 级密钥调用。
-- 沙箱节点的能力通过 `sandbox-v1` 协商后，以 `execution.sandbox` 上报：`{backend, version, kinds}`。
+  At run time:
+  - HOME and the CLI's configuration directory (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) are both under `.oaa-home/` in the session workspace, so the owner's login and configuration are not visible.
+  - The caller's key is injected as `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, and no other environment variables are passed beyond the basic ones.
+  - Claude is started with `--bare` (API-key authentication only); Codex has its own sandbox turned off and relies on the outer sandbox for isolation.
+  - Outbound network access is allowed only to the provider domains the owner listed.
+  - An agent in the sandbox **can read** the injected key. It is the caller's own key, and outbound traffic can only reach the provider domains.
+- Calling a native agent with a `host`-level key still uses the owner's own configuration and does not accept a caller key (`byok_not_supported`).
+- Antigravity, DSH, adapters, and host tools of the `node` kind can still be called only with a `host`-level key.
+- A sandbox node's capability is negotiated through `sandbox-v1` and then reported as `execution.sandbox`: `{backend, version, kinds}`.
 
-worker 端的配置项 `sandbox`：
+The worker-side setting `sandbox`:
 
-| 字段 | 默认值 | 说明 |
+| Field | Default | Description |
 |---|---|---|
-| `backend` | `none` | `none` 时不启动任何东西；`srt` 时启动 `@anthropic-ai/sandbox-runtime`，它的 HTTP 和 SOCKS 代理会在 localhost 上监听，自检通过后才上报沙箱能力 |
-| `allowDomains` | `[]` | 沙箱里的脚本能访问的域名上限。实际放行的是「能力声明的 `network.allowedDomains`」和它的交集，支持 `*.` 通配；交集为空就是完全断网 |
-| `cpuSeconds` | `60` | `ulimit -t` 设置的 CPU 时间上限 |
-| `denyRead` | `[]` | 额外禁止读取的路径。home、外接卷、worker 数据目录始终禁止读取，只放开会话工作区、能力包和语言运行时 |
-| `native` | `{}` | 允许在沙箱里运行的原生引擎（`claude`、`codex`）。每项是 `{providerDomains: [...], cpuSeconds?: 1800}` |
-| `parentProxy` | 不设置 | srt 自己访问外网时经过的上游代理。不设置时，srt 直接连接 |
+| `backend` | `none` | With `none`, nothing is started; with `srt`, `@anthropic-ai/sandbox-runtime` is started, its HTTP and SOCKS proxies listen on localhost, and sandbox capability is reported only after the self-check passes |
+| `allowDomains` | `[]` | The upper bound of domains a sandboxed script can reach. What is actually allowed is the intersection with the capability's declared `network.allowedDomains`; `*.` wildcards are supported; an empty intersection means no network at all |
+| `cpuSeconds` | `60` | CPU time limit set with `ulimit -t` |
+| `denyRead` | `[]` | Extra paths that may not be read. The home directory, external volumes, and the worker data directory are always denied; only the session workspace, the capability bundle, and the language runtime are opened |
+| `native` | `{}` | Native engines allowed to run in the sandbox (`claude`, `codex`). Each entry is `{providerDomains: [...], cpuSeconds?: 1800}` |
+| `parentProxy` | unset | The upstream proxy srt uses to reach the outside network. When unset, srt connects directly |
 
-srt 后端的边界与局限：
-- 它是进程级隔离，和宿主机共享内核，官方状态为 Beta 研究预览。
-- 每个调用的网络白名单靠代理用户名里的随机 ID 绑定，所以同一个 worker **同一时间只运行一个沙箱进程**。
-- 不限制内存和进程数。
-- 详见 `docs/sandbox-design.md`。
+Boundaries and limitations of the srt backend:
+- It is process-level isolation that shares the kernel with the host; its upstream status is a Beta research preview.
+- Each call's network allowlist is bound through a random ID in the proxy username, so one worker **runs only one sandboxed process at a time**.
+- It does not limit memory or process count.
+- See `docs/sandbox-design.md` for details.
 
-### 调用方自带模型密钥（BYOK，P1）
+### Caller-supplied model keys (BYOK, P1)
 
-调用方可以在请求头 `X-OAA-Provider-Key` 里带上自己的模型提供方密钥。这个头适用于所有提交入口：`/v1/responses`、`/v1/invoke`、`/v1/chat/completions`、`/v1/messages`、兼容端点和 Gemini 端点，也适用于预览（`/v1/agents/preview`）和续跑（`/v1/runs/{id}/resume`）。用 OpenAI SDK 时，可以通过 `default_headers` 传入。
+A caller can send its own model-provider key in the `X-OAA-Provider-Key` request header. The header applies to every submission entry: `/v1/responses`, `/v1/invoke`, `/v1/chat/completions`, `/v1/messages`, the compatibility endpoints and the Gemini endpoints, and also to preview (`/v1/agents/preview`) and resume (`/v1/runs/{id}/resume`). With the OpenAI SDK, pass it through `default_headers`.
 
-**密钥怎么流转**
+**How the key flows**
 
-- 网关只把密钥保存在内存里，按运行 ID 管理。它不会写入 SQLite（包括 WAL）、事件、检查点、时间线、日志或任何响应；运行里只持久保存一个 `byok: true` 标记。
-- 每次模型调用时，网关把密钥随任务发给 worker。远程 worker 走 WSS，非 loopback 地址强制 TLS。worker 用这把密钥**新建一个不缓存的**模型客户端，用完即弃。上游错误信息里如果出现了这把密钥，会被替换成 `[redacted]`。
-- 运行结束后密钥立即丢弃。被中断（`interrupted`）的运行会多保留 1 小时，以便续跑。
+- The gateway keeps the key only in memory, indexed by run ID. It is never written to SQLite (including the WAL), events, checkpoints, timelines, logs, or any response; only a `byok: true` marker is persisted with the run.
+- On each model call, the gateway sends the key to the worker together with the task. Remote workers use WSS, and TLS is mandatory for non-loopback addresses. The worker uses the key to **create a new, uncached** model client and discards it after use. If the key appears in an upstream error message, it is replaced with `[redacted]`.
+- The key is dropped as soon as the run ends. A run that was interrupted (`interrupted`) keeps it for an extra hour so it can be resumed.
 
-**绝不回退到发布者的密钥**
+**Never falls back to the publisher's key**
 
-- 带了调用方密钥的运行，它的每一次模型调用都只会派给明确接受调用方密钥的节点，也就是声明了 `byokProviders` 的节点。
-- 只有 worker 主人在提供方配置里写了 `"byok": true`，或者注入的驱动实现了 `withApiKey`，节点才会接受。
-- 节点自己有密钥也**不算**接受。找不到合适的节点时返回 503 `model_unavailable`，预览里的原因码是 `byok_unsupported`。
-- worker 收到不该收的调用方密钥时，会直接拒绝（`byok_not_supported`），不会改用自己的密钥。
-- 开启了 `byok` 但没有配置 `apiKeyEnv` 值的提供方，只服务 BYOK 请求。
+- Every model call of a run that carries a caller key is dispatched only to nodes that explicitly accept caller keys, that is, nodes that declare `byokProviders`.
+- A node accepts only if the worker's owner wrote `"byok": true` in the provider configuration, or the injected driver implements `withApiKey`.
+- A node having its own key does **not** count as accepting. When no suitable node exists the gateway returns 503 `model_unavailable`, and the reason code in a preview is `byok_unsupported`.
+- A worker that receives a caller key it should not receive rejects it outright (`byok_not_supported`) and does not switch to its own key.
+- A provider that has `byok` enabled but no configured `apiKeyEnv` value serves only BYOK requests.
 
-**范围与限制**
+**Scope and limits**
 
-- 只适用于 kernel 智能体。原生智能体用的是它们自己的配置，带这个头会返回 400 `byok_not_supported`。
-- kernel 子智能体沿用父运行的调用方密钥；原生子智能体不会收到它。
-- 网关重启后，内存里的密钥都会丢失：
-  - 进行中的运行会变成 `interrupted`，需要带上这个头续跑，否则返回 409 `byok_key_required`；
-  - 重启前已经排在队列里的运行，在下一次模型调用时会以 `byok_key_required` 失败。
-- 计费和用量统计仍然记在这把 API 密钥（调用方）名下。上游的费用由调用方自己的提供方账户承担。
+- Applies to kernel agents only. Native agents use their own configuration; sending this header returns 400 `byok_not_supported`.
+- A kernel subagent reuses the parent run's caller key; a native subagent does not receive it.
+- After a gateway restart, all in-memory keys are lost:
+  - runs in progress become `interrupted` and must be resumed with this header, otherwise 409 `byok_key_required`;
+  - runs that were already queued before the restart fail with `byok_key_required` at their next model call.
+- Billing and usage statistics are still recorded against this API key (the caller). Upstream costs are borne by the caller's own provider account.
 
-**节点协议**：网关在 `welcome.features` 里声明 `byok-v1`。新版 worker 收到后，才通过 `advertisement` 消息上报 `execution.byokProviders`，hello 里不会带这个字段。所以新 worker 连旧网关、旧 worker 连新网关都能正常工作；旧 worker 不会被分配 BYOK 任务。
+**Node protocol**: the gateway declares `byok-v1` in `welcome.features`. A new worker reports `execution.byokProviders` through an `advertisement` message only after it receives that; the hello does not carry the field. So a new worker works with an old gateway and an old worker works with a new gateway; an old worker is never assigned BYOK tasks.
 
-### 审计记录（P1）
+### Audit records (P1)
 
-网关会持久记录**已鉴权**请求被拒绝的事件，记录的错误码有：`scope_denied`、`admin_host_denied`、`isolation_required`、`concurrency_limit`、`subject_concurrency_limit`、`key_concurrency_limit`、`run_quota_exceeded`、`token_quota_exceeded`。
+The gateway persistently records events where an **authenticated** request is rejected. The recorded error codes are: `scope_denied`, `admin_host_denied`, `isolation_required`, `concurrency_limit`, `subject_concurrency_limit`, `key_concurrency_limit`, `run_quota_exceeded`, `token_quota_exceeded`.
 
-- 每条记录包含：时间、错误码、密钥 ID、subject、HTTP 方法、路径，以及客户端 IP（`trustProxy` 时取 `X-Forwarded-For` 的第一跳）。
-- 同一 owner、同一密钥、同一错误码、同一路径的拒绝，在 60 秒内只写一条；下一条记录的 `suppressed` 字段给出期间被合并的次数。这个次数保存在进程内存里，网关重启会丢失。
-- 每个 owner 最多保留 10,000 条，更早的会被删除。
+- Each record contains the time, error code, key ID, subject, HTTP method, path, and the client IP (with `trustProxy`, the first hop of `X-Forwarded-For`).
+- Rejections with the same owner, key, error code, and path are written as one record within 60 seconds; the `suppressed` field of the next record gives the number merged in between. This count is kept in process memory and is lost on gateway restart.
+- At most 10,000 records are kept per owner; older ones are deleted.
 
-**不记录**的情况：未鉴权的失败（401、`invalid_host`、`origin_denied`）和 `rate_limited`。否则每个被拒绝的请求都会变成一次数据库写入，等于给攻击者一个放大手段。这类流量应该在边缘层限流和记录。
+**Not recorded**: unauthenticated failures (401, `invalid_host`, `origin_denied`) and `rate_limited`. Otherwise every rejected request would become a database write, which hands an attacker an amplifier. That traffic should be rate limited and logged at the edge.
 
-`GET /v1/audit?after=<事件 ID>&limit=50`（最多 200）按时间从旧到新分页返回，`next_after` 是下一页的起点。只有 owner 级管理员可以读取，其它密钥会得到 403 `scope_denied`，而这次被拒绝本身也会被记录。
+`GET /v1/audit?after=<event ID>&limit=50` (at most 200) returns pages from oldest to newest, and `next_after` is where the next page starts. Only an owner-level admin can read it; any other key gets 403 `scope_denied`, and that rejection is itself recorded.
 
-### `/health` 与进程 ID
+### `/health` and the process ID
 
-`/health` 和 `/healthz` 无需鉴权，在任何允许的域名上都可用，适合负载均衡做健康检查。只有本机直接探测时才返回 `pid`，例如 `oaa serve --detach` 用它确认后台进程。本机直接探测需同时满足三个条件：
+`/health` and `/healthz` need no authentication and are available on any allowed hostname, which suits load-balancer health checks. `pid` is returned only for direct local probes, for example `oaa serve --detach` uses it to confirm the background process. A direct local probe must meet all three conditions:
 
-1. Host 是 loopback 或通配监听地址（`localhost`、`127.0.0.1`、`[::1]`、`0.0.0.0`、`[::]`）。
-2. 对端地址是 loopback。
-3. 请求没有 `X-Forwarded-For`、`X-Forwarded-Host` 或 `Forwarded` 头。
+1. Host is a loopback or wildcard listen address (`localhost`, `127.0.0.1`, `[::1]`, `0.0.0.0`, `[::]`).
+2. The peer address is loopback.
+3. The request has no `X-Forwarded-For`, `X-Forwarded-Host`, or `Forwarded` header.
 
-经过反向代理的请求和远程请求都看不到 `pid`，其余字段不变。
+Requests through a reverse proxy and remote requests do not see `pid`; the other fields are unchanged.
+
+### Local shutdown (`POST /v1/gateway/shutdown`)
+
+Asks the gateway to close itself: it answers `{"stopping": true, "pid": <pid>}`, then drains open requests and closes the database. It needs an owner-wide admin key and is accepted only when the peer address is loopback (any other caller gets 403 `scope_denied`), so a remote caller can never stop a gateway this way. `oaa stop` uses it on Windows, where a signal cannot ask a process to stop cleanly (see [windows.md](windows.md#stopping-processes)); on other systems `oaa stop` sends SIGTERM.
 
 ## Compatibility
 
 | Interface                        | Implemented subset                                                                                                                        |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /v1/models`                 | Published agent IDs as callable model aliases                                                                                             |
+| `GET /v1/models/{id}`            | One model: the OpenAI Model object; with an `anthropic-version` header Anthropic's ModelInfo, with `x-goog-api-client` Google's Model. The slash in an agent ID may be percent-encoded (SDKs do) or not |
 | `POST /v1/responses`             | Text or role/content inputs containing `input_text` and uploaded `input_file.file_id`; streaming, background, metadata, previous response |
 | `GET /v1/responses/{id}`         | Authenticated durable response retrieval; `?stream=true` replays the Responses stream from the start (`starting_after=N` skips frames up to `sequence_number` N) |
 | `POST /v1/responses/{id}/cancel` | Cancel only the owned response                                                                                                            |
@@ -172,9 +179,9 @@ srt 后端的边界与局限：
 | `POST /v1/files`                 | OpenAI-style multipart file/purpose, or JSON `{filename,content,encoding,allowed_nodes}`                                                  |
 | `GET /v1/files/{id}/content`     | Authenticated input/artifact download                                                                                                     |
 
-Responses `model` selects an agent alias. `metadata["oaa.model"]` optionally selects a route. Unsupported OpenAI input returns an explicit error rather than a silently degraded result: on the strict endpoints an unknown field answers `unsupported_parameter` with `error.param`, and on every OpenAI entry (strict, compatibility and `/v1/universal`) an inline image, audio or unknown content part answers 400 `unsupported_content` with `error.param` pointing at the part (for example `messages.1.content.0`); no run is created and nothing of the part reaches the prompt. Upload the file with `POST /v1/files` and reference it with a `file` / `input_file` part instead (see 「兼容入口的参数、错误与结束原因」). Sampling parameters are accepted and reported as ignored. By default (managed mode) the gateway executes the registered agent tools and does not expose them as client-side function calls; caller-defined tools are only handed back to the caller in bridge mode, described next.
+Responses `model` selects an agent alias. `metadata["oaa.model"]` optionally selects a route. Unsupported OpenAI input returns an explicit error rather than a silently degraded result: on the strict endpoints an unknown field answers `unsupported_parameter` with `error.param`, and on every OpenAI entry (strict, compatibility and `/v1/universal`) an audio or unknown content part answers 400 `unsupported_content` with `error.param` pointing at the part (for example `messages.1.content.0`); no run is created and nothing of the part reaches the prompt. Image parts (`image_url`, `input_image`) are accepted on every entry and reach the agent as images ([images.md](images.md)); an agent that cannot take images answers the same 400 `unsupported_content` with `error.param` on the image part. Upload other files with `POST /v1/files` and reference them with a `file` / `input_file` part (see [Compatibility-endpoint parameters, errors and finish reasons](#compatibility-endpoint-parameters-errors-and-finish-reasons-060)). Sampling parameters are accepted and reported as ignored. By default (managed mode) the gateway executes the registered agent tools and does not expose them as client-side function calls; caller-defined tools are only handed back to the caller in bridge mode, described next.
 
-Client-defined tools: the strict endpoints (`/v1/chat/completions` and `/v1/responses` without `X-OAA-Compat`, and `/v1/uap`) reject `tools` as an unknown field. The compatibility endpoints (`X-OAA-Compat: true`, `/v1/compat/*`, `/v1/messages`, Gemini `generateContent`) handle a non-empty `tools` array by mode, chosen with the `X-OAA-Client-Tools` request header or `metadata["oaa.client_tools"]`: `managed` (default; the agent uses its own tools, the caller's tools are not executed, and the response carries `X-OAA-Client-Tools: ignored`), `reject` (`client_tools_unsupported`), or `bridge` (kernel agents and ACP agents: the agent's calls to caller tools come back in each protocol's standard form — Chat `tool_calls` with `finish_reason: "tool_calls"`, Responses `function_call` items in a `completed` response with `metadata["oaa.status"]="requires_action"`, Claude `tool_use` blocks with `stop_reason: "tool_use"`, Gemini `functionCall` parts (`args` as an object) with `finishReason: "STOP"` — the run parks, and the next request carrying the results (`role: "tool"`, `function_call_output`, `tool_result`, `functionResponse` — paired by `id`, or without `id` by name and order against the previous `model` turn's `functionCall` parts) continues the same run, same `X-Run-ID` and the same response ID (`resp_…` / `chatcmpl_resp_…` / `msg_resp_…` / Gemini `responseId`) — unlike OpenAI, where every `responses.create` returns a new Response; here one task is one ID and one bill, `GET /v1/responses/{id}` shows its latest state, and the earlier `function_call` items are not kept as a separate snapshot; other external agents answer `client_tools_bridge_unsupported`, and non-function / server / built-in tools (Gemini `googleSearch`, `codeExecution`, …) in bridge mode answer `client_tools_unsupported`). An empty or absent `tools` changes nothing. See [harness.md](harness.md).
+Client-defined tools: a request that declares a non-empty `tools` array (or sends tool results back) is handled by mode, chosen with the `X-OAA-Client-Tools` request header or `metadata["oaa.client_tools"]` on every entry. When the request chooses nothing the mode is `auto` (the gateway configuration `clientTools.default` can change that default): the caller's tools are handed to an agent that can take them over (`bridge`, below), and an agent that cannot gets what the entry did before, so only requests for agents that can bridge behave differently from older versions. The fallback is entry-specific: OpenAI's default endpoints (`/v1/chat/completions` and `/v1/responses` without `X-OAA-Compat`) refuse with 400 `unsupported_parameter` (`error.param` `tools`; the message says this agent cannot take the tools over, names the reason, and names the three ways out: the Base URL `<origin>/v1/compat`, `X-OAA-Compat: true`, `X-OAA-Client-Tools: managed`), while the compatibility endpoints, Claude Messages and Gemini carry on as `managed`. Auto falls back as well when a caller tool collides with a published tool or is not a plain function (Gemini `googleSearch`, `codeExecution`, ...), and when the caller forces a tool choice (`tool_choice` `required` or a function; Claude `any` / `tool`; Gemini mode `ANY`): the gateway and the agent cannot honour that, so the default endpoints refuse it (`unsupported_parameter`, `error.param` `tool_choice`) and the other entries ignore it as before. An explicit `managed`, `bridge`, `reject` or `auto` is never overridden. An empty `tools: []` changes nothing; `functions` / `function_call` (legacy) stay refused on the default endpoints, and `/v1/uap` rejects `tools` as an unknown field. The modes: `auto` (default, above), `managed` (the agent uses its own tools, the caller's tools are not executed, and the response carries `X-OAA-Client-Tools: ignored`), `reject` (`client_tools_unsupported`), or `bridge` (kernel agents and ACP agents; the response carries `X-OAA-Client-Tools: bridge`: the agent's calls to caller tools come back in each protocol's standard form — Chat `tool_calls` with `finish_reason: "tool_calls"`, Responses `function_call` items in a `completed` response with `metadata["oaa.status"]="requires_action"`, Claude `tool_use` blocks with `stop_reason: "tool_use"`, Gemini `functionCall` parts (`args` as an object) with `finishReason: "STOP"` — the run parks, and the next request carrying the results (`role: "tool"`, `function_call_output`, `tool_result`, `functionResponse` — paired by `id`, or without `id` by name and order against the previous `model` turn's `functionCall` parts) continues the same run, same `X-Run-ID` and the same response ID (`resp_…` / `chatcmpl_resp_…` / `msg_resp_…` / Gemini `responseId`) — unlike OpenAI, where every `responses.create` returns a new Response; here one task is one ID and one bill, `GET /v1/responses/{id}` shows its latest state, and the earlier `function_call` items are not kept as a separate snapshot; other external agents answer `client_tools_bridge_unsupported`, and non-function / server / built-in tools (Gemini `googleSearch`, `codeExecution`, …) in bridge mode answer `client_tools_unsupported`). An empty or absent `tools` changes nothing. See [harness.md](harness.md).
 
 Responses output uses standard `response.created`, `response.in_progress`, message/content events, `response.output_text.delta`, and terminal events. The official OpenAI JavaScript SDK is tested against both normal and streaming output. `X-Run-ID` identifies the underlying execution. Disconnecting the HTTP client does not cancel an accepted task.
 
@@ -188,57 +195,66 @@ Chat `stream_options.include_usage=true` requires `stream=true`: regular chunks 
 
 Normal synchronous calls return when complete or parked for approval. Responses represents a pending approval as `in_progress` with `metadata["oaa.status"]="requires_action"`; inspect the native run endpoint for its action. Chat Completions, Claude Messages and Gemini return HTTP 422 `action_required` (with `x-should-retry: false`, the run ID in `X-Run-ID` and in the error body) rather than pretending the task is complete: decide the action with `POST /v1/runs/{id}/actions/{action_id}` (`GET /v1/runs/{id}` lists it), then read the result with `GET /v1/responses/{id}`; do not resend the request, which would start a second run. Long-running or approval-driven clients should use background Responses or `oaa/1` and inspect actions.
 
-（2026-11-08 新增）流式 Responses 在等待 owner 决定时保持连接，并额外发出一个 `response.in_progress` 事件，其 `response.metadata["oaa.status"]` 为 `requires_action`，与非流式 Responses 的表示一致；决定后同一条流继续输出直到终止事件。Chat / Claude / Gemini 流以各自的错误帧结束（Chat `error.code: action_required`；Claude `event: error`，`error.type: invalid_request_error`、`error.code: action_required`；Gemini `error.status: FAILED_PRECONDITION`、`details[0].reason: action_required`），UAP 流以 `action` 帧结束；任务本身在后台继续，可用 `X-Run-ID` 查询。各协议的审批、取消、续接差异见 `docs/adapters.md`「AgentAPI 转换契约」。
+(Added 2026-11-08) A streaming Responses request keeps the connection open while it waits for the owner's decision and additionally emits a `response.in_progress` event whose `response.metadata["oaa.status"]` is `requires_action`, consistent with the non-streaming representation; after the decision, the same stream continues until the terminal event. Chat / Claude / Gemini streams end with their own error frames (Chat `error.code: action_required`; Claude `event: error` with `error.type: invalid_request_error` and `error.code: action_required`; Gemini `error.status: FAILED_PRECONDITION` and `details[0].reason: action_required`), and UAP streams end with an `action` frame; the task itself continues in the background and can be queried with `X-Run-ID`. How approval, cancellation and resume differ across protocols is described in [adapters.md](adapters.md#agentapi-conversion-contract-2026-11-08) ("AgentAPI conversion contract").
 
-### 兼容入口的参数、错误与结束原因（0.6.0）
+### Compatibility-endpoint parameters, errors and finish reasons (0.6.0)
 
-调用的是智能体，不是裸模型：采样类参数由发布者在智能体里决定，网关不转发。各入口的处理如下。
+You call an agent, not a bare model: sampling parameters are decided by the publisher inside the agent, and the gateway does not forward them. Each entry handles them as follows.
 
-| 入口 | 生效 | 接受但忽略（列在 `X-OAA-Ignored-Params`） | 拒绝 |
+| Endpoint | Honored | Accepted but ignored (listed in `X-OAA-Ignored-Params`) | Rejected |
 | --- | --- | --- | --- |
-| `/v1/chat/completions`（严格） | `messages`、`stream`、`stream_options`、`metadata`、`max_tokens` / `max_completion_tokens` | `temperature`、`top_p`、`seed`、`stop`、`presence_penalty`、`frequency_penalty`、`n`（只能是 1）、`user`、`store`、`service_tier` | 其余字段（`tools`、`response_format`、`logprobs`、`n > 1`…）：400 `unsupported_parameter`，`error.param` 是字段名，说明里指向 `/v1/compat/chat/completions`；`image_url`、`input_audio` 等内容块：400 `unsupported_content` |
-| `/v1/responses`（严格） | `input`、`stream`、`background`、`previous_response_id`、`metadata`、`max_output_tokens` | `temperature`、`top_p`、`top_logprobs`、`user`、`store`、`service_tier`、`truncation` | 其余字段（`instructions`、`tools`、`text`…）：400 `unsupported_parameter`，指向 `/v1/compat/responses`；`input_image`、`input_audio` 等内容块：400 `unsupported_content` |
-| `/v1/compat/chat/completions`、`X-OAA-Compat: true` | 同上，加 `tools`（按 `X-OAA-Client-Tools` 模式）、`response_format`（作为输出要求写进输入）、`reasoning_effort`（路由策略） | `temperature`、`top_p`、`seed`、`stop`、`presence_penalty`、`frequency_penalty`、`n`、`logit_bias`、`logprobs`、`top_logprobs`、`user`、`store`、`service_tier`、`tool_choice`、`parallel_tool_calls` | 内联图片（`image_url`）、`input_audio` 与未知内容块：400 `unsupported_content`，`error.param` 指到内容块（如 `messages.1.content.0`）；先 `POST /v1/files` 上传，再用 `{"type":"file","file":{"file_id":"…"}}` 引用 |
-| `/v1/compat/responses` | 同上，加 `instructions`、`tools`、`text.format`、`reasoning.effort` | `temperature`、`top_p`、`top_logprobs`、`user`、`store`、`service_tier`、`truncation`、`tool_choice`、`parallel_tool_calls` | `input_image`、`input_audio`、未知内容块与未知输入项：400 `unsupported_content`（用 `{"type":"input_file","file_id":"…"}` 引用已上传的文件） |
-| `/v1/messages`、`/v1/compat/messages` | `system`（全文，不截断）、`messages`、`stream`、`metadata`、`max_tokens`、`tools` | `temperature`、`top_p`、`top_k`、`stop_sequences`、`tool_choice`、`thinking`、`service_tier` | 内联的 base64 / URL 图片与文档、未知内容块：400 `unsupported_content`（先 `POST /v1/files` 上传，再用 `{"type":"image","source":{"type":"file","file_id":"…"}}` 引用） |
-| `/v1beta/models/{agent}:generateContent` / `:streamGenerateContent`（`/v1/models/...` 相同） | `contents`、`systemInstruction`、`generationConfig.maxOutputTokens`、`fileData` | `generationConfig` 的其余字段（`generationConfig.temperature` 等）、`safetySettings`、`toolConfig`、`cachedContent` | `inlineData` 等其它 part：400 `unsupported_content`（用 `{"fileData":{"fileUri":"oaa://files/<id>"}}`） |
+| `/v1/chat/completions` (strict) | `messages` (`name` is dropped), `stream`, `stream_options.include_usage`, `metadata`, `max_tokens` / `max_completion_tokens`, `reasoning_effort` (routing hint: `high` / `xhigh` prefer the quality route, `low` / `minimal` the speed route), `tools` and tool messages (mode `auto`, above), `response_format` (structured output, [structured-output.md](structured-output.md)), `n` (must be 1) | `temperature`, `top_p`, `seed`, `stop` (any number of entries), `presence_penalty`, `frequency_penalty`, `user`, `store`, `service_tier`, `logit_bias`, `top_logprobs`, `tool_choice` (`auto` / `none`), `parallel_tool_calls`, `verbosity`, `prompt_cache_key`, `safety_identifier`, `prediction`, and the vendor sampling knobs `top_k`, `min_p`, `repeat_penalty`, `repetition_penalty`, `repeat_last_n`, `mirostat`, `mirostat_eta`, `mirostat_tau`, `tfs_z`, `typical_p`, `num_ctx`, `num_batch`, `num_keep`, `num_predict`, `keep_alive`, `think`; harmless values `logprobs: false`, `modalities: ["text"]`, `tools: []`, `functions: []`, `response_format: {"type":"text"}`; extra keys on text parts (`cache_control`) and in `stream_options` (`include_obfuscation`) are dropped; `null` for an optional number | Values that change what the gateway must do: `functions` / `function_call` other than `auto` / `none` (legacy; declare `tools`), `tool_choice` `required` or a named function, `logprobs: true`, non-text `modalities`, `n > 1`, `stream_options` without `stream: true` (as OpenAI does), and any field not named in this row (a typo is not swallowed): 400 `unsupported_parameter`, `error.param` is the field name and the message names the way out (`/v1/compat`); content blocks such as `input_audio`: 400 `unsupported_content`; `image_url` parts are accepted ([images.md](images.md)) |
+| `/v1/responses` (strict) | `input` (a string, or message items with or without `type: "message"`; parts `input_text`, `output_text`, `input_file`, `input_image`), `instructions`, `stream`, `background`, `previous_response_id`, `metadata`, `max_output_tokens`, `reasoning.effort`, `tools` and their calls and results (mode `auto`), `text.format` (structured output) | `temperature`, `top_p`, `top_logprobs`, `user`, `store`, `service_tier`, `truncation`, `tool_choice` (`auto` / `none`), `parallel_tool_calls`, `include`, `max_tool_calls`, `prompt_cache_key`, `safety_identifier`, `stream_options`, `prompt_cache_retention`; harmless values `text.format` `text`, `tools: []` | A forced `tool_choice` and unknown fields: 400 `unsupported_parameter`; input items other than messages and tool items (`reasoning`, `item_reference`, ...): 400 `unsupported_content` with `error.param` `input.N`; content blocks such as `input_audio`: 400 `unsupported_content` |
+| `/v1/compat/chat/completions`, `X-OAA-Compat: true` | The above, plus `tools` (by `X-OAA-Client-Tools` mode), `response_format` (structured output), `reasoning_effort` (routing strategy) | `temperature`, `top_p`, `seed`, `stop`, `presence_penalty`, `frequency_penalty`, `n`, `logit_bias`, `logprobs`, `top_logprobs`, `user`, `store`, `service_tier`, `tool_choice`, `parallel_tool_calls` | `input_audio` and unknown content blocks: 400 `unsupported_content`, with `error.param` pointing at the block (for example `messages.1.content.0`); upload other files with `POST /v1/files` first, then reference them with `{"type":"file","file":{"file_id":"…"}}`; images: [images.md](images.md) |
+| `/v1/compat/responses` | The above, plus `instructions`, `tools`, `text.format` (structured output), `reasoning.effort` | `temperature`, `top_p`, `top_logprobs`, `user`, `store`, `service_tier`, `truncation`, `tool_choice`, `parallel_tool_calls` | `input_audio`, unknown content blocks and unknown input items: 400 `unsupported_content` (reference an uploaded file with `{"type":"input_file","file_id":"…"}`); images: [images.md](images.md) |
+| `/v1/messages`, `/v1/compat/messages` | `system` (in full, not truncated), `messages`, `stream`, `metadata`, `max_tokens`, `tools`, `output_config.format` (structured output) | `temperature`, `top_p`, `top_k`, `stop_sequences`, `tool_choice`, `thinking`, `service_tier` | Inline base64 / URL documents, unknown content blocks: 400 `unsupported_content` (upload with `POST /v1/files` first, then reference it with `{"type":"document","source":{"type":"file","file_id":"…"}}`); `image` blocks with `base64`, `url` or `file` sources are accepted ([images.md](images.md)) |
+| `/v1beta/models/{agent}:generateContent` / `:streamGenerateContent` (same under `/v1/models/...`, and `/v1beta/{agent}:generateContent` without `models/`, which the AI SDK Google provider requests for ids containing a slash) | `contents`, `systemInstruction`, `generationConfig.maxOutputTokens`, `generationConfig.responseMimeType` / `responseSchema` / `responseJsonSchema` (structured output), `fileData`, image `inlineData` ([images.md](images.md)) | The rest of `generationConfig` (`generationConfig.temperature` and so on), `safetySettings`, `toolConfig`, `cachedContent` | Other parts, such as `inlineData` that is not an image: 400 `unsupported_content` (use `{"fileData":{"fileUri":"oaa://files/<id>"}}`) |
 
-- **输出长度上限**：请求的上限写进 `metadata["oaa.max_output_tokens"]`（旧的 compat 端点仍写 `oaa.compat_max_tokens`），内核取它与智能体自身 `limits.maxOutputTokens` 的较小者，经节点线协议的可选字段 `Work.maxOutputTokens` 交给执行模型调用的节点。调用方只能调低，不能调高。外部智能体（ACP、A2A 等原生执行）不经网关调用模型，不受这个上限约束。不认识该字段的旧节点按已发布的上限执行。
-- **`X-OAA-Ignored-Params`**：这次请求里被接受但没有转发的参数名，逗号加空格分隔；没有被忽略的参数时不出现这个头。
-- **内容块**：Claude 的 `tool_use` / `tool_result` 与 Gemini 的 `functionCall` / `functionResponse` 以 `[assistant tool_call:<name>]` / `[tool:<id 或 name>]` 标注成文本交给智能体（与 compat Responses 相同）；Claude 的 `thinking` 块与 Gemini 的 `thought` part 不交给智能体。
-- **`/v1/universal` 的识别**：`X-OAA-Protocol: uap|oaa|gemini|claude|chat|responses` 显式指明时以它为准。否则：UAP、OAA 按字段；有 `contents` 是 Gemini；有 `messages` 时只看各家独有的特征——Claude：`anthropic-version` 或 `x-api-key` 请求头、数组形式的 `system`、`stop_sequences`、`top_k`、`thinking`、`anthropic_version`、带 `input_schema` 的工具、`image` / `document` / `tool_use` / `tool_result` / `thinking` 内容块；Chat：`system` / `developer` / `tool` 角色、`tool_calls`、`tool_call_id`、`stream_options`、`n`、`response_format`、`max_completion_tokens`、`seed`、`stop` 等字段、`type: "function"` 的工具、`image_url` 等内容块。`max_tokens`、字符串 `system`、`model`、`stream`、`metadata` 两家都有，不参与判断。两边都没有或都有特征时返回 400 `protocol_undetected`，不猜。有 `input` 与 `model` 是 Responses。Gemini 经 universal 时是否流式由非标准的 `body.stream` 决定，并且始终是 SSE。
+- **Output length cap**: the requested cap is written to `metadata["oaa.max_output_tokens"]` (the older compat endpoints still write `oaa.compat_max_tokens`). The kernel takes the smaller of it and the agent's own `limits.maxOutputTokens`, and hands it to the node that runs the model call through the optional node wire field `Work.maxOutputTokens`. A caller can only lower the cap, never raise it. External agents (native execution such as ACP and A2A) do not call models through the gateway and are not bound by this cap. An older node that does not know the field runs with the published cap.
+- **Gemini field names**: Google's REST accepts proto-JSON, so a body may use snake_case or camelCase. The gateway renames the known snake_case keys (`system_instruction`, `generation_config`, `max_output_tokens`, `function_declarations`, `parameters_json_schema`, `inline_data`, `file_data`, ...) before parsing; the caller's own data (`args`, `response`, JSON Schemas) is left alone. `google-genai` 3.3 sends tool schemas as `parameters_json_schema`.
+- **Base URL tolerance**: runs of slashes in an API path are squeezed and the trailing slash of a `/v1...` or `/v1beta...` path is dropped, so a Base URL typed with a trailing slash (`/v1//chat/completions`, `/v1/models/`) still routes; authentication looks at the same normalized path. A 404 for a path that starts with `/chat/completions`, `/completions`, `/models`, `/responses` or `/embeddings` adds that the OpenAI-style Base URL must end with `/v1`; a path starting with `/v1/v1` adds that the client already appends `/v1`.
+- **CORS preflight**: the `Origin` must be the gateway's own or in `allowedOrigins` (otherwise 403 `origin_denied`); the answer to `OPTIONS` then lists the fixed header set plus exactly the well-formed header names the browser asked for in `Access-Control-Request-Headers` (browsers send `user-agent`, `x-stainless-*` and others that a fixed list cannot predict).
+- **Body-less POST**: a zero-length body with `Content-Type: application/json` on `DELETE` and on `/cancel`, `/resume` and `/reconcile` is treated as no body (the official SDKs send it for `responses.cancel`); a malformed non-empty body is still 400 `invalid_json`.
+- **Tested clients**: which SDKs, frameworks and chat clients were run live or replayed from recorded request shapes is in [compatibility.md](compatibility.md).
+- **`X-OAA-Ignored-Params`**: the names of parameters in this request that were accepted but not forwarded, separated by a comma and a space; the header is absent when no parameter was ignored.
+- **Content blocks**: Claude `tool_use` / `tool_result` and Gemini `functionCall` / `functionResponse` are handed to the agent as text labeled `[assistant tool_call:<name>]` / `[tool:<id or name>]` (the same as compat Responses); Claude `thinking` blocks and Gemini `thought` parts are not handed to the agent.
+- **Detection on `/v1/universal`**: an explicit `X-OAA-Protocol: uap|oaa|gemini|claude|chat|responses` wins. Otherwise: UAP and OAA are recognized by their fields; `contents` means Gemini; with `messages`, only features unique to one vendor count. Claude: the `anthropic-version` or `x-api-key` header, an array-form `system`, `stop_sequences`, `top_k`, `thinking`, `anthropic_version`, tools with `input_schema`, and `image` / `document` / `tool_use` / `tool_result` / `thinking` content blocks. Chat: the `system` / `developer` / `tool` roles, `tool_calls`, `tool_call_id`, `stream_options`, `n`, `response_format`, `max_completion_tokens`, `seed`, `stop` and similar fields, tools with `type: "function"`, and content blocks such as `image_url`. `max_tokens`, a string `system`, `model`, `stream` and `metadata` exist in both and do not take part in detection. When neither or both have features, the gateway returns 400 `protocol_undetected` and does not guess. `input` with `model` means Responses. Whether Gemini through universal streams is decided by the non-standard `body.stream`, and it is always SSE.
 
-**错误形状**：
+**Error shapes**:
 
-| 入口 | 形状 | 网关错误码的位置 |
+| Endpoint | Shape | Where the gateway error code is |
 | --- | --- | --- |
-| OpenAI（`/v1/chat/completions`、`/v1/responses*`、`/v1/compat/chat/completions`、`/v1/compat/responses`，universal 判为 chat / responses） | `{"error":{"code","message","type","param"}}` | `error.code` |
-| Claude（`/v1/messages`、`/v1/compat/messages` 及其子路径（如 `/v1/messages/count_tokens` 的 404），universal 判为 claude） | `{"type":"error","error":{"type","message","code"}}`，`error.type` 按 HTTP 状态：400 `invalid_request_error`、401 `authentication_error`、402 `billing_error`、403 `permission_error`、404 `not_found_error`、409 `conflict_error`、413 `request_too_large`、429 `rate_limit_error`、503 / 529 `overloaded_error`、504 `timeout_error`、其余 5xx `api_error`、其余 4xx `invalid_request_error` | 附加字段 `error.code` |
-| Gemini（`/v1beta/*`、`/v1/models/{agent}:{方法}`、带 `x-goog-api-client` 的 `/v1/models*`，universal 判为 gemini） | `{"error":{"code":<HTTP 状态>,"message","status","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason","domain":"open-agent-api"}]}}`，`status` 按 HTTP 状态：400 `INVALID_ARGUMENT`、401 `UNAUTHENTICATED`、403 `PERMISSION_DENIED`、404 `NOT_FOUND`、409 `ABORTED`、422 `FAILED_PRECONDITION`、429 `RESOURCE_EXHAUSTED`、503 `UNAVAILABLE`、504 `DEADLINE_EXCEEDED`、其余 5xx `INTERNAL` | `details[0].reason` |
-| 其余路由 | `{"error":{"code","message","type":"invalid_request_error"}}`（不变） | `error.code` |
+| OpenAI (`/v1/chat/completions`, `/v1/responses*`, `/v1/compat/chat/completions`, `/v1/compat/responses`; universal detected as chat / responses) | `{"error":{"code","message","type","param"}}` | `error.code` |
+| Claude (`/v1/messages`, `/v1/compat/messages` and their sub-paths such as the 404 of `/v1/messages/count_tokens`; universal detected as claude) | `{"type":"error","error":{"type","message","code"}}`, with `error.type` by HTTP status: 400 `invalid_request_error`, 401 `authentication_error`, 402 `billing_error`, 403 `permission_error`, 404 `not_found_error`, 409 `conflict_error`, 413 `request_too_large`, 429 `rate_limit_error`, 503 / 529 `overloaded_error`, 504 `timeout_error`, other 5xx `api_error`, other 4xx `invalid_request_error` | The additional field `error.code` |
+| Gemini (`/v1beta/*`, `/v1/models/{agent}:{method}`, `/v1/models*` with `x-goog-api-client`; universal detected as gemini) | `{"error":{"code":<HTTP status>,"message","status","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason","domain":"open-agent-api"}]}}`, with `status` by HTTP status: 400 `INVALID_ARGUMENT`, 401 `UNAUTHENTICATED`, 403 `PERMISSION_DENIED`, 404 `NOT_FOUND`, 409 `ABORTED`, 422 `FAILED_PRECONDITION`, 429 `RESOURCE_EXHAUSTED`, 503 `UNAVAILABLE`, 504 `DEADLINE_EXCEEDED`, other 5xx `INTERNAL` | `details[0].reason` |
+| All other routes | `{"error":{"code","message","type":"invalid_request_error"}}` (unchanged) | `error.code` |
 
-运行已创建之后的错误再带 `run_id`（OpenAI、Claude）或 `details[0].metadata.run_id`（Gemini）。流开始之后出错时，错误帧带真实的错误码与原因：Chat `data: {"error":{"code","message","type","param":null,"run_id"}}`（`type` 在服务端失败时为 `server_error`）；Claude `event: error`，`error.type` 按错误码在目录里的 HTTP 状态映射；Gemini 同上的 Google 错误对象。
+Errors after the run has been created also carry `run_id` (OpenAI, Claude) or `details[0].metadata.run_id` (Gemini). When an error occurs after the stream has started, the error frame carries the real error code and reason: Chat `data: {"error":{"code","message","type","param":null,"run_id"}}` (`type` is `server_error` for server-side failures); Claude `event: error`, with `error.type` mapped from the HTTP status the code has in the catalog; Gemini the same Google error object.
 
-**重试**：运行已经创建、但没有正常结束（失败、取消、中断、待审批）时，非流式 Chat / Claude / Gemini 返回 **422**（不再是官方 SDK 默认会自动重试的 409）并带 `x-should-retry: false`；Responses 照旧返回 200 的 response 对象（`status: "failed"` 等）。错误码目录里不可重试、而状态码会让 SDK 重试（408、409、429、5xx）的错误同样带 `x-should-retry: false`（例如配额耗尽）。可重试的 429 / 503 带 `Retry-After`：每分钟限流（`rate_limited`）给当前 60 秒窗口真实的剩余秒数（1–60），其余容量类上限（含 `too_many_streams`、`catalog_capacity`、`key_concurrency_limit`）给 10 秒。
+**Retries**: when a run has been created but did not end normally (failed, cancelled, interrupted, awaiting approval), non-streaming Chat / Claude / Gemini return **422** (no longer the 409 that the official SDKs retry automatically by default) with `x-should-retry: false`; Responses still returns a 200 response object (`status: "failed"` and so on). Errors that the error catalog marks as not retryable but whose status code would make an SDK retry (408, 409, 429, 5xx) also carry `x-should-retry: false` (for example quota exhaustion). Retryable 429 / 503 responses carry `Retry-After`: the per-minute rate limit (`rate_limited`) gives the real remaining seconds (1-60) of the current 60-second window, and other capacity limits (including `too_many_streams`, `catalog_capacity`, `key_concurrency_limit`) give 10 seconds.
 
-**配额耗尽（429）与余额不足（402）为什么不同**：`run_quota_exceeded`、`token_quota_exceeded` 是 API 密钥上由 owner 设的限额，语义是「这把密钥用完了」，与 OpenAI 的 `insufficient_quota` 一样用 429；`insufficient_balance` 是平台账户需要付费充值，用 402。两者都不可重试：429 的配额耗尽带 `x-should-retry: false`、不带 `Retry-After`，402 本身不在官方 SDK 自动重试的状态码里，所以都不会被 SDK 自动重试。已发布错误码的 HTTP 状态不改。
+**Idempotency-Key on every entry**: `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, the Gemini `generateContent` / `streamGenerateContent` entries and the `/v1/compat/*` entries all honour the `Idempotency-Key` request header (1 to 200 characters, otherwise 400 `invalid_idempotency_key`), the same as `POST /v1/invoke`. A repeated request with the same key and the same input is attached to the run that already exists (same `X-Run-ID`, no second run; a streaming request attaches to it too); the same key with different input is 409 `idempotency_conflict` (Chat: `error.code`, Claude: `error.type: "conflict_error"` with `error.code`, Gemini: `status: "ABORTED"`). Use one key per logical task and repeat it on every retry: that is what makes retrying a request whose outcome you do not know (a timeout, a dropped connection) safe, because a disconnected client does not cancel the run. The continuation request of a bridged tool round (tool results sent back) finds its run by the tool call ID, not by the key.
 
-**结束原因**：
+**Cancelling**: the final state after `POST /v1/responses/{id}/cancel` (or `oaa cancel`) depends on the agent. A built-in (kernel) agent ends `cancelled`. An external agent (ACP, Codex, Claude Code, ...) that has not started executing yet also ends `cancelled`; one that is cancelled after it started is recorded as `interrupted` with the error `effect_outcome_unknown`, because the side effects it already produced cannot be ruled out. `GET /v1/runs/{id}` shows `interrupted`; the Responses entry shows it as `status: "incomplete"`, `incomplete_details.reason: "effect_outcome_unknown"` and `metadata["oaa.status"]: "interrupted"`; Chat, Claude and Gemini answer 422 as for any run that did not end normally. Cancelling a run that has already finished returns it unchanged. Callers should treat `cancelled` and an `interrupted` / `effect_outcome_unknown` result as the two normal outcomes of a cancel, and check for side effects in the second case ([operations.md, "Inspect and recover work"](operations.md#inspect-and-recover-work)).
 
-| 运行 | Chat `finish_reason` | Claude `stop_reason` | Gemini `finishReason` | Responses |
+**Why quota exhaustion (429) and insufficient balance (402) differ**: `run_quota_exceeded` and `token_quota_exceeded` are limits the owner sets on an API key, meaning "this key is used up", so they use 429, like OpenAI's `insufficient_quota`; `insufficient_balance` means a platform account needs a paid top-up, so it uses 402. Neither is retryable: a quota-exhausted 429 carries `x-should-retry: false` and no `Retry-After`, and 402 is not among the status codes the official SDKs retry automatically, so neither is retried by an SDK. The HTTP status of already-published error codes does not change.
+
+**Finish reasons**:
+
+| Run | Chat `finish_reason` | Claude `stop_reason` | Gemini `finishReason` | Responses |
 | --- | --- | --- | --- | --- |
-| 完成 | `stop` | `end_turn` | `STOP` | `status: completed` |
-| 模型输出被截断（`max_output_tokens`） | `length`（200，已生成的文本照常给出；流式照常以 `[DONE]` 结束） | `max_tokens` | `MAX_TOKENS` | `status: incomplete`，`incomplete_details.reason: max_output_tokens` |
-| 桥接：等调用方执行工具 | `tool_calls` | `tool_use` | 不支持桥接 | `completed` + `function_call` 条目 |
-| 失败 / 取消 / 中断 / 其它未完成 / 待审批 | 422 错误（流：错误帧） | 422 错误（流：`event: error`） | 422 错误（流：错误对象） | `failed` / `cancelled` / `incomplete` / `in_progress` |
+| Completed | `stop` | `end_turn` | `STOP` | `status: completed` |
+| Model output truncated (`max_output_tokens`) | `length` (200; the text generated so far is returned as usual; a stream still ends with `[DONE]`) | `max_tokens` | `MAX_TOKENS` | `status: incomplete`, `incomplete_details.reason: max_output_tokens` |
+| Bridge: waiting for the caller to run a tool | `tool_calls` | `tool_use` | bridge not supported | `completed` + `function_call` items |
+| Failed / cancelled / interrupted / other incomplete / awaiting approval | 422 error (stream: error frame) | 422 error (stream: `event: error`) | 422 error (stream: error object) | `failed` / `cancelled` / `incomplete` / `in_progress` |
 
-`stop_sequence` 恒为 `null`（网关不转发停止序列）。Claude 的 `message_start.usage` 是 0：开始输出时还没有用量，真实值在 `message_delta` 里。`model` 回显的是智能体 ID，Gemini 的 `modelVersion` 是 `<agent>@<route model>`。Claude 入口不要求 `max_tokens`、不校验角色交替，比官方宽松。
+`stop_sequence` is always `null` (the gateway does not forward stop sequences). Claude's `message_start.usage` is 0: there is no usage yet when output starts, and the real values arrive in `message_delta`. `model` echoes the agent ID, and Gemini's `modelVersion` is `<agent>@<route model>`. The Claude entry does not require `max_tokens` and does not validate role alternation, so it is more lenient than the official API.
 
-**流的细节**：Responses 流的 `sequence_number`（与 SSE 的 `id:`）是这条流里帧的序号，从 0 起连续；桥接续接的流是新的一段，同样从 0 起。Claude 流在 `message_start` 之后发一个 `ping` 事件，长时间没有输出时网关每 15 秒发一次 SSE 注释心跳。Gemini `:streamGenerateContent?alt=sse` 是 SSE；不带 `alt=sse` 时是分块传输的 JSON 数组（`application/json`，元素之间以 `,\r\n` 分隔，心跳是空白字符）。Gemini 也接受 REST 的 `?key=`（只在 `/v1beta/models[/*]` 与 `/v1/models/{agent}:{方法}` 上；网关不记录完整 URL，审计记录只保存路径）。
+**Stream details**: the `sequence_number` of a Responses stream (and the SSE `id:`) is the frame sequence within that stream, consecutive from 0; a stream that continues after a bridge is a new segment and also starts from 0. A Claude stream sends a `ping` event after `message_start`, and when there is no output for a long time the gateway sends an SSE comment heartbeat every 15 seconds. Gemini `:streamGenerateContent?alt=sse` is SSE; without `alt=sse` it is a chunked JSON array (`application/json`, elements separated by `,\r\n`, with whitespace as the heartbeat). Gemini also accepts the REST `?key=` (only on `/v1beta/models[/*]` and `/v1/models/{agent}:{method}`; the gateway does not log full URLs, and audit records keep only the path).
 
-**官方 SDK 实测**：Claude Messages 入口有仓库内的官方 `@anthropic-ai/sdk` 1.3.0 回归测试（`test/compat-anthropic-sdk.test.ts`、`test/compat-anthropic-sdk-errors.test.ts`，进程内、不监听端口）：`messages.create` 与 `messages.stream()` 的解析（`finalMessage()`、`finalText()`、原始事件迭代）、截断、系统提示与多轮、鉴权（SDK 1.3.0 把 `apiKey` 发成 `Authorization: Bearer`；`authToken` 与显式 `x-api-key` 头同样可用；`anthropic-beta` 不影响请求）、各错误类（`AuthenticationError`、`PermissionDeniedError`、`NotFoundError`、`BadRequestError`、`RateLimitError`、`UnprocessableEntityError`）、失败与待审批只发一次请求、桥接工具（`tool_use` 块、流式 `input_json_delta` 拼成对象、并行调用、`tool_result` 续接）。SDK 有而网关没有的端点（`messages.countTokens`、`messages.batches.*`）返回 Claude 形状的 404，SDK 解析为 `NotFoundError`（`type: "not_found_error"`）。带 `anthropic-version` 请求头的 `GET /v1/models`（SDK 的 `models.list()`）返回 Anthropic 的 ModelInfo 列表（`type: "model"`、`display_name` 为智能体 ID、`created_at` 为纪元时间、`has_more: false`）；不带该头时仍是 OpenAI 的列表形状。SDK 1.3.0 的类型里必有、可为 `null` 的字段网关都会给出：`Message` 的 `container`、`stop_details`、`diagnostics` 为 `null`；`usage` 的 `input_tokens`、`output_tokens` 是运行的真实计数，`cache_creation_input_tokens`、`cache_read_input_tokens`（网关不做提示缓存计数）、`cache_creation`、`output_tokens_details`、`server_tool_use`、`service_tier`、`inference_geo`、`speed` 为 `null`；流式 `message_start` 的 message 同形，`message_delta` 的 `delta` 带 `stop_details: null`、`container: null`，`usage` 带 `MessageDeltaUsage` 的 `cache_creation_input_tokens`、`cache_read_input_tokens`、`output_tokens_details`、`server_tool_use`（`null`）。非流式与 `finalMessage()` 读到的都是 `null`，不是 `undefined`；类型上可选的字段不加。Gemini 入口用临时安装的官方 `@google/genai` 3.2.0 做过一次性实测（探测脚本 `examples/gemini-sdk-probe.mjs`，进程内、不监听端口；该 SDK 不是项目依赖，回归靠线上格式测试 `test/compat-claude-gemini.test.ts`、`test/compat-gemini-sdk-findings.test.ts`）：SDK 默认 `apiVersion` 是 `v1`，请求发到 `/v1/models/{agent}:generateContent`，网关在 `/v1` 与 `/v1beta` 下同样接受；`generateContent` 读到 `text`、`candidates`、`finishReason`、`usageMetadata`、`modelVersion`、`responseId`；`generateContentStream` 与 `chats.sendMessageStream()` 用 `?alt=sse`，最后一片带 `finishReason` 与用量；`systemInstruction`、多轮与 `chats` 历史按角色进入提示词；`maxOutputTokens` 截断是 `MAX_TOKENS`，`temperature`/`topP`/`topK`/`stopSequences` 列在 `X-OAA-Ignored-Params`；SDK 用 `x-goog-api-key` 头鉴权（`?key=` 同样可用）。错误抛 `ApiError`，`status` 是 HTTP 状态，`message` 是错误体的 JSON 字符串，可从中读到 `details[0].reason` 与 `metadata.run_id`；流中途失败也是 `ApiError`（`status: 500`，`INTERNAL`）。SDK 默认不重试（只有设了 `httpOptions.retryOptions` 才对 408、429、5xx 重试，不看 `Retry-After`），运行失败与待审批（422）只发一次请求、只建一个运行。调用方工具：默认与托管模式下 SDK 拿不到 `functionCalls`，回传的 `functionCall`/`functionResponse` part 作为文本进入提示词；带 `X-OAA-Client-Tools: bridge`（`httpOptions.headers`）时，`generateContent` 的 `response.functionCalls` 有 `id`、`name` 与对象形式的 `args`，`finishReason` 是 `STOP`，手工回传 `functionResponse` 续接同一个运行（同一 `responseId`），并行两个调用、`generateContentStream`（调用在一个分片里给全）与 `chats.sendMessage` 往返（SDK 的历史保留模型回合 `functionCall` 的 `id`，调用方的 `functionResponse` 不带 `id`，按名字配对）都已实测；SDK 把 `parameters` 的类型写成大写（`OBJECT`），网关转成 JSON Schema。`models.list()`/`models.get()`：`GET /v1beta/models[/{agent}]`，以及带 `x-goog-api-client` 头（SDK 每次都发）的 `GET /v1/models[/{agent}]`，返回 Google 的 Model 形状（`name: "models/<agent>"`、`displayName`、`supportedGenerationMethods`），一次返回全部、没有 `nextPageToken`。`countTokens`、`embedContent`、`caches`、`files` 网关没有，返回 404，SDK 正常解析为 `ApiError`（`/v1/cachedContents`、`/v1/files` 的 404 不是 Gemini 形状，但 SDK 不依赖形状）。
+**Official SDK testing**: the Claude Messages entry has regression tests in this repository with the official `@anthropic-ai/sdk` 1.3.0 (`test/compat-anthropic-sdk.test.ts`, `test/compat-anthropic-sdk-errors.test.ts`; in-process, no port listening). They cover: parsing of `messages.create` and `messages.stream()` (`finalMessage()`, `finalText()`, raw event iteration); truncation; system prompts and multi-turn; authentication (SDK 1.3.0 sends `apiKey` as `Authorization: Bearer`; `authToken` and an explicit `x-api-key` header work too; `anthropic-beta` does not affect the request); the error classes (`AuthenticationError`, `PermissionDeniedError`, `NotFoundError`, `BadRequestError`, `RateLimitError`, `UnprocessableEntityError`); failures and pending approvals send exactly one request; and bridged tools (`tool_use` blocks, streamed `input_json_delta` assembled into an object, parallel calls, continuing with `tool_result`). Endpoints that the SDK has but the gateway does not (`messages.countTokens`, `messages.batches.*`) return a Claude-shaped 404, which the SDK parses as `NotFoundError` (`type: "not_found_error"`). `GET /v1/models` with an `anthropic-version` request header (the SDK's `models.list()`) returns an Anthropic ModelInfo list (`type: "model"`, `display_name` is the agent ID, `created_at` is an epoch time, `has_more: false`); without that header it is still the OpenAI list shape. The gateway supplies every field that is required in the SDK 1.3.0 types but nullable: on `Message`, `container`, `stop_details` and `diagnostics` are `null`; in `usage`, `input_tokens` and `output_tokens` are the run's real counts, while `cache_creation_input_tokens`, `cache_read_input_tokens` (the gateway does no prompt-cache counting), `cache_creation`, `output_tokens_details`, `server_tool_use`, `service_tier`, `inference_geo` and `speed` are `null`; the message in a streaming `message_start` has the same shape, and the `delta` of `message_delta` carries `stop_details: null` and `container: null`, with its `usage` carrying `MessageDeltaUsage`'s `cache_creation_input_tokens`, `cache_read_input_tokens`, `output_tokens_details` and `server_tool_use` (`null`). Both non-streaming reads and `finalMessage()` see `null`, not `undefined`; fields that are optional in the types are not added. The Gemini entry was tested once with a temporarily installed official `@google/genai` 3.2.0 (probe script `examples/gemini-sdk-probe.mjs`, in-process, no port listening; this SDK is not a project dependency, and regression coverage relies on the wire-format tests `test/compat-claude-gemini.test.ts` and `test/compat-gemini-sdk-findings.test.ts`): the SDK's default `apiVersion` is `v1`, so requests go to `/v1/models/{agent}:generateContent`, and the gateway accepts both `/v1` and `/v1beta`; `generateContent` reads `text`, `candidates`, `finishReason`, `usageMetadata`, `modelVersion` and `responseId`; `generateContentStream` and `chats.sendMessageStream()` use `?alt=sse`, and the last chunk carries `finishReason` and usage; `systemInstruction`, multi-turn and `chats` history enter the prompt by role; truncation by `maxOutputTokens` is `MAX_TOKENS`, and `temperature` / `topP` / `topK` / `stopSequences` are listed in `X-OAA-Ignored-Params`; the SDK authenticates with the `x-goog-api-key` header (`?key=` works too). Errors throw `ApiError`, where `status` is the HTTP status and `message` is the JSON string of the error body, from which `details[0].reason` and `metadata.run_id` can be read; a failure in the middle of a stream is also an `ApiError` (`status: 500`, `INTERNAL`). The SDK does not retry by default (it retries 408, 429 and 5xx only when `httpOptions.retryOptions` is set, ignoring `Retry-After`), and a run failure or pending approval (422) sends one request and creates one run. Caller tools: by default and in managed mode the SDK gets no `functionCalls`, and returned `functionCall` / `functionResponse` parts enter the prompt as text; with `X-OAA-Client-Tools: bridge` (`httpOptions.headers`), `response.functionCalls` from `generateContent` has `id`, `name` and `args` as an object, `finishReason` is `STOP`, and manually returning a `functionResponse` continues the same run (the same `responseId`); two parallel calls, `generateContentStream` (the calls arrive complete in one chunk) and `chats.sendMessage` round trips (the SDK history keeps the `id` of the model turn's `functionCall`, while the caller's `functionResponse` carries no `id` and is paired by name) were all tested; the SDK writes the type of `parameters` in uppercase (`OBJECT`), and the gateway converts it to JSON Schema. `models.list()` / `models.get()`: `GET /v1beta/models[/{agent}]`, and `GET /v1/models[/{agent}]` with the `x-goog-api-client` header (which the SDK always sends), return Google's Model shape (`name: "models/<agent>"`, `displayName`, `supportedGenerationMethods`), all at once with no `nextPageToken`. `countTokens`, `embedContent`, `caches` and `files` do not exist on the gateway and return 404, which the SDK parses normally as `ApiError` (the 404 of `/v1/cachedContents` and `/v1/files` is not Gemini-shaped, but the SDK does not depend on the shape).
 
-取消一个已经完成的响应返回 200 与它已完成的对象（OpenAI 只允许取消 background 响应）。`metadata` 会附加若干 `oaa.*` 键（状态、版本、线路等），可能超过 OpenAI 的 16 键上限；把响应对象转发给真的 OpenAI 之前请去掉 `oaa.*` 键。
+Cancelling an already completed response returns 200 with its completed object (OpenAI allows cancelling only background responses). `metadata` gains several `oaa.*` keys (status, version, route, and so on), which can exceed OpenAI's 16-key limit; strip the `oaa.*` keys before forwarding a response object to the real OpenAI.
 
 ## Execution and actions
 
@@ -360,7 +376,7 @@ Revocation is not remote process attestation, deletion of previously transferred
 
 Model `Work` may carry an optional `maxOutputTokens` (the caller's output cap, always below the published `limits.maxOutputTokens`); a worker applies the smaller of the two to the model call, and an older worker that ignores it uses the published limit. The agent definition itself stays identical to the published one.
 
-`welcome.features` is now `execution-capabilities-v1`, `byok-v1`, `sandbox-v1`, `provider-turn-v1`, `client-tools-v1`. With `client-tools-v1` a worker reports `execution.clientTools = { native: ["kernel", "adapter/<acp name>", …] }`: the engines on which it can bridge caller tools (docs/harness.md). Bridged runs are placed only on workers that declared the run's engine there (placement reason `client_tools_unsupported` otherwise); when no such worker exists, submission answers `client_tools_bridge_unsupported` (400). Only those workers receive `Work.native.clientTools` and send the `client_tool` event (`data: { name, arguments, relay_call_id }`), which the gateway answers like an approval with `{ output }` or `{ error }`. Older workers and older gateways keep working; an older worker simply never receives bridged work. Every update is validated against the same node identity and credential grants as the initial registration. Idle peers also lose their registration when heartbeats expire.
+`welcome.features` is now `execution-capabilities-v1`, `byok-v1`, `sandbox-v1`, `provider-turn-v1`, `client-tools-v1`, `image-input-v1`. With `image-input-v1` a worker reports `execution.imageInput = { providers: {<name>: "none"|"inline"|"url"}, native: {<engine>: "native"|"agent-declared"|"workspace-file"} }`; a run with images is placed only on a worker whose declaration covers its provider or engine (placement reason `image_input_unsupported`), so older workers never receive one ([images.md](images.md)). With `client-tools-v1` a worker reports `execution.clientTools = { native: ["kernel", "adapter/<acp name>", …] }`: the engines on which it can bridge caller tools (docs/harness.md). Bridged runs are placed only on workers that declared the run's engine there (placement reason `client_tools_unsupported` otherwise); when no such worker exists, submission answers `client_tools_bridge_unsupported` (400). Only those workers receive `Work.native.clientTools` and send the `client_tool` event (`data: { name, arguments, relay_call_id }`), which the gateway answers like an approval with `{ output }` or `{ error }`. Older workers and older gateways keep working; an older worker simply never receives bridged work. Every update is validated against the same node identity and credential grants as the initial registration. Idle peers also lose their registration when heartbeats expire.
 
 Native execution requires the node credential to grant `native/<engine>` (or `*`), in addition to the agent alias. `oaa expose` already grants only its selected native executor. A generic adapter uses `native/adapter/<name>`. Enabled native executables are checked for local availability without starting them; declared model mappings are still not proof of account/model compatibility.
 
@@ -388,22 +404,22 @@ The descriptor digest covers the selected name, description, schemas and annotat
 
 MCP client connections are scoped to owner/session/bundle digest. A changed transport configuration or credential retires old connections for new work; active calls can finish before cleanup. Ordinary domain errors do not close other calls sharing that session. Declared missing HTTP credential references fail closed and are not advertised as available. The connection cache holds at most 16 idle entries, expiring after 60 seconds; private MCP process state is not durable platform state.
 
-## 控制台概览：修订号、ETag 与事件流
+## Console overview: revision, ETag and event stream
 
-> 本节为新增内容（2026-11-07）。
+> Added 2026-11-07.
 
-**修订号（revision）**：网关为每个 owner 维护一个单调递增的整数修订号，覆盖 `GET /v1/overview` 报告的全部内容。它在以下情况推进：运行摘要/统计提交后（`runs`）、发布智能体或路由健康变化（`catalog`）、节点上线/下线/通告变化/调度开始与结束/节点策略变化/本机后端开关（`nodes`），以及冷却期到期等纯时间驱动的状态变化。修订号起点取自启动时刻的微秒级时钟，因此网关重启后仍继续增大，旧 ETag 不会与重启后的新状态碰撞。文件系统、环境变量等没有事件的输入，最多 5 秒后会被重新核对，只有内容确实变化时才推进修订号。
+**Revision**: for each owner the gateway maintains a monotonically increasing integer revision that covers everything `GET /v1/overview` reports. It advances when: run summaries or statistics are committed (`runs`); an agent is published or route health changes (`catalog`); a node goes online or offline, its advertisement changes, scheduling starts or ends, node policy changes, or a local backend is switched (`nodes`); and on purely time-driven state changes such as cooldown expiry. The revision starts from a microsecond clock reading taken at startup, so it keeps increasing across gateway restarts and an old ETag never collides with the new state after a restart. Inputs that have no events, such as the file system and environment variables, are rechecked after at most 5 seconds, and the revision advances only if the content actually changed.
 
-**`GET /v1/overview`**（需要 `read`）：
+**`GET /v1/overview`** (requires `read`):
 
-- 响应体新增 `revision` 字段；其余字段不变。
-- `metrics` 新增 `queued`、`in_progress`、`requires_action` 三个计数（2026-11-08），与 `active` 同口径：owner 加密钥的 agents 授权范围、按运行当前状态统计，三者之和恒等于 `active`。`requires_action` 即正在等待审批的运行数，可直接用于「需要处理」提示或 Dock 角标，不受 `runs` 只列最近 12 条的限制。
-- 响应头 `ETag: W/"ov.<revision>.<身份摘要>"`，身份摘要由调用方 owner、密钥名、`keyId`、scopes、agents 授权以及解析后的公开地址计算。
-- 请求带 `If-None-Match`（可为列表或 `*`，按弱比较）且命中时返回 `304`，无响应体。
-- `runs[]` 的行与 `GET /v1/runs` 同样带可选的 `waiting_on`（0.3.0）：只在 `status` 为 `requires_action` 且有待处理待办时出现，`caller` 表示待办全是调用方工具（只在等调用方回传，不需要 owner 处理），`owner` 表示有需要人工处理的待办。待办的创建与解决会刷新运行摘要并推进修订号（`runs`），所以 `waiting_on` 变化时 ETag 随之失效。
-- 智能体可用性、节点清单与统计按修订号缓存；`runs` 列表在每个 `200` 响应中重新读取，以便运行中的任务给出当前的 `elapsed_ms`。`304` 表示自上次 `200` 以来修订号未变，客户端应基于 `created_at` 自行计算运行中任务的耗时。
+- The response body gains a `revision` field; all other fields are unchanged.
+- `metrics` gains three counts, `queued`, `in_progress` and `requires_action` (2026-11-08), measured the same way as `active`: within the owner plus the key's agent grants, counted by each run's current status, and the three always add up to `active`. `requires_action` is the number of runs waiting for approval; it can be used directly for a "needs attention" prompt or a Dock badge, and is not limited by `runs` listing only the latest 12.
+- The response header is `ETag: W/"ov.<revision>.<identity digest>"`; the identity digest is computed from the caller's owner, key name, `keyId`, scopes, agent grants, and the resolved public address.
+- When the request carries `If-None-Match` (a list or `*`, compared weakly) and it matches, the response is `304` with no body.
+- The rows of `runs[]` carry the same optional `waiting_on` as `GET /v1/runs` (0.3.0): it appears only when `status` is `requires_action` and there are pending actions; `caller` means all pending actions are caller tools (the run is only waiting for the caller to return results, and there is nothing for the owner to do), and `owner` means there are actions that need a person. Creating and resolving an action refreshes the run summary and advances the revision (`runs`), so the ETag is invalidated when `waiting_on` changes.
+- Agent availability, the node list and statistics are cached by revision; the `runs` list is re-read in every `200` response so that running tasks report a current `elapsed_ms`. A `304` means the revision has not changed since the last `200`, and the client should compute the elapsed time of running tasks itself from `created_at`.
 
-**`GET /v1/overview/events`**（SSE，需要 `read`；鉴权只走 `Authorization` 头，令牌不放进 URL）：
+**`GET /v1/overview/events`** (SSE, requires `read`; authentication uses only the `Authorization` header, and the token is never put in the URL):
 
 ```text
 event: ready
@@ -415,526 +431,582 @@ data: {"revision":1794312000123460,"reasons":["runs","nodes"]}
 : ping
 ```
 
-- 连接后立即发送 `ready`；之后的变化约每 250 ms 合并为一个 `changed`，`reasons` 为 `runs`、`catalog`、`nodes` 的子集（固定顺序）。收到 `changed` 后用 `If-None-Match` 重新请求 `/v1/overview`。
-- 每 20 秒发送一行 `: ping` 心跳；每次心跳都会重新校验密钥，密钥被删除或授权变化时立即关闭连接。
-- 每个 API 密钥最多同时保持 4 条概览事件流，超出返回 `429 too_many_streams`。
-- 事件只包含修订号与原因，不携带运行内容；只通知同一 owner 的变化（同一 owner 下受 agents 限制的密钥也会收到该 owner 其它智能体的变化通知）。
-- 旧版本网关没有该路由时返回 `404`，客户端应退回轮询。
+- `ready` is sent right after connecting; later changes are coalesced into one `changed` about every 250 ms, with `reasons` being a subset of `runs`, `catalog`, `nodes` (in that fixed order). After receiving `changed`, request `/v1/overview` again with `If-None-Match`.
+- A `: ping` heartbeat line is sent every 20 seconds; each heartbeat revalidates the key, and the connection is closed immediately if the key was deleted or its authorization changed.
+- Each API key can hold at most 4 overview event streams at the same time; more return `429 too_many_streams`.
+- Events carry only the revision and reasons, never run content; only changes for the same owner are notified (a key restricted to some agents under the same owner also receives change notifications for that owner's other agents).
+- An older gateway without this route returns `404`, and the client should fall back to polling.
 
-**存储**：本次改动不修改 SQLite 结构（`PRAGMA user_version` 仍为 3），持久化语义不变（WAL + `synchronous=FULL`，检查点与其输出事件在同一事务中提交）。修订号与缓存只在内存中，不落盘。
+**Storage**: this change does not modify the SQLite schema (`PRAGMA user_version` was still 3 when it shipped; the current schema version is 4) and leaves persistence semantics unchanged (WAL + `synchronous=FULL`; a checkpoint and its output events are committed in one transaction). The revision and caches live only in memory and are not written to disk.
 
-## 可观测内核：运行时间线、活动脉搏、排队与能力协商
+## Observable kernel: run timeline, activity pulse, queueing and capability negotiation
 
-> 本节为新增内容（2026-11-08）。全部数据从已持久化的状态推导：生命周期事件、执行步骤，以及检查点里的模型轮次标记。不调用模型或工具，不新增事件类型，不修改 SQLite 结构（`user_version` 仍为 3）。兼容端点（OpenAI / Claude / Gemini / UAP）的输出流与事件序号不变；测试按 `bench/protocol-speed.ts` 的同一工作量逐字节核对：UAP NDJSON 10,238 字节，OpenAI Chat SSE 55,219 字节。
+> Added 2026-11-08. All data is derived from already persisted state: lifecycle events, execution steps, and the model-turn markers in checkpoints. No model or tool is called, no event type is added, and the SQLite schema is not modified (`user_version` was still 3 at the time). The output streams and event sequence numbers of the compatibility endpoints (OpenAI / Claude / Gemini / UAP) are unchanged; tests check this byte for byte with the same workload as `bench/protocol-speed.ts`: UAP NDJSON 10,238 bytes, OpenAI Chat SSE 55,219 bytes.
 
 ### `GET /v1/runs/{id}/timeline`
 
-需要 `read` scope 和该智能体的授权，与其它运行检查接口一致：别的 owner 的运行返回 `404 run_not_found`，未授权的智能体返回 `403 scope_denied`。响应头 `ETag: W/"tl.<last_event_id>.<status>"`；`If-None-Match` 命中时返回 `304`。运行中的任务在没有新事件时也会返回 `304`，此时前端用 `now` 自行推算进行中 span 的时长。
+Requires the `read` scope and authorization for the agent, like the other run-inspection endpoints: another owner's run returns `404 run_not_found`, and an unauthorized agent returns `403 scope_denied`. The response header is `ETag: W/"tl.<last_event_id>.<status>"`; a matching `If-None-Match` returns `304`. A running task also returns `304` when there are no new events, and the frontend then uses `now` to compute the duration of in-progress spans itself.
 
-| 字段 | 说明 |
+| Field | Description |
 | --- | --- |
-| `id`、`status` | 运行 ID 与当前状态 |
-| `created_at`、`ended_at`、`now` | 毫秒级 epoch；`ended_at` 是最近一个终止事件的时间，未结束为 `null` |
+| `id`, `status` | The run ID and its current status |
+| `created_at`, `ended_at`, `now` | Millisecond epoch; `ended_at` is the time of the latest terminal event, `null` if not ended |
 | `total_ms` | `(ended_at ?? now) - created_at` |
-| `last_event_id` | 该运行最后一个事件的 ID（也用于 ETag） |
-| `spans[]` | 时间段列表，按开始时间排序，最多 200 个 |
-| `critical_path_ms` | 关键路径上各 span 覆盖的时长之和；`total_ms - critical_path_ms` 是没有被任何关键 span 覆盖的空隙 |
-| `breakdown_ms` | `{queue, model, tools, approval, other}`，沿关键路径归因，各项之和恒等于 `total_ms`；空隙计入 `other` |
-| `truncated` | span 超过 200 个时为 `true`；会优先保留关键路径上的 span，`critical_path_ms` / `breakdown_ms` 仍按全部 span 计算 |
+| `last_event_id` | The ID of the run's last event (also used for the ETag) |
+| `spans[]` | The list of time spans, sorted by start time, at most 200 |
+| `critical_path_ms` | The total duration covered by the spans on the critical path; `total_ms - critical_path_ms` is the gap not covered by any critical span |
+| `breakdown_ms` | `{queue, model, tools, approval, other}`, attributed along the critical path; the items always add up to `total_ms`; gaps count as `other` |
+| `truncated` | `true` when there are more than 200 spans; spans on the critical path are kept first, and `critical_path_ms` / `breakdown_ms` are still computed over all spans |
 
-每个 span：
+Each span:
 
-| 字段 | 说明 |
+| Field | Description |
 | --- | --- |
-| `id` | `sp_1`、`sp_2`…（同一 `last_event_id` 下稳定） |
-| `kind` | `queue`、`model`、`tool`、`approval`、`subagent`、`interrupted`、`native` |
-| `label` | 机器可读标识，中文由前端按 `kind` 渲染：排队原因（`admission`、`fairness`、`approval`、`node`）、模型路由 ID、工具名、需要审批的工具名或原生审批类型、子智能体名、原生引擎名 |
-| `ref` | `{turn, attempt?}`（模型）、`{step_id, tool}`（工具）、`{approval_id, step_id?}`（审批）、`{step_id, child_run_id?}`（子智能体） |
-| `lane` | 泳道：0 号放主线（排队、模型、原生执行、审批），并行的工具/子智能体由服务端从 1 号起贪心打包；节点等待 span 与对应工具同一泳道 |
-| `start_ms`、`end_ms` | 相对本运行 `created_at` 的毫秒偏移（不是 epoch 时间戳）；`end_ms` 进行中为 `null` |
-| `status` | `completed`、`failed`、`cached`、`running`、`waiting`、`uncertain`、`cancelled` |
-| `critical` | 是否在关键路径上 |
-| `depends_on` | 依赖的 span ID：工具依赖发起它的模型轮次、它的审批、以及执行图中 `$ref` / `depends_on` 指向的步骤；主线 span 依赖前一个主线 span 和期间完成的整批工具 |
-| `estimated` | 仅在推导值上出现，值为 `true`（见下文「旧运行」） |
+| `id` | `sp_1`, `sp_2`, ... (stable for the same `last_event_id`) |
+| `kind` | `queue`, `model`, `tool`, `approval`, `client_tool`, `subagent`, `interrupted`, `native` (`client_tool` is a bridged run waiting for the caller to execute its own tool; it is counted under `tools`) |
+| `label` | A machine-readable identifier, rendered in the user's language by the frontend according to `kind`: the queue reason (`admission`, `fairness`, `approval`, `agent_fallback`, `node`), the model route ID, the tool name, the name of the tool that needs approval or is waiting for the caller, or the native approval type, the subagent name, or the native engine name |
+| `ref` | `{turn, attempt?}` (model), `{step_id, tool}` (tool), `{approval_id, step_id?}` (approval, client_tool), `{step_id, child_run_id?}` (subagent) |
+| `lane` | The lane: lane 0 holds the main line (queue, model, native execution, approval), and parallel tools and subagents are greedily packed by the server starting from lane 1; a node-wait span sits in the same lane as its tool |
+| `start_ms`, `end_ms` | Millisecond offsets relative to the run's `created_at` (not epoch timestamps); `end_ms` is `null` while in progress |
+| `status` | `completed`, `failed`, `cached`, `running`, `waiting`, `uncertain`, `cancelled` |
+| `critical` | Whether it is on the critical path |
+| `depends_on` | The span IDs it depends on: a tool depends on the model turn that issued it, on its approval, and on the steps that `$ref` / `depends_on` points to in the execution graph; a main-line span depends on the previous main-line span and on the whole batch of tools completed in between |
+| `estimated` | Appears only on derived values, always `true` (see "Older runs" below) |
 
-规则与口径：
+Rules and definitions:
 
-- **关键路径**：从最晚结束的 span 出发，沿「最晚结束的依赖」回溯到起点。并行工具只有决定时长的那一个会被计入，不会重复计时。
-- **原生/ACP 智能体**：整段执行记为 `native`，归入 `model`（平台看不到其内部工具耗时）；原生审批会把执行切成「执行—审批—执行」三段。
-- **节点等待**：工具从排队到开始执行、模型轮次从开始到节点接手、原生智能体从开始到节点接手，等待超过 10 ms 时单独显示为 `queue`（`label: "node"`）。
-- **中断与恢复**：网关重启或失败后被显式恢复的运行，在中断事件与恢复执行之间显示 `interrupted`，归入 `other`。
-- **旧运行**：本版本之前完成的运行没有模型轮次标记，模型 span 由工具批次之间的空隙推导，并带 `estimated: true`。
-- 检查点中最多保留 400 个模型轮次标记。
+- **Critical path**: starting from the span that ends last, trace back through "the latest-ending dependency" to the start. Among parallel tools only the one that determines the duration is counted, so time is never counted twice.
+- **Native / ACP agents**: the whole execution is recorded as `native` and counted under `model` (the platform cannot see its internal tool time); a native approval splits the execution into three segments: execute, approve, execute.
+- **Node wait**: when a tool waits from queueing to start of execution, a model turn waits from start to node pickup, or a native agent waits from start to node pickup for more than 10 ms, the wait is shown separately as `queue` (`label: "node"`).
+- **Interruption and resume**: for a run that was explicitly resumed after a gateway restart or failure, an `interrupted` span is shown between the interrupt event and the resumed execution, counted under `other`.
+- **Older runs**: runs completed before this version have no model-turn markers, so their model spans are derived from the gaps between tool batches and carry `estimated: true`.
+- A checkpoint keeps at most 400 model-turn markers.
 
 ### `GET /v1/overview/activity?window=24h|7d`
 
-需要 `read` scope，默认 `24h`；其它取值返回 `400 invalid_request`。统计范围与 `/v1/overview` 的 `runs` 相同（owner + 密钥的 agents 授权）。ETag 绑定**运行修订号**、`window`、当前桶起点和调用方身份（`W/"act.<revision>.<摘要>"`），命中时返回 `304`。运行修订号只随运行摘要的变化推进，发布智能体、节点上下线或负载变化不会让活动统计重算，也不会改变它的 ETag（1 万个运行时，目录变化后的读取从约 11 ms 降到约 0.06 ms）。运行变化后采用增量读取：已完成、失败、取消、未完成的运行不会再变，每个视图缓存已解析的行，之后只读取新插入的运行和仍可能变化的运行（进行中、排队、待审批、可恢复的中断），1 万个运行时约 1.8 ms（原先每次全量扫描约 11 ms）；结果与全量扫描逐字段一致，有测试保证。没有变化的轮询约 0.05 ms。概览的 `metrics` 同样只随运行修订号重算。
+Requires the `read` scope; the default is `24h`, and any other value returns `400 invalid_request`. The scope of the statistics is the same as `runs` in `/v1/overview` (owner plus the key's agent grants). The ETag is bound to the **run revision**, the `window`, the start of the current bucket, and the caller identity (`W/"act.<revision>.<digest>"`), and a match returns `304`. The run revision advances only when run summaries change; publishing an agent, a node going online or offline, or a load change does not make the activity statistics recompute or change their ETag (with 10,000 runs, a read after a catalog change dropped from about 11 ms to about 0.06 ms). After runs change, reads are incremental: runs that are completed, failed, cancelled or incomplete never change again, so each view caches the parsed rows and then reads only newly inserted runs and runs that can still change (in progress, queued, awaiting approval, resumable interrupted), about 1.8 ms with 10,000 runs (previously a full scan of about 11 ms each time); the result matches a full scan field by field, which tests guarantee. An unchanged poll takes about 0.05 ms. The overview's `metrics` are likewise recomputed only when the run revision changes.
 
-| 字段 | 说明 |
+| Field | Description |
 | --- | --- |
-| `window`、`revision`、`generated_at`（ISO）、`bucket_ms` | 窗口、运行修订号（只随运行变化推进，不大于 `/v1/overview` 的 `revision`）、计算时间、桶宽 |
-| `buckets[]` | `{start(ISO), started, completed, failed, cancelled, interrupted, active}`。`24h` 为 24 个 UTC 整点对齐的 1 小时桶，`7d` 为 28 个按 UTC 00/06/12/18 点对齐的 6 小时桶；最后一个桶是当前（未满）的桶 |
-| `totals` | 同上各计数之和，外加 `success_rate` |
-| `latency_ms` | `{p50, p95, samples}`：窗口内已结束运行的端到端耗时（最后一次检查点时间 − 创建时间），最近秩法分位 |
-| `breakdown_ms` | `{queue, model, tools, approval, other, runs}`：窗口内最近 ≤100 个已结束运行按时间线算法逐项求和（`runs` 为实际聚合的运行数）；没有已结束运行时为 `null`。已结束运行的时间线按运行缓存 |
-| `agents[]` | `{agent, runs, completed, failed, p50_ms}`，按运行数降序取前 8（同数按智能体 ID） |
+| `window`, `revision`, `generated_at` (ISO), `bucket_ms` | The window, the run revision (advances only with run changes and is never greater than the `revision` of `/v1/overview`), the computation time, and the bucket width |
+| `buckets[]` | `{start (ISO), started, completed, failed, cancelled, interrupted, active}`. `24h` has 24 one-hour buckets aligned to UTC whole hours, and `7d` has 28 six-hour buckets aligned to 00/06/12/18 UTC; the last bucket is the current (incomplete) one |
+| `totals` | The sums of the counts above, plus `success_rate` |
+| `latency_ms` | `{p50, p95, samples}`: end-to-end duration of runs that ended within the window (last checkpoint time minus creation time), percentiles by the nearest-rank method |
+| `breakdown_ms` | `{queue, model, tools, approval, other, runs}`: the sum, item by item, of the timeline algorithm over the latest at most 100 ended runs in the window (`runs` is the number of runs actually aggregated); `null` when there are no ended runs. The timelines of ended runs are cached per run |
+| `agents[]` | `{agent, runs, completed, failed, p50_ms}`, the top 8 by run count in descending order (ties by agent ID) |
 
-口径：运行按 `created_at` 落桶、按**当前状态**计数；`failed` 包含 `incomplete`（截止时间、轮次或 token 上限）；`active` 为 queued / in_progress / requires_action；`success_rate = completed / (completed + failed + interrupted)`，取消不算失败也不计入分母，分母为 0 时为 `null`，保留 4 位小数。窗口内运行数越多计算越慢（O(窗口内运行数)），窗口之外的历史不会被扫描。
+Definitions: runs fall into a bucket by `created_at` and are counted by their **current status**; `failed` includes `incomplete` (deadline, turn, or token limits); `active` is queued / in_progress / requires_action; `success_rate = completed / (completed + failed + interrupted)`: cancellation is not a failure and is not in the denominator, it is `null` when the denominator is 0, and it keeps 4 decimal places. The more runs in the window, the slower the computation (O(runs in the window)); history outside the window is not scanned.
 
-### 排队透明（`queue`）
+### Queue transparency (`queue`)
 
-`/v1/overview` 的 `runs[]` 和 `GET /v1/runs/{id}/state` 在以下情况增加 `queue` 字段：运行 `status` 为 `queued`（等待内核准入）；或运行为 `in_progress`，但当前这一步工作还在节点队列里等待。
+The `runs[]` of `/v1/overview` and `GET /v1/runs/{id}/state` gain a `queue` field when: the run's `status` is `queued` (waiting for kernel admission); or the run is `in_progress` but its current piece of work is still waiting in a node queue.
 
-| 字段 | 说明 |
+| Field | Description |
 | --- | --- |
-| `position`、`ahead` | 在队列中的位置（从 1 开始计，`ahead = position − 1`）和排在前面的数量，**只统计同一 owner 的运行**；队列中找不到时（例如网关尚未开始调度）为 `null` |
-| `reason` | `admission`（等待运行槽位）、`fairness`（在检查点让出后重新排队）、`approval`（审批通过后重新排队）、`node_busy`（节点满载）、`cooling_down`（目标在限流冷却中）、`unknown` |
-| `estimated_start_ms` | 预计还需等待的毫秒数：相对于响应生成时刻的时长，**不是 epoch 时间戳**；是估计、不是承诺；未知时为 `null`。内核准入采用**槽位模拟**：每个执行槽位记一个「预计空出时间」，正在运行的任务按其智能体历史占用时长计算经验平均剩余寿命（已运行越久，按同类更长的样本推算剩余时间；超出全部样本时取中位数的 1/4，至少 250 ms），排在前面的每个运行（按全局顺序）依次占用最早空出的槽位、时长取其智能体的典型占用；目标运行拿到槽位的时刻即估计值。样本优先用内核启动后实测的槽位占用（每个 owner+智能体最近 50 次），不足 5 次时用数据库里该智能体最近 50 个已完成运行的耗时；没有任何样本的智能体借用其它已知样本的中位数。确定性模拟（`npm run bench:queue`）中，负载 0.7 / 0.85 / 1.05 时平均绝对误差比旧公式分别降低 49.6% / 74.4% / 78.5%；节点冷却：剩余冷却时间；节点满载：该目标在节点上的平均执行时间（无历史时模型 1000 ms、工具 50 ms） |
+| `position`, `ahead` | The position in the queue (counted from 1, `ahead = position − 1`) and the number ahead, **counting only runs of the same owner**; `null` when the run cannot be found in the queue (for example the gateway has not started scheduling it yet) |
+| `reason` | `admission` (waiting for a run slot), `fairness` (re-queued after yielding at a checkpoint), `approval` (re-queued after approval), `node_busy` (node at capacity), `cooling_down` (the target is in a throttling cooldown), `unknown` |
+| `estimated_start_ms` | The estimated number of milliseconds still to wait: a duration relative to when the response was generated, **not an epoch timestamp**; an estimate, not a promise; `null` when unknown. Kernel admission uses **slot simulation**: each execution slot records an "expected free time". A running task's remaining life is the empirical average remaining life computed from its agent's historical occupancy (the longer it has run, the more it is extrapolated from longer samples of the same kind; beyond all samples it takes 1/4 of the median, at least 250 ms). Each run ahead (in global order) occupies the earliest free slot in turn, for the typical occupancy of its agent. The moment the target run gets a slot is the estimate. Samples prefer the slot occupancy measured since the kernel started (the latest 50 per owner and agent), and when there are fewer than 5, use the durations of that agent's latest 50 completed runs in the database; an agent with no samples borrows the median of other known samples. In a deterministic simulation (`npm run bench:queue`), at load 0.7 / 0.85 / 1.05 the mean absolute error is 49.6% / 74.4% / 78.5% lower than the old formula. Node cooldown: the remaining cooldown time; node at capacity: the average execution time of that target on the node (1000 ms for a model and 50 ms for a tool when there is no history) |
 
-多租户隐私：数量类字段从不包含其它 owner 的运行；估计值使用全局排位，因为这才决定实际等待时间，但只暴露时长，不暴露其它 owner 的数量。概览返回 `304` 时，`estimated_start_ms` 是上次 `200` 时的值。
+Multi-tenant privacy: count fields never include other owners' runs; the estimate uses the global position because that is what determines the actual wait, but it exposes only a duration, never another owner's counts. When the overview returns `304`, `estimated_start_ms` is the value from the last `200`.
 
-### 能力协商：`GET /health`
+### Capability negotiation: `GET /health`
 
-`/health`（以及 `/healthz`）仍然公开，不含任何秘密或负载信息，新增排好序的 `features` 数组，供控制台、CLI、SDK 判断可选接口是否存在，不必靠 404 试探：
+`/health` (and `/healthz`) remain public and contain no secrets or load information. They add a sorted `features` array that lets the console, the CLI and SDKs tell whether an optional endpoint exists without probing for a 404:
 
-`a2a-adapters-v1`、`acp-adapters-v1`、`adapter-stream-v1`、`catalog-events-v1`、`client-tools-policy-v1`、`conversion-profile-v1`、`error-catalog-v1`、`error-codes-v1`、`harness-bridge-acp-v1`、`harness-bridge-v1`、`local-backends-v1`、`overview-activity-v1`、`overview-etag-v1`、`overview-events-v1`、`queue-insight-v1`、`run-timeline-v1`。
+`a2a-adapters-v1`, `acp-adapters-v1`, `adapter-stream-v1`, `approval-policy-v1`, `catalog-events-v1`, `client-tools-policy-v1`, `conversion-profile-v1`, `error-catalog-v1`, `error-codes-v1`, `harness-bridge-acp-v1`, `harness-bridge-v1`, `image-input-v1`, `local-backends-v1`, `oaa-lang-roundtrip-v1`, `overview-activity-v1`, `overview-etag-v1`, `overview-events-v1`, `platform-setup-v1`, `queue-insight-v1`, `run-timeline-v1`, `structured-output-v1`, `webhooks-v1`, `workflow-output-v1`, and, when the `platform` section is configured, `platform-v1`.
 
-（2026-11-11 新增）`client-tools-policy-v1`：兼容接口按 `X-OAA-Client-Tools`（或 `metadata["oaa.client_tools"]`）处理调用方传入的工具（managed / reject；bridge 见 `harness-bridge-v1`），托管时响应带 `X-OAA-Client-Tools: ignored`；画像含 `client_tools` 字段。`harness-bridge-v1`：内核智能体经 Chat Completions、Responses 与 Claude Messages 支持 `bridge`（调用方工具以 `tool_calls` 交回调用方执行，同一个运行续接）。见 [harness.md](harness.md)。
+(Added 2026-11-11) `client-tools-policy-v1`: caller tools are handled according to `X-OAA-Client-Tools` (or `metadata["oaa.client_tools"]`) (auto / managed / reject; for bridge see `harness-bridge-v1`), the response carries `X-OAA-Client-Tools: ignored` when the agent keeps its own tools and `bridge` when the tools were handed over; the profile contains a `client_tools` field. Gateway configuration `clientTools.default` (`auto` by default, or `managed` / `bridge` / `reject`) is what a request gets when it chooses nothing. `harness-bridge-v1`: kernel agents support `bridge` through Chat Completions, Responses and Claude Messages (caller tools are handed back to the caller as `tool_calls` to execute, and the same run continues). See [harness.md](harness.md).
 
-（0.3.0 新增）`harness-bridge-acp-v1`：ACP 外部智能体同样支持 `bridge`：调用方工具经 `oaa-caller` MCP 中继交给内层智能体，等待期间内层进程保持存活；新事件 `run.awaiting_caller`。见 [harness.md](harness.md)「外部智能体的桥接是怎么工作的」。
+(Added 0.3.0) `harness-bridge-acp-v1`: external ACP agents also support `bridge`: caller tools are handed to the inner agent through the `oaa-caller` MCP relay, and the inner process stays alive while it waits; there is a new event `run.awaiting_caller`. See [harness.md](harness.md#how-bridging-works-for-external-agents) ("How bridging works for external agents").
 
-（2026-11-08 新增）`adapter-stream-v1`：worker 支持 `oaa/1-stream` 双向流式适配器 ABI；`a2a-adapters-v1`：支持 `transport: "a2a"` 远程智能体；`conversion-profile-v1`：`GET /v1/agents`、`GET /v1/overview` 的智能体、`GET /v1/catalog/agent`（`section=overview`，MCP `oaa_inspect_agent` 同源）以及 `GET /v1/local/backends` 的每一项都带 `conversion` 转换能力画像。字段与取值见 `docs/adapters.md`「转换能力画像」；画像只由网关本机的静态配置推导（同一进程内不变，因此不影响概览 ETag），远程节点独有的 `adapter/<名称>` 报告为 `access: "unknown"`。
+(Added 2026-11-08) `adapter-stream-v1`: workers support the `oaa/1-stream` bidirectional streaming adapter ABI; `a2a-adapters-v1`: `transport: "a2a"` remote agents are supported; `conversion-profile-v1`: every item of `GET /v1/agents`, the agents of `GET /v1/overview`, `GET /v1/catalog/agent` (`section=overview`, the same source as MCP `oaa_inspect_agent`) and `GET /v1/local/backends` carries a `conversion` capability profile. For the fields and values see [adapters.md](adapters.md#conversion-profile-conversion) ("Conversion profile"); the profile is derived only from the gateway machine's static configuration (unchanged within a process, so it does not affect the overview ETag), and an `adapter/<name>` that exists only on a remote node is reported as `access: "unknown"`.
 
-本节接口不引入新的错误码，可能返回的码均已列在下一节：`run_not_found`、`scope_denied`、`invalid_request`、`unauthorized`、`rate_limited`。
+The endpoints in this section introduce no new error codes; the codes they may return are all listed in the next chapter: `run_not_found`, `scope_denied`, `invalid_request`, `unauthorized`, `rate_limited`.
 
-## 失败自动换智能体（`oaa.agent_fallback`，2026-11-10）
+## Agent fallback on failure (`oaa.agent_fallback`, 2026-11-10)
 
-提交时在 `metadata` 里给出备选智能体：`{"oaa.agent_fallback": "agent/b,agent/c"}`（逗号分隔，最多 4 个）。所有入口（`/v1/invoke`、Responses、Chat、Messages、UAP）都通过元数据生效，不改请求结构。
+At submission, give fallback agents in `metadata`: `{"oaa.agent_fallback": "agent/b,agent/c"}` (comma separated, at most 4). It takes effect through metadata on every entry (`/v1/invoke`, Responses, Chat, Messages, UAP) and does not change the request structure.
 
-- **什么时候换**：当前智能体**还没做任何事**就失败——没有任何输出、没有任何工具步骤、外部智能体也还没被启动（例如模型提供方不可用、所有线路都失败、执行机器离线）。此时同一个请求改由下一个备选智能体重新排队执行，请求 ID 不变，调用方不需要重试。
-- **什么时候不换**：已经有输出或已经执行过步骤（换人重做可能重复副作用）；被取消、超时、网关正在关闭；副作用结果未知；达到轮数或用量上限；权限或执行等级不允许；使用调用方自带模型密钥（BYOK）的运行。
-- **提交时校验**：每个备选智能体都必须存在，调用方必须对它有 `invoke` 权限并满足它的执行等级要求，否则提交即被拒绝（`scope_denied`、`isolation_required` 或 `agent_not_found`）。
-- **留痕**：换人时写入事件 `run.queued`，`data` 为 `{reason: "agent_fallback", from, to, error}`；运行的 `metadata["oaa.fallback_from"]` 记录被换下的智能体，`oaa.agent_fallback` 更新为剩余的备选。运行在目录里的归属随之改为新智能体，原来的失败不会产生 `response.failed` 事件。
-- **怎么选下一个**：按链的顺序找第一个当前可用的备选——调用方仍有权限、满足与提交时相同的执行等级检查（含它的委托链），并且它的模型线路此刻在节点上有可用的执行者（看节点、沙箱等级与输入文件放置）。不满足的直接跳过，换到链上的下一个；都不满足时运行以原来的错误结束。
-- **新智能体看到什么**：会话里的对话文字（用户消息）、输入文件；不带上一个智能体的系统指令、provider 状态或会话句柄。
-- **截止时间**：继承原截止时间，不重新计时——备选智能体只有原请求剩下的时间。
-- 不声明备选时行为与之前完全相同。
+- **When it switches**: the current agent fails **before it has done anything**: no output, no tool steps, and an external agent has not been started yet (for example the model provider is unavailable, every route failed, or the execution machine is offline). The same request is then re-queued under the next fallback agent, the request ID does not change, and the caller does not need to retry.
+- **When it does not switch**: output already exists or steps have already run (redoing the work with another agent could repeat side effects); the run was cancelled, timed out, or the gateway is shutting down; the side-effect outcome is unknown; a turn or usage limit was reached; permissions or the execution level do not allow it; runs that use a caller-supplied model key (BYOK).
+- **Validated at submission**: every fallback agent must exist, and the caller must have `invoke` permission on it and satisfy its execution-level requirement; otherwise submission is rejected (`scope_denied`, `isolation_required` or `agent_not_found`).
+- **Trace**: on a switch the event `run.queued` is written with `data` of `{reason: "agent_fallback", from, to, error}`; the run's `metadata["oaa.fallback_from"]` records the agent that was replaced, and `oaa.agent_fallback` is updated to the remaining fallbacks. The run's ownership in the catalog changes to the new agent, and the original failure does not produce a `response.failed` event.
+- **How the next one is chosen**: the first currently usable fallback in chain order: the caller still has permission, it passes the same execution-level check as at submission (including its delegation chain), and its model route currently has an available executor on a node (considering nodes, sandbox level and input file placement). Fallbacks that do not qualify are skipped in favor of the next one in the chain; if none qualifies, the run ends with the original error.
+- **What the new agent sees**: the conversation text (user messages) and the input files in the session; not the previous agent's system instructions, provider state or session handle.
+- **Deadline**: inherited from the original and not restarted; a fallback agent has only the time the original request has left.
+- When no fallback is declared, behavior is exactly as before.
 
-## 一键启用已安装的智能体（2026-11-10）
+## One-step enablement of installed agents (2026-11-10)
 
-`POST /v1/local/presets/{id}/enable`（owner 管理员密钥）把「写入配置、重启、打开开关」合成一步：
+`POST /v1/local/presets/{id}/enable` (owner admin key) combines "write the configuration, restart, switch on" into one step:
 
-- `{id}` 是「支持的智能体」目录里的预设 ID（如 `gemini`、`qwen`、`opencode`）。本机 `PATH` 上找不到对应程序时返回 `backend_unavailable`，不会安装任何东西。
-- 配置里还没有这个智能体时，按 `oaa doctor --write` 相同的内容新增一条适配器记录并立即生效，不需要重启；网关由 `oaa serve` 启动时同时写回配置文件（文件里仍记为停用，启用状态记在数据库，与手动开关一致）。已有记录时只打开开关。
-- 返回 `{engine, enabled: true, preset, configured: "added"|"existing", persisted}`。`persisted: false` 表示网关不是从配置文件启动的，新增记录只在本次运行期间有效。
-- 这是显式的管理员操作：网关不会自己发现后自动启用，也不会调用模型。启用之后还需要「发布」才会成为可调用的智能体。
+- `{id}` is a preset ID in the "supported agents" catalog (such as `gemini`, `qwen`, `opencode`). If the matching program is not on this machine's `PATH`, it returns `backend_unavailable` and installs nothing.
+- When the agent is not yet in the configuration, an adapter entry is added with the same content as `oaa doctor --write` and takes effect immediately without a restart; when the gateway was started with `oaa serve`, it also writes the configuration file back (the file still records it as disabled, and the enabled state is kept in the database, consistent with the manual switch). When an entry already exists, only the switch is turned on.
+- It returns `{engine, enabled: true, preset, configured: "added"|"existing", persisted}`. `persisted: false` means the gateway was not started from a configuration file, and the added entry is valid only for this run.
+- This is an explicit admin action: the gateway never discovers and enables on its own, and it does not call a model. After enabling, you still need to "publish" before it becomes a callable agent.
 
-## 智能体交接（`handoff`，2026-11-10）
+## Agent handoff (`handoff`, 2026-11-10)
 
-同一个会话里可以换另一个智能体接着干，也可以让同一个智能体换一条模型线路继续。
+Within one session you can hand over to another agent to carry on, or let the same agent continue on a different model route.
 
-- **怎么用**：续接请求带上 `previous_response_id`，并显式声明交接——`POST /v1/invoke` 用 `"handoff": true`；OpenAI Responses、UAP 等兼容入口不改请求结构，用 `metadata: {"oaa.handoff": "true"}`。`POST /v1/agents/preview` 同样接受 `handoff`，可在切换前先检查新智能体现在能不能用。
-- **不声明就不变**：没有交接标记时，续接到另一个智能体仍返回 `invalid_continuation`，续接时换模型仍返回 `model_switch_requires_new_session`。
-- **前提**：上一轮必须已经 `completed`；调用方必须对新智能体有 `invoke` 权限。
-- **继承**：会话 ID、输入文件、之前生成的文件。
-- **不继承**：上一个智能体的模型线路与版本固定、它私有的原生会话句柄（`nativeState`）、provider 原生轮次状态、它的工具调用细节与系统指令。
-- **对话怎么带过去**：只带用户消息和智能体的最终文字回复。内核智能体把它当作消息历史；外部智能体（Claude Code、Codex、Antigravity、ACP、A2A、适配器）自己管理会话，所以在本轮输入前面加一段有上限（12,000 字符，单条 2,000 字符，文件名最多 50 个）的「交接说明」。运行记录里的 `input` 仍是调用方的原始输入。交接说明只在交接的那一轮发送一次，之后该智能体正常续接自己的会话。
-- **留痕**：跨智能体交接的运行在 `metadata` 里带 `oaa.handoff_from: <上一个智能体 id>`。同一智能体只换线路时不写。
-- **边界**：交接说明只含对话文字和文件名，不读取文件内容，也不是权限边界——新智能体能访问什么仍由它自己的发布内容和调用方密钥决定。
+- **How to use it**: a continuation request carries `previous_response_id` and declares the handoff explicitly: `POST /v1/invoke` uses `"handoff": true`; the OpenAI Responses, UAP and other compatibility entries, which do not change the request structure, use `metadata: {"oaa.handoff": "true"}`. `POST /v1/agents/preview` also accepts `handoff`, so you can check whether the new agent is usable now before switching.
+- **No declaration, no change**: without the handoff marker, continuing on a different agent still returns `invalid_continuation`, and switching the model on a continuation still returns `model_switch_requires_new_session`.
+- **Prerequisites**: the previous turn must be `completed`; the caller must have `invoke` permission on the new agent.
+- **Inherited**: the session ID, input files, and previously generated files.
+- **Not inherited**: the previous agent's pinned model route and version, its private native session handle (`nativeState`), the provider's native turn state, its tool-call details, and its system instructions.
+- **How the conversation is carried over**: only user messages and the agent's final text replies. A kernel agent treats them as message history; external agents (Claude Code, Codex, Antigravity, ACP, A2A, adapters) manage their own sessions, so a size-limited "handoff note" is prepended to this turn's input (12,000 characters, 2,000 characters per entry, at most 50 file names). The `input` in the run record is still the caller's original input. The handoff note is sent only once, on the handoff turn, and afterwards the agent continues its own session normally.
+- **Trace**: a run that hands off across agents carries `oaa.handoff_from: <previous agent id>` in `metadata`. It is not written when the same agent only changes route.
+- **Boundaries**: the handoff note contains only conversation text and file names, never reads file contents, and is not a permission boundary: what the new agent can access is still determined by its own published content and the caller's key.
 
-## 工作流返回契约
+## Structured output (`structured-output-v1`)
 
-`GET /health` 的 `workflow-output-v1` 表示网关支持工作流的 `output` / `outputSchema` 与动态 `execute_graph.output`；`oaa-lang-roundtrip-v1` 表示 DSL 格式化会重新编译并比较契约。它们不要求客户端改变现有请求：未指定返回投影时仍返回完整步骤结果。详见 [OAA-Lang 执行契约](language.md)。
+A request that asks for JSON (Chat `response_format` `json_object` / `json_schema`, Responses `text.format`, Gemini `generationConfig.responseMimeType: "application/json"` with `responseSchema` / `responseJsonSchema`, Claude `output_config.format`) becomes an output contract of the run: a successful response is JSON that parses and fits the schema (Ajv: draft-07, 2019-09 and 2020-12, with `format` enforced), or the run fails with `structured_output_invalid` (422; Responses: `status: "failed"`). The agent's answer is held until it is checked, so a stream delivers the final JSON in one piece, with heartbeats in between. A wrong answer is sent back for correction (`structuredOutput.maxRepairs`, default 1; external agents only when their session can be continued). A schema the gateway cannot honestly enforce is refused at request time with `output_schema_unsupported` (or `invalid_schema` / `schema_dialect_unsupported`). Details, limits and the exact rules: [structured-output.md](structured-output.md).
 
-## 开发者平台
+## Stream progress (`stream-progress-v1`)
 
-只在网关配置了 `platform` 段时存在，`/health` 的 `features` 含 `platform-v1`；未配置时下面的路径都是 404 `route_not_found`，`/openapi.json` 也不含它们。定位、配置、计费规则与运营流程见 [platform.md](platform.md)，这里只列接口。错误响应沿用 `{ "error": { "code", "message", "type" } }`，新增的 `platform` 类错误码见本文「错误码」一章的「开发者平台」小节。金额单位是「点」，时间是毫秒时间戳；分页的 `next_cursor` 是数字或 `null`。
+Compat streams can carry a short line per run phase (queued, started, each tool call and its outcome, approvals, fallbacks, structured-output correction rounds) in each protocol's thinking shape: Chat `delta.reasoning_content`, Responses a `reasoning` output item at `output_index` 0 with `response.reasoning_summary_*` frames (later `output_index` values shift by one), Claude a `thinking` block at index 0 (signature `oaa-progress-v1`), Gemini `thought: true` parts. Answer text, non-streaming bodies and usage are unchanged. Per request `X-OAA-Progress: reasoning | off` or `metadata["oaa.progress"]`; gateway defaults `streamProgress` (Chat off, Responses on, Claude off, Gemini on). The `response.reasoning_summary_*` frames are wire frames, not run events. A structured-output correction round writes a `tool.progress` event `{source: "gateway", event: "output_repair", round}`. Details and the client table: [progress.md](progress.md).
 
-**两种凭据互不通用**：门户会话令牌 `oas_…`（`Authorization: Bearer`）只用于 `/v1/portal/*` 的会话接口，拿 API 密钥 `sk-oaa-…`（旧的 `oaa_…` 同样）访问它们得到 `session_invalid`（401）；会话令牌访问调用接口（如 `/v1/responses`）得到 `unauthorized`（401）。`/v1/portal/*` 与 `/portal`、`/portal/*` 不要求 API 密钥，Host 白名单与 Origin 检查照常生效，在控制台域名与 API 域名上都可用。
+## Workflow return contract
 
-### 公开接口（不需要凭据）
+`workflow-output-v1` in `GET /health` means the gateway supports a workflow's `output` / `outputSchema` and the dynamic `execute_graph.output`; `oaa-lang-roundtrip-v1` means DSL formatting recompiles and compares the contract. Neither requires clients to change existing requests: when no return projection is specified, the full step results are still returned. See the [OAA-Lang execution contract](language.md).
 
-| 方法与路径 | 说明 |
+## Run-event webhooks (`webhooks-v1`)
+
+Owner-wide admin keys can register HTTPS endpoints that receive run events: `run.requires_action`, `run.completed`, `run.failed`, `run.cancelled`, `run.incomplete` and `run.interrupted` (one per run status of the state machine), plus `webhook.test`. The full description, payload, signature check and a walkthrough are in [webhooks.md](webhooks.md); this is the summary.
+
+| Endpoint | Body / result |
 | --- | --- |
-| `GET /v1/portal/site` | `{site_name, registration, base_url, endpoints, version}`，`endpoints` 与 `GET /v1/me` 的目录相同，`version` 与 `/health` 同源 |
-| `GET /v1/portal/agents` | `{data: ListedAgent[]}`，只含已上架且智能体已发布的 |
-| `GET /v1/portal/agent?id=` | 一个 `ListedAgent`；未上架 404 `agent_not_found` |
-| `POST /v1/portal/signup` | `{email, password, name?, invite_code?}` → 201 `{account, session}`；按来源 IP 限流 |
-| `POST /v1/portal/login` | `{email, password}` → `{account, session}`；按来源 IP 与邮箱限流 |
-| `POST /v1/portal/password-reset` | `{email, code, new_password}` → 204，该账号的全部会话作废；按来源 IP 与邮箱限流（数值与登录相同）；邮箱不存在、码不对、过期或已用一律 400 `invalid_code` |
+| `GET /v1/webhooks` | `{data: [endpoint]}` |
+| `POST /v1/webhooks` | `{url, events?, agents?, include_output?, enabled?, description?, allow_insecure_http?, allow_private_network?}` → 201 endpoint plus `secret` (returned only here and by rotation) |
+| `GET /v1/webhooks/{id}` | endpoint |
+| `PATCH /v1/webhooks/{id}` | any field of `POST` → endpoint |
+| `DELETE /v1/webhooks/{id}` | 204; queued deliveries are deleted |
+| `POST /v1/webhooks/{id}/rotate-secret` | `{id, secret}` |
+| `POST /v1/webhooks/{id}/test` | 202 delivery (`webhook.test`) |
+| `GET /v1/webhooks/{id}/deliveries?limit=20` | `{data: [delivery]}`, newest first, `limit` at most 200 |
+| `POST /v1/webhooks/{id}/deliveries/{delivery}/redeliver` | 202 delivery (same delivery ID) |
 
-### 门户会话接口（`Authorization: Bearer oas_…`）
+- Other keys get 403 `scope_denied`; another owner's endpoint is 404 `webhook_not_found`. Callers cannot pass a callback URL with a request.
+- Each request is `POST` with a JSON body `{id, type, created_at, data}`; `data` is a run summary (`run_id`, `agent`, `agent_version`, `status`, `error`, `usage`, `key_id`, `subject`, times, and `pending_actions` on `run.requires_action`), never the task input; the final output only with `include_output: true` (at most 32 KiB, marked `truncated`).
+- Headers: `X-OAA-Signature: t=<seconds>,v1=<hex HMAC-SHA256(secret, t + "." + body)>`, `X-OAA-Event`, `X-OAA-Delivery` (unchanged across retries), `User-Agent: OpenAgentAPI/<version>`.
+- Delivery is at least once from a durable queue: 10-second timeout, no redirects, `2xx` is success, 6 attempts with backoff from about 5 seconds to 30 minutes; one delivery at a time per endpoint.
+- URLs: `http`/`https` only, no credentials, `https` except for loopback (unless `allow_insecure_http`); under `security.profile: "public"` private, loopback, link-local and metadata targets are refused unless `allow_private_network`.
 
-| 方法与路径 | 说明 |
+## Developer platform
+
+Exists only when the gateway has a `platform` section configured, and `features` in `/health` contains `platform-v1`; when it is not configured, all the paths below are 404 `route_not_found` and `/openapi.json` does not contain them. For positioning, configuration, billing rules and operating flow see [platform.md](platform.md); only the endpoints are listed here. Error responses keep the shape `{ "error": { "code", "message", "type" } }`, and the new `platform` error codes are in the "Developer platform errors" subsection of the "Error codes" chapter of this document. Amounts are in credits, times are millisecond timestamps, and the `next_cursor` for paging is a number or `null`.
+
+**The two kinds of credentials are not interchangeable**: the portal session token `oas_…` (`Authorization: Bearer`) is used only for the session endpoints under `/v1/portal/*`; using an API key `sk-oaa-…` (the older `oaa_…` too) on them gives `session_invalid` (401); using a session token on a calling endpoint (such as `/v1/responses`) gives `unauthorized` (401). `/v1/portal/*`, `/portal` and `/portal/*` do not require an API key; the Host allowlist and Origin check still apply, and they are available on both the console domain and the API domain.
+
+### Public endpoints (no credentials)
+
+| Method and path | Description |
+| --- | --- |
+| `GET /v1/portal/site` | `{site_name, registration, base_url, endpoints, version}`; `endpoints` is the same directory as `GET /v1/me`, and `version` comes from the same source as `/health` |
+| `GET /v1/portal/agents` | `{data: ListedAgent[]}`, only agents that are listed and whose agent is published |
+| `GET /v1/portal/agent?id=` | One `ListedAgent`; 404 `agent_not_found` if not listed |
+| `POST /v1/portal/signup` | `{email, password, name?, invite_code?}` → 201 `{account, session}`; rate limited by source IP |
+| `POST /v1/portal/login` | `{email, password}` → `{account, session}`; rate limited by source IP and email |
+| `POST /v1/portal/password-reset` | `{email, code, new_password}` → 204, and all sessions of that account are invalidated; rate limited by source IP and email (same numbers as login); an email that does not exist, a wrong, expired or used code all give 400 `invalid_code` |
+
+### Portal session endpoints (`Authorization: Bearer oas_…`)
+
+| Method and path | Description |
 | --- | --- |
 | `POST /v1/portal/logout` | 204 |
 | `GET /v1/portal/account` | `{account}` |
-| `POST /v1/portal/account/password` | `{current_password, new_password}` → 204，该账号的全部会话作废 |
-| `GET /v1/portal/keys` | `{data: PortalKey[]}`，新的在前；已删除的密钥不列出 |
-| `POST /v1/portal/keys` | `{name}` → 201 `PortalKey + {token}`，明文只此一次 |
-| `DELETE /v1/portal/keys/:id` | 204；密钥立即失效，且不再出现在列表里 |
+| `POST /v1/portal/account/password` | `{current_password, new_password}` → 204, and all sessions of that account are invalidated |
+| `GET /v1/portal/keys` | `{data: PortalKey[]}`, newest first; deleted keys are not listed |
+| `POST /v1/portal/keys` | `{name}` → 201 `PortalKey + {token}`, the plaintext appears only this once |
+| `DELETE /v1/portal/keys/:id` | 204; the key stops working immediately and no longer appears in the list |
 | `POST /v1/portal/redeem` | `{code}` → `{account, credited}` |
-| `GET /v1/portal/usage?days=30` | `Usage`，`days` 为 1–90 |
-| `GET /v1/portal/ledger?limit=50&cursor=` | `{data: LedgerEntry[], next_cursor}`，新的在前 |
-| `GET /v1/portal/runs?limit=20&cursor=&agent=` | `{data: RunItem[], next_cursor}`，本账号发起的任务（来自流水的 `kind: run` 行），新的在前；`agent` 可选 |
-| `GET /v1/portal/runs/:id` | `RunDetail`；不是本账号的任务或不存在 404 `run_not_found` |
+| `GET /v1/portal/usage?days=30` | `Usage`, `days` is 1-90 |
+| `GET /v1/portal/ledger?limit=50&cursor=` | `{data: LedgerEntry[], next_cursor}`, newest first |
+| `GET /v1/portal/runs?limit=20&cursor=&agent=` | `{data: RunItem[], next_cursor}`, the tasks started by this account (from the `kind: run` rows of the ledger), newest first; `agent` is optional |
+| `GET /v1/portal/runs/:id` | `RunDetail`; 404 `run_not_found` if the task is not this account's or does not exist |
 
-`RunItem` 是 `{id, agent, status, tokens, charge, created_at}`；`RunDetail` 是 `{id, agent, status, created_at, completed_at, usage, error, charge, price, output_text, timeline}`。`status` 与流水行一致（未结算是 `in_progress`，结算后是运行的终态）；`charge` 是已收的点数（正数）；`price` 是任务开始时记下的价格；`usage` 是运行的用量对象原样带出；`error` 是 `{code, message}` 或 `null`；`output_text` 是最终输出文本（各段以空行相接，与 `GET /v1/runs/:id/output.txt` 相同），超过 200,000 个字符时截断并以 `…` 结尾；`timeline` 是 `GET /v1/runs/:id/timeline` 的响应对象原样带出；`completed_at` 是运行进入终态的时间，未结束为 `null`。运行已被清理而流水行还在时，`timeline` 为 `null`、`output_text` 为空串、`usage`、`error`、`completed_at` 为 `null`。
+`RunItem` is `{id, agent, status, tokens, charge, created_at}`; `RunDetail` is `{id, agent, status, created_at, completed_at, usage, error, charge, price, output_text, timeline}`. `status` matches the ledger row (`in_progress` before settlement, and the run's terminal status after settlement); `charge` is the credits already charged (a positive number); `price` is the price recorded when the task started; `usage` is the run's usage object passed through as is; `error` is `{code, message}` or `null`; `output_text` is the final output text (segments joined by blank lines, the same as `GET /v1/runs/:id/output.txt`), truncated and ending with `…` beyond 200,000 characters; `timeline` is the response object of `GET /v1/runs/:id/timeline` passed through as is; `completed_at` is when the run entered a terminal status, `null` if not ended. When the run has been cleaned up but the ledger row remains, `timeline` is `null`, `output_text` is an empty string, and `usage`, `error` and `completed_at` are `null`.
 
-### 运营者接口（`/v1/platform/*`）
+### Operator endpoints (`/v1/platform/*`)
 
-要求 owner 级管理员密钥（`admin` 权限且 `agents` 含 `*`）且属于平台的 `owner`，否则 403 `scope_denied`；管理员密钥只能在控制台域名上使用（API 域名上是 `admin_host_denied`）。例外：`GET /v1/platform/accounts` 与 `POST /v1/platform/accounts/:id/credit` 也接受带 `billing` 权限、owner 等于平台 `owner` 的密钥（供支付回调使用）；`billing` 不是 `admin`，不受 `consoleHosts` 限制；它调用 `credit` 时 `amount` 必须大于 0，扣减得到 403 `scope_denied`。`billing` 不授予其它任何接口。
+These require an owner-level admin key (the `admin` permission and `agents` containing `*`) that belongs to the platform's `owner`; otherwise 403 `scope_denied`. Admin keys can be used only on the console domain (on the API domain it is `admin_host_denied`). Exception: `GET /v1/platform/accounts` and `POST /v1/platform/accounts/:id/credit` also accept a key with the `billing` permission whose owner equals the platform `owner` (for payment callbacks); `billing` is not `admin` and is not limited by `consoleHosts`; when it calls `credit`, `amount` must be greater than 0, and a deduction gets 403 `scope_denied`. `billing` grants no other endpoint.
 
-| 方法与路径 | 说明 |
+| Method and path | Description |
 | --- | --- |
-| `GET /v1/platform/setup` | `{enabled, source, managed_by_config, pending_restart, owner, settings, desired}`；平台未启用时也可用（特性 `platform-setup-v1`），需要 owner 级管理员密钥；设置归首次启用它的 owner，其它 owner 403 `scope_denied` |
-| `PUT /v1/platform/setup` | `{enabled, site_name?, registration?, signup_credits?}`（严格校验）→ 与 GET 相同；保存在网关数据库，重启后生效；写审计 `platform_setup`；配置文件有 `platform` 段时 409 `platform_managed_by_config` |
-| `GET /v1/platform/summary` | 账号数、余额合计、累计消耗、任务数、token 数、上架数 |
+| `GET /v1/platform/setup` | `{enabled, source, managed_by_config, pending_restart, owner, settings, desired}`; also available when the platform is not enabled (feature `platform-setup-v1`), and requires an owner-level admin key; the settings belong to the owner that enabled it first, and any other owner gets 403 `scope_denied` |
+| `PUT /v1/platform/setup` | `{enabled, site_name?, registration?, signup_credits?}` (strictly validated) → the same as GET; saved in the gateway database and effective after restart; writes the audit `platform_setup`; 409 `platform_managed_by_config` when the configuration file has a `platform` section |
+| `GET /v1/platform/summary` | Account count, total balance, cumulative consumption, task count, token count, listing count |
 | `GET /v1/platform/accounts?query=&limit=&cursor=` | `{data: AdminAccount[], next_cursor}` |
-| `POST /v1/platform/accounts` | `{email, password, name?, credits?}` → 201 `{account}`，不受 `registration` 限制 |
-| `POST /v1/platform/accounts/:id/status` | `{status: "active" \| "disabled"}` → `{account}`；写审计 |
-| `POST /v1/platform/accounts/:id/credit` | `{amount, note, reference?}`，可正可负，结果不得小于 0（402 `insufficient_balance`）→ `{account, entry}`；写审计。`reference` 是 1–200 个字符的外部单号：同一单号再次提交不再入账，返回第一次的 `{account, entry}` 并多一个 `duplicate: true`（不另写审计）；金额或账号与第一次不同得到 409 `reference_conflict`。带单号入账的 `entry` 多一个 `reference` 字段，其它流水行不带这个字段 |
-| `POST /v1/platform/accounts/:id/password` | `{new_password}` → 204；写审计 |
-| `POST /v1/platform/accounts/:id/reset-code` | — → 201 `{code, expires_at}`，明文只此一次，24 小时有效、一次有效，生成新码使旧码失效；写审计（`platform_password_reset`，`detail` 为 `reset_code`） |
+| `POST /v1/platform/accounts` | `{email, password, name?, credits?}` → 201 `{account}`, not limited by `registration` |
+| `POST /v1/platform/accounts/:id/status` | `{status: "active" \| "disabled"}` → `{account}`; writes an audit |
+| `POST /v1/platform/accounts/:id/credit` | `{amount, note, reference?}`, positive or negative, and the result must not go below 0 (402 `insufficient_balance`) → `{account, entry}`; writes an audit. `reference` is an external reference of 1-200 characters: submitting the same reference again does not credit again and returns the first `{account, entry}` with an extra `duplicate: true` (no extra audit); a different amount or account than the first time gets 409 `reference_conflict`. An `entry` credited with a reference has an extra `reference` field; other ledger rows do not carry it |
+| `POST /v1/platform/accounts/:id/password` | `{new_password}` → 204; writes an audit |
+| `POST /v1/platform/accounts/:id/reset-code` | none → 201 `{code, expires_at}`, the plaintext appears only this once, valid for 24 hours and for one use, and generating a new code invalidates the old one; writes an audit (`platform_password_reset`, with `detail` of `reset_code`) |
 | `GET /v1/platform/accounts/:id/ledger?limit=&cursor=` | `{data: LedgerEntry[], next_cursor}` |
 | `GET /v1/platform/listings` | `{data: Listing[]}` |
-| `PUT /v1/platform/listings` | `{agent_id, title?, summary?, tags?, price?, enabled?}` → `Listing`；智能体不存在 404 `agent_not_found` |
-| `DELETE /v1/platform/listings?agent_id=` | 204；没有上架记录 404 `listing_not_found` |
-| `GET /v1/platform/codes` | `{data: Code[]}`，不含明文 |
-| `POST /v1/platform/codes` | `{kind, credits?, max_uses?, count?, expires_at?, note?}` → 201 `{data: (Code + {code})[]}`，明文只此一次 |
-| `DELETE /v1/platform/codes/:id` | 204（作废） |
-| `GET /v1/platform/usage?days=30` | `Usage + {by_account}`；`by_account` 最多 50 个账号，按消耗从高到低 |
+| `PUT /v1/platform/listings` | `{agent_id, title?, summary?, tags?, price?, enabled?, host_execution?}` → `Listing`; 404 `agent_not_found` if the agent does not exist; 400 `usage_pricing_unsupported`; see [platform.md](platform.md#offering-external-agents) for `host_execution` |
+| `DELETE /v1/platform/listings?agent_id=` | 204; 404 `listing_not_found` if there is no listing |
+| `GET /v1/platform/codes` | `{data: Code[]}`, without plaintext |
+| `POST /v1/platform/codes` | `{kind, credits?, max_uses?, count?, expires_at?, note?}` → 201 `{data: (Code + {code})[]}`, the plaintext appears only this once |
+| `DELETE /v1/platform/codes/:id` | 204 (revoke) |
+| `GET /v1/platform/usage?days=30` | `Usage + {by_account}`; `by_account` has at most 50 accounts, from highest to lowest consumption |
 
-请求体都按严格模式校验，多余字段得到 400 `invalid_request`。启用平台时，网关启动后会对流水里仍是 `in_progress` 的任务行对账一次（不阻塞启动）：运行已是终态的按终态结算（仍在库里的已中断运行按它已用的 token 结算），运行记录已不存在的记为 `interrupted` 并按 0 token 结算（用量已无从得知），仍在排队或等待的不动；对账是幂等的。账号密钥调用 `GET /v1/me` 时，响应多一个 `account: {id, balance}`，其它密钥的响应不变。
+Request bodies are validated strictly, and extra fields get 400 `invalid_request`. When the platform is enabled, after startup the gateway reconciles once the ledger rows whose task is still `in_progress` (without blocking startup): a run that is already terminal is settled by its terminal status (an interrupted run still in the database is settled by the tokens it used), a run record that no longer exists is marked `interrupted` and settled at 0 tokens (usage can no longer be known), and a run still queued or waiting is left alone; reconciliation is idempotent. When an account key calls `GET /v1/me`, the response has an extra `account: {id, balance}`; responses for other keys are unchanged.
 
-### 审计与页面
+### Audit and pages
 
-调整余额、停用或启用账号、重置密码成功后各写一条审计记录（`GET /v1/audit`），错误码分别是 `platform_credit_adjusted`、`platform_account_status`、`platform_password_reset`；记录带 `account_id` 与一句不含机密的 `detail`（如 `amount=-5 balance_after=10`、`status=disabled`），不含密码、备注或兑换码。门户页面在 `/portal/`（静态文件在 `web/portal/`，CSP 与控制台相同）；配置了 `consoleHosts` 时，非控制台域名上的 `GET /` 跳转到 `/portal/`。
+Adjusting a balance, disabling or enabling an account, and resetting a password each write one audit record (`GET /v1/audit`) on success, with the error codes `platform_credit_adjusted`, `platform_account_status` and `platform_password_reset`; a record carries `account_id` and a one-line, secret-free `detail` (such as `amount=-5 balance_after=10`, `status=disabled`), and contains no passwords, notes or redeem codes. The portal page is at `/portal/` (static files in `web/portal/`, with the same CSP as the console); when `consoleHosts` is configured, `GET /` on a non-console hostname redirects to `/portal/`.
 
-## 错误码（`error.code`）
+## Error codes (`error.code`)
 
-> 本节为新增内容（2026-11-07）。
+> Added 2026-11-07.
 
-HTTP 错误响应默认使用形状 `{"error":{"code":"…","message":"…","type":"invalid_request_error"}}`；OpenAI 兼容入口多一个 `param`，Claude 与 Gemini 入口用各自协议的形状，网关错误码在 Claude 的 `error.code`、Gemini 的 `details[0].reason`（见「兼容入口的参数、错误与结束原因」）。`code` 是稳定的机器可读标识，客户端应按 `code` 分支并自行本地化；`message` 仅供阅读，可能变化，不应解析。运行（response）对象的 `error.code` 使用同一套码。框架层错误也映射为稳定码：畸形 JSON 为 `invalid_json`，请求体过大为 `payload_too_large`，不支持的 Content-Type 为 `unsupported_media_type`，畸形 multipart 为 `invalid_multipart`，未知路由或方法为 `route_not_found`；其它未分类的 4xx 为 `invalid_request`，未分类的服务端异常为 `execution_failed`。远程 worker 失败会透传 worker 侧的错误码（缺省为 `worker_failed`），子智能体失败会透传子运行的错误码（子运行结果未知且委托步骤不是只读时为 `effect_outcome_unknown`，委托超时为 `delegate_timeout`）；子运行的产物不并入父运行，只在委托结果的 `artifacts` 里给出引用。测试会检查源码中出现的每个错误码都在本节列出。
+HTTP error responses use the shape `{"error":{"code":"…","message":"…","type":"invalid_request_error"}}` by default; OpenAI-compatible entries add `param`, and the Claude and Gemini entries use their own protocols' shapes, with the gateway error code in Claude's `error.code` and Gemini's `details[0].reason` (see [Compatibility-endpoint parameters, errors and finish reasons](#compatibility-endpoint-parameters-errors-and-finish-reasons-060)). `code` is a stable, machine-readable identifier: clients should branch on `code` and localize it themselves; `message` is for reading only, may change, and should not be parsed. The `error.code` of a run (response) object uses the same set of codes. Framework-level errors are also mapped to stable codes: malformed JSON is `invalid_json`, an oversized request body is `payload_too_large`, an unsupported Content-Type is `unsupported_media_type`, a malformed multipart body is `invalid_multipart`, and an unknown route or method is `route_not_found`; any other unclassified 4xx is `invalid_request`, and an unclassified server-side exception is `execution_failed`. Failures of a remote worker pass through the worker's own error code (default `worker_failed`), and a subagent failure passes through the child run's error code (`effect_outcome_unknown` when the child run's outcome is unknown and the delegating step is not read-only, and `delegate_timeout` when the delegation times out); a child run's artifacts are not merged into the parent run and are given only as references in the `artifacts` of the delegation result. A test checks that every error code appearing in the source is listed in this chapter.
 
-全部错误码登记在 `src/core/errors.ts` 的错误目录里，也可以通过 `GET /v1/errors`（需要 `read` 权限）读取：返回 `{ object: "list", revision, categories, data }`，`data` 每项为 `{ code, status, statuses?, category, retryable, zh, next?, en, nextEn?, routeRetryable?, fallbackExempt?, uncertainWhenStarted? }`（`en` / `nextEn` 是 `zh` / `next` 的英文版）。后三个是内核调度标记，只在为 `true` 时出现：`routeRetryable` 表示第一轮模型调用失败时网关会换一条线路重试；`fallbackExempt` 表示这类失败不会触发换用备选智能体；`uncertainWhenStarted` 表示外部执行已经开始后出现该错误时，副作用结果按未知处理。`status` 为 `null` 表示该码不作为 HTTP 响应出现；`retryable` 表示原样重试有可能成功；`zh` 是给使用者看的中文说明。`revision` 是目录内容的 sha256 前 16 位，响应带 `ETag`，`If-None-Match` 命中时返回 `304`。`/health` 的 `features` 含 `error-catalog-v1` 时可用。
+All error codes are registered in the error catalog in `src/core/errors.ts`, and can also be read through `GET /v1/errors` (requires `read` permission): it returns `{ object: "list", revision, categories, data }`, where each item of `data` is `{ code, status, statuses?, category, retryable, zh, next?, en, nextEn?, routeRetryable?, fallbackExempt?, uncertainWhenStarted? }` (`en` / `nextEn` are the English versions of `zh` / `next`). The last three are kernel scheduling flags and appear only when `true`: `routeRetryable` means the gateway retries on another route when the first model call fails; `fallbackExempt` means this kind of failure does not trigger a switch to a fallback agent; `uncertainWhenStarted` means that when this error occurs after external execution has started, the side-effect outcome is treated as unknown. A `status` of `null` means the code does not appear as an HTTP response; `retryable` means retrying as is may succeed; `zh` is the Chinese description for users. `revision` is the first 16 hex characters of the sha256 of the catalog content; the response carries an `ETag`, and a matching `If-None-Match` returns `304`. Available when `features` in `/health` contains `error-catalog-v1`.
 
-### 错误说明的语言（0.0.64）
+### Language of error messages (0.0.64)
 
-错误码与响应形状与语言无关，只有 `message` 的文字随语言变化：
+Error codes and response shapes do not depend on language; only the text of `message` changes with the language:
 
-- HTTP 请求看 `Accept-Language`：权重最高的明确语言以 `zh` 开头时用中文，其他明确语言（如 `en-US`、`fr`）用英文。没有这个头、或只有 `*` 时，用网关进程的默认语言。
-- 进程默认语言：环境变量 `OAA_LOCALE`（`zh` 或 `en`）优先；否则依次看 `LC_ALL`、`LC_MESSAGES`、`LANG`（`C` / `POSIX` 跳过），再不行看系统区域（`Intl.DateTimeFormat().resolvedOptions().locale`）；以 `zh` 开头为中文，其余为英文。中文系统上的已有部署照旧是中文，英文系统上开箱是英文。命令行 `oaa` 的帮助与提示也跟随进程默认语言，CLI 访问网关时会带上相应的 `Accept-Language`。
-- 大多数错误说明本来就是英文，两种语言下都原样返回。少数带中文说明的错误（ACP 智能体、本机后端等）提供中英两版，按上面的规则选择；英文下若遇到只有中文说明的错误，返回错误目录里该码的英文说明，并附上原说明里的字段名、路径等细节。
-- 已经写入运行记录的错误（运行对象的 `error.message`、流里的错误事件）按发生时网关进程的默认语言记录，读取时不再转换。
+- For HTTP requests, `Accept-Language` decides: when the explicit language with the highest weight starts with `zh`, Chinese is used; any other explicit language (such as `en-US` or `fr`) gets English. Without this header, or with only `*`, the gateway process's default language is used.
+- The process default language: the environment variable `OAA_LOCALE` (`zh` or `en`) takes precedence; otherwise `LC_ALL`, `LC_MESSAGES` and `LANG` are checked in turn (`C` / `POSIX` are skipped), and then the system locale (`Intl.DateTimeFormat().resolvedOptions().locale`); a value starting with `zh` means Chinese and anything else means English. Existing deployments on Chinese systems stay in Chinese, and on English systems the default is English out of the box. The help and prompts of the `oaa` command line also follow the process default language, and the CLI sends the matching `Accept-Language` when it contacts the gateway.
+- Most error messages were already in English and are returned unchanged in either language. A few errors that carry Chinese text (ACP agents, local backends, and so on) have both Chinese and English versions, chosen by the rules above; if an error that has only Chinese text occurs under English, the English description of that code from the error catalog is returned, with details such as field names and paths from the original message appended.
+- Errors already written into a run record (a run object's `error.message`, error events in a stream) are recorded in the gateway process's default language at the time they occurred and are not converted when read.
 
-### 请求、鉴权与限额
+### Requests, authentication and limits
 
-| code | HTTP | 含义 |
+| code | HTTP | Meaning |
 | --- | --- | --- |
-| `unauthorized` | 401 | 缺少或无效/已删除的 API 密钥 |
-| `key_expired` | 401 | API 密钥已过期 |
-| `scope_denied` | 403 | 密钥缺少所需 scope，或无权访问该智能体/资源 |
-| `invalid_host` | 403 | Host 不在允许列表中 |
-| `origin_denied` | 403 | 跨源请求的 Origin 未被允许 |
-| `admin_host_denied` | 403 | 配置了 `consoleHosts` 后，在非控制台域名上使用了带 `admin` 的密钥 |
-| `isolation_required` | 403 | 智能体（或它委派的智能体）需要的权限超出该密钥允许的执行等级（`workspace` / `sandbox`） |
-| `sandbox_unavailable` | 503 | 需要在 OS 沙箱里运行的脚本没有可用节点；或 worker 没有通过自检的沙箱，拒绝在宿主机上执行 |
-| `authorization_changed` | 403 | 长连接期间密钥授权发生变化，需用当前授权重连 |
-| `rate_limited` | 429 | 超出该密钥每分钟请求数（默认 600） |
-| `concurrency_limit` | 429 | owner 的活跃请求过多 |
-| `subject_concurrency_limit` | 429 | 同一调用方（subject）的未完成请求达到 `maxActiveRunsPerSubject` |
-| `key_concurrency_limit` | 429 | 达到该密钥的并发运行上限 |
-| `run_quota_exceeded` | 429 | 该密钥的运行次数配额已用完 |
-| `token_quota_exceeded` | 429 | 该密钥的 token 配额已用完 |
-| `too_many_streams` | 429 | 该密钥（或 owner）同时打开的事件流已达上限：概览事件流每个密钥 4 条；运行事件流（`/events`、`/wait`、`GET /v1/responses/:id?stream=true` 与兼容入口的流式请求）每个调用方 64 条、每个 owner 256 条 |
-| `invalid_request` | 400/404 | 请求字段无效或缺失（Gemini 路径格式错误时为 404） |
-| `client_tools_unsupported` | 400 | 请求带了调用方工具，但选择了拒绝模式（reject），见 [harness.md](harness.md) |
-| `client_tools_bridge_unsupported` | 400 | 请求了桥接模式（bridge），但这个智能体（ACP 以外的外部智能体）不支持，或者没有在线的执行机器声明了 `client-tools-v1`（需要升级执行机器，或改用 managed） |
-| `client_tool_conflict` | 400 | 桥接的调用方工具与已发布的工具、工作流、委托、`execute_graph` 或另一个调用方工具重名（比较的是内部别名） |
-| `client_tools_too_many` | 400 | 已发布工具加调用方工具超过 100 个 |
-| `invalid_client_tool` | 400 | 调用方工具的名字不符合 `^[a-zA-Z0-9_-]{1,64}$`、格式不对，或参数 schema 无法编译 |
-| `invalid_json` | 400 | 请求体不是合法 JSON，或声明了 JSON 却为空 |
-| `payload_too_large` | 413 | 请求体或数据超过大小上限 |
-| `unsupported_media_type` | 415 | 不支持的 Content-Type |
-| `unsupported_parameter` | 400 | 严格端点（`/v1/chat/completions`、`/v1/responses`）不支持这个参数；`error.param` 是字段名，可改用 `/v1/compat/*` |
-| `unsupported_content` | 400 | 内容块类型不被支持（OpenAI / Claude / Gemini 各兼容入口）（内联 base64 图片、URL 图片等）；先上传文件再按文件 ID 引用 |
-| `protocol_undetected` | 400 | `/v1/universal` 无法判定请求属于 OpenAI Chat 还是 Claude Messages；改用专用端点或 `X-OAA-Protocol` 头 |
-| `invalid_url` | 400 | URL 无法解析 |
-| `invalid_multipart` | 400/406 | multipart 请求体畸形或不是 multipart |
-| `route_not_found` | 404 | 没有匹配该方法与路径的路由 |
-| `not_found` | 404 | 静态资源不存在 |
-| `invalid_cursor` | 400 | 事件或输出游标无效 |
-| `invalid_idempotency_key` | 400 | Idempotency-Key 格式无效 |
-| `idempotency_conflict` | 409 | 同一 Idempotency-Key 用于了不同输入（输入相同、但一次带自带的提供方密钥 `X-OAA-Provider-Key` 一次不带，或换了一把密钥，也算不同输入；指纹只并入密钥的 sha256，密钥本身不落库） |
-| `wait_timeout` | 408 | 等待截止时间已到（任务可能仍在运行） |
-| `wait_cancelled` | 499 | 等待被取消 |
-| `shutting_down` | 503 | 网关正在关闭 |
-| `gateway_already_running` | 409 | 另一个网关进程占用了同一数据目录（启动时） |
-| `schema_too_new` | 409 | 数据目录来自更新版本的网关（启动时） |
+| `unauthorized` | 401 | The API key is missing, invalid, or deleted |
+| `key_expired` | 401 | The API key has expired |
+| `scope_denied` | 403 | The key lacks the required scope, or cannot access this agent or resource |
+| `quota_exceeds_own` | 403 | A new key's quota cannot exceed the quota of your own key |
+| `invalid_host` | 403 | The Host is not in the allowlist |
+| `origin_denied` | 403 | The Origin of a cross-origin request is not allowed |
+| `admin_host_denied` | 403 | With `consoleHosts` configured, a key with `admin` was used on a non-console hostname |
+| `isolation_required` | 403 | The agent (or an agent it delegates to) needs more privileges than the execution level this key allows (`workspace` / `sandbox`) |
+| `sandbox_unavailable` | 503 | No node can run a script that requires an OS sandbox; or the worker has no sandbox that passed its self-check and refuses to run on the host |
+| `authorization_changed` | 403 | The key's authorization changed during a long-lived connection; reconnect with the current authorization |
+| `rate_limited` | 429 | The key exceeded its requests per minute (600 by default) |
+| `concurrency_limit` | 429 | The owner has too many active requests |
+| `subject_concurrency_limit` | 429 | The same caller (subject) reached `maxActiveRunsPerSubject` unfinished requests |
+| `key_concurrency_limit` | 429 | The key reached its concurrent run limit |
+| `run_quota_exceeded` | 429 | The key's run quota is used up |
+| `token_quota_exceeded` | 429 | The key's token quota is used up |
+| `storage_quota_exceeded` | 413 | This caller's stored files have reached the limit |
+| `too_many_streams` | 429 | The key (or owner) has too many event streams open at once: 4 overview event streams per key; run event streams (`/events`, `/wait`, `GET /v1/responses/:id?stream=true`, and streaming requests on the compatibility entries) 64 per caller and 256 per owner |
+| `invalid_request` | 400/404 | A request field is invalid or missing (404 for a malformed Gemini path) |
+| `client_tools_unsupported` | 400 | The request carries caller tools but reject mode was selected; see [harness.md](harness.md) |
+| `client_tools_bridge_unsupported` | 400 | Bridge mode was requested, but this agent (an external agent other than ACP) does not support it, or no online execution machine declares `client-tools-v1` (upgrade the execution machine, or use managed) |
+| `client_tool_conflict` | 400 | A bridged caller tool has the same name as a published tool, workflow, delegate, `execute_graph`, or another caller tool (the internal alias is compared) |
+| `client_tools_too_many` | 400 | Published tools plus caller tools exceed 100 |
+| `invalid_client_tool` | 400 | A caller tool's name does not match `^[a-zA-Z0-9_-]{1,64}$`, its format is wrong, or its parameter schema cannot be compiled |
+| `output_schema_unsupported` | 400 | The requested output schema (`response_format`, `text.format`, `responseSchema`, `output_config.format`) contains something the gateway cannot honestly enforce: `$async`, a `$ref` outside the document, a `format` nobody implements, a very long or exponentially backtracking regular expression, nesting deeper than 40 levels; rewrite the schema |
+| `invalid_json` | 400 | The request body is not valid JSON, or is empty while declared as JSON |
+| `payload_too_large` | 413 | The request body or data exceeds the size limit |
+| `unsupported_media_type` | 415 | Unsupported Content-Type |
+| `unsupported_parameter` | 400 | The strict endpoints (`/v1/chat/completions`, `/v1/responses`) do not support this parameter or value (tools, JSON output formats, forced tool choice, `logprobs: true`, unknown fields); `error.param` is the field name, and `/v1/compat/*` can be used instead |
+| `unsupported_content` | 400 | The content block type is not supported (audio, unknown blocks), or the agent does not accept images; `error.param` names the part ([images.md](images.md)) |
+| `image_invalid` | 400/500 | The image cannot be used: invalid base64, not PNG / JPEG / GIF / WebP, or the declared type does not match the content ([images.md](images.md)) |
+| `image_too_large` | 413 | An image, or all images of one request together, exceed the configured limit |
+| `too_many_images` | 400 | The request carries more images than `images.maxImagesPerRequest` |
+| `image_fetch_failed` | 400 | The gateway could not fetch an image URL (only with `images.fetchRemote`): redirect, not an image, timeout, private address |
+| `protocol_undetected` | 400 | `/v1/universal` cannot tell whether the request is OpenAI Chat or Claude Messages; use a dedicated endpoint or the `X-OAA-Protocol` header |
+| `invalid_url` | 400 | The URL cannot be parsed |
+| `invalid_multipart` | 400/406 | The multipart body is malformed or not multipart |
+| `route_not_found` | 404 | No route matches this method and path |
+| `not_found` | 404 | The static asset does not exist |
+| `invalid_cursor` | 400 | The event or output cursor is invalid |
+| `invalid_idempotency_key` | 400 | The Idempotency-Key format is invalid |
+| `idempotency_conflict` | 409 | The same Idempotency-Key was used with different input (the same input with the caller's own provider key `X-OAA-Provider-Key` once and without it once, or with a different key, also counts as different input; the fingerprint includes only the sha256 of the key, and the key itself is never stored) |
+| `wait_timeout` | 408 | The wait deadline has passed (the task may still be running) |
+| `wait_cancelled` | 499 | The wait was cancelled |
+| `shutting_down` | 503 | The gateway is shutting down |
+| `gateway_already_running` | 409 | Another gateway process is using the same data directory (at startup) |
+| `schema_too_new` | 409 | The data directory comes from a newer gateway version (at startup) |
 
-### 智能体、模型与目录
+### Agents, models and catalog
 
-| code | HTTP | 含义 |
+| code | HTTP | Meaning |
 | --- | --- | --- |
-| `agent_not_found` | 404 | 智能体或指定版本不存在 |
-| `agent_version_required` | 400 | 后续详情分页需要带上返回的 agent_version |
-| `ambiguous_model` | 400 | 多条路由使用同一模型名，请指定路由 ID |
-| `model_not_supported` | 400 | 所选模型不受该智能体/后端支持（未发送任务） |
-| `model_switch_requires_new_session` | 409 | 续接会话保持原模型路由，切换模型需新会话 |
-| `model_unavailable` | 503 | 会话固定的路由当前没有可用执行者 |
-| `version_conflict` | 409 | 续接会话必须保持原智能体版本 |
-| `catalog_capacity` | 429 | 目录视图或订阅过多 |
-| `catalog_changed` | 409 | 授权的发布列表已变化，需从 offset 0 重新开始 |
-| `catalog_closed` | 409 | 目录订阅已关闭 |
-| `invalid_catalog_cursor` | 400 | 目录游标无效 |
-| `invalid_catalog_limit` | 400 | 目录分页大小须为 1-32 |
-| `metadata_item_too_large` | 413 | 单项元数据过大，请使用版本固定的元数据资源 |
-| `resource_too_large` | 413 | MCP 资源超过 4 MiB 上限 |
-| `invalid_agent_uri` | 400 | MCP 智能体资源 URI 无效 |
-| `invalid_file_id` | 400 | MCP 文件 URI 无效 |
+| `agent_not_found` | 404 | The agent or the requested version does not exist |
+| `agent_version_required` | 400 | Paging further details requires the returned agent_version |
+| `ambiguous_model` | 400 | Several routes use the same model name; specify the route ID |
+| `model_not_supported` | 400 | The selected model is not supported by this agent or backend (the task was not sent) |
+| `model_switch_requires_new_session` | 409 | A continued session keeps its original model route; switching models needs a new session |
+| `model_unavailable` | 503 | This agent has no available executor right now (engine not installed or not enabled, a provider environment variable missing, or the session-pinned route unavailable) |
+| `version_conflict` | 409 | A continued session must keep the original agent version |
+| `catalog_capacity` | 429 | Too many catalog views or subscriptions |
+| `catalog_changed` | 409 | The authorized listing changed; restart from offset 0 |
+| `catalog_closed` | 409 | The catalog subscription is closed |
+| `invalid_catalog_cursor` | 400 | The catalog cursor is invalid |
+| `invalid_catalog_limit` | 400 | The catalog page size must be between 1 and 32 |
+| `metadata_item_too_large` | 413 | A metadata item is too large; use the version-pinned metadata resource |
+| `resource_too_large` | 413 | The MCP resource exceeds the 4 MiB limit |
+| `invalid_agent_uri` | 400 | The MCP agent resource URI is invalid |
+| `invalid_file_id` | 400 | The MCP file URI is invalid |
 
-### 发布与能力包
+### Publishing and capability packages
 
-| code | HTTP | 含义 |
+| code | HTTP | Meaning |
 | --- | --- | --- |
-| `invalid_engine` | 400 | 引擎名无效（原生名或 `adapter/<名称>`） |
-| `backend_not_enabled` | 409 | 适配器未在任何在线节点上启用，不能发布 |
-| `bundle_integrity` | 400 | 能力包内容摘要不匹配 |
-| `bundle_owner_conflict` | 409 | 该能力包摘要属于其他 owner |
-| `bundle_too_large` | 400/413 | 能力包超过大小上限 |
-| `invalid_manifest` | 400 | 能力包清单无效 |
-| `invalid_skill` | 400 | SKILL.md 缺少 YAML frontmatter 等 |
-| `missing_script` | 400 | 引用的脚本不在能力包中 |
-| `missing_skill` | 400 | 引用的技能不在能力包中 |
-| `metadata_too_deep` | 400 | 能力元数据嵌套过深 |
-| `secret_in_bundle` | 400 | 公开元数据中疑似含有凭据，拒绝发布 |
-| `unsafe_bundle` | 400 | 能力包路径被禁止或重复 |
-| `oaa_syntax_error` | 400 | OAA-Lang 源码语法错误或超过编译上限 |
-| `oaa_roundtrip_error` | 400 | 格式化后的编译契约与原源码不一致，拒绝输出可能改变执行行为的源码 |
-| `oaa_validation_error` | 400 | OAA-Lang 源码语法正确，但声明的值不符合智能体契约（如 `max_turns = 0`、无效的引擎名）；报错带出问题所在声明的行列号 |
-| `invalid_schema` | 400 | JSON Schema 无效或引用了不可用的外部 schema |
-| `schema_dialect_unsupported` | 400 | 不支持异步 JSON Schema |
+| `invalid_engine` | 400 | Invalid engine name (a native name or `adapter/<name>`) |
+| `backend_not_enabled` | 409 | The adapter is not enabled on any online node, so it cannot be published |
+| `bundle_integrity` | 400 | The bundle content digest does not match |
+| `bundle_owner_conflict` | 409 | This bundle digest belongs to another owner |
+| `bundle_too_large` | 400/413 | The bundle exceeds the size limit |
+| `invalid_manifest` | 400 | The bundle manifest is invalid |
+| `invalid_skill` | 400 | SKILL.md is invalid, for example missing YAML frontmatter |
+| `missing_script` | 400 | A referenced script is not in the bundle |
+| `missing_skill` | 400 | A referenced skill is not in the bundle |
+| `metadata_too_deep` | 400 | Capability metadata is nested too deeply |
+| `secret_in_bundle` | 400 | Public metadata appears to contain a credential; publishing was refused |
+| `unsafe_bundle` | 400 | A bundle path is forbidden or duplicated |
+| `oaa_syntax_error` | 400 | OAA-Lang source has a syntax error or exceeds a compiler limit |
+| `oaa_roundtrip_error` | 400 | The formatted source compiles to a different contract than the original; refusing to output source that could change execution behavior |
+| `oaa_validation_error` | 400 | The OAA-Lang syntax is valid, but a declared value violates the agent contract (such as `max_turns = 0` or an invalid engine name); the error carries the line and column of the offending declaration |
+| `invalid_schema` | 400 | The JSON Schema is invalid or references an unavailable external schema |
+| `schema_dialect_unsupported` | 400 | Async JSON Schema is not supported |
 
-### 运行生命周期
+### Run lifecycle
 
-| code | HTTP | 含义 |
+| code | HTTP | Meaning |
 | --- | --- | --- |
-| `run_not_found` | 404 | 运行（response）不存在 |
-| `session_busy` | 409 | 该会话已有进行中的任务 |
-| `invalid_continuation` | 409 | 续接需要同一智能体的已完成响应 |
-| `invalid_run_transition` | 500 | 运行状态转移不合法，写入被拒绝（内部错误；合法转移见 architecture.md「运行状态机（0.2.0）」） |
-| `not_resumable` | 409 | 只有 interrupted 状态的运行可以恢复 |
-| `reconciliation_required` | 409 | 恢复前需先核对不确定的副作用 |
-| `run_not_attached` | 409 | 运行显示为进行中，但不在本网关进程中执行（数据不一致或由别的进程持有），取消请求没有被受理 |
-| `run_key_inactive` | 409 | 运行所属的密钥已过期、被吊销或已删除（或其账号已不存在），不能恢复。由 owner 的管理员密钥代为恢复别人的运行时出现；原密钥自己发起恢复时，过期与吊销在鉴权阶段就以 `key_expired` / `unauthorized` 拒绝 |
-| `invalid_reconciliation` | 409 | 没有匹配的待核对步骤 |
-| `effect_outcome_unknown` | 409 | 有副作用的操作结果未确认（运行记为 interrupted） |
-| `gateway_restarted` | — | 网关重启导致执行中断（运行错误码） |
-| `run_timeout` | — | 运行超过截止时间（运行错误码，状态 incomplete） |
-| `cancelled` | 409 | 任务已取消 |
-| `turn_limit` | — | 达到智能体轮次上限（运行错误码，状态 incomplete；兼容入口非流式按运行未正常结束返回 422、`x-should-retry: false`，流式在流里给出错误） |
-| `token_budget` | — | 达到观测到的 token 预算（运行错误码，状态 incomplete；兼容入口的表现同 `turn_limit`） |
-| `max_output_tokens` | — | 模型输出被截断（运行错误码，状态 incomplete；各兼容入口按截断照常 200） |
-| `context_limit` | 409 | 上下文超过 2 MB（2,000,000 字节），请新建会话 |
-| `output_contract` | 422 | 最终答案不符合声明的输出 schema |
-| `output_too_large` | 413/502 | 智能体输出超过上限 |
-| `files_too_large` | 413 | 输入文件总量超过 8 MiB |
-| `workspace_too_large` | 413 | 工作区传输超过上限 |
-| `delegation_depth_exceeded` | 409 | 子智能体委派深度超过上限 |
-| `subagent_failed` | 502 | 子智能体以 failed 结束且没有给出具体错误码（`subagent_${status}`） |
-| `subagent_cancelled` | 502 | 子智能体以 cancelled 结束且没有给出具体错误码（`subagent_${status}`） |
-| `subagent_interrupted` | 502 | 子智能体以 interrupted 结束且没有给出具体错误码（`subagent_${status}`） |
-| `subagent_incomplete` | 502 | 子智能体以 incomplete 结束且没有给出具体错误码（`subagent_${status}`） |
-| `delegate_timeout` | 504 | 委托的子智能体在委托超时内没有结束（子运行已被取消） |
-| `parent_interrupted` | — | 父运行已不活跃，排队中的子运行不再执行（运行错误码，状态 cancelled） |
-| `capability_unavailable` | 503 | 所需执行能力当前不可用 |
-| `node_draining` | 503 | 原本可用的节点正在排空 |
-| `action_required` | 422 | 兼容端点：任务在等审批，运行已创建（非流式 Chat / Claude / Gemini；带 `x-should-retry: false`，不要重发） |
-| `requires_action` | 409 | 兼容端点：运行处于 requires_action |
-| `incomplete` | 422 | 兼容端点：运行未完整完成 |
-| `persistence_failed` | 500 | 输出无法持久化，执行已停止 |
-| `step_checkpoint_failed` | 500 | 工具结果无法提交，执行已停止 |
-| `invalid_output_event` | 500 | 输出事件状态转换无效（内部不变量被破坏） |
-| `execution_failed` | 500/502 | 未分类的执行失败 |
+| `run_not_found` | 404 | The run (response) does not exist |
+| `session_busy` | 409 | This session already has a task in progress |
+| `invalid_continuation` | 409 | A continuation needs a completed response from the same agent |
+| `invalid_run_transition` | 500 | Invalid run status transition; the write was rejected (internal error; for valid transitions see [architecture.md](architecture.md#32-run-state-machine), section 3.2 "Run state machine") |
+| `not_resumable` | 409 | Only runs in the interrupted state can be resumed |
+| `reconciliation_required` | 409 | Uncertain side effects must be reconciled before resuming |
+| `run_not_attached` | 409 | The run shows as in progress but is not executing in this gateway process (inconsistent data, or held by another process); the cancel request was not accepted |
+| `run_key_inactive` | 409 | The key that owns the run has expired, been revoked or deleted (or its account no longer exists), so the run cannot be resumed. This appears when the owner's admin key resumes another key's run; when the original key resumes by itself, expiry and revocation are already rejected at authentication with `key_expired` / `unauthorized` |
+| `invalid_reconciliation` | 409 | No matching step is waiting for reconciliation |
+| `effect_outcome_unknown` | 409 | The outcome of an operation with side effects is unconfirmed (the run is marked interrupted) |
+| `gateway_restarted` | — | A gateway restart interrupted execution (run error code) |
+| `run_timeout` | — | The run passed its deadline (run error code, status incomplete) |
+| `cancelled` | 409 | The task was cancelled |
+| `turn_limit` | — | The agent reached its turn limit (run error code, status incomplete; on the compatibility entries a non-streaming request returns 422 with `x-should-retry: false` because the run did not end normally, and a stream reports the error inside the stream) |
+| `token_budget` | — | The observed token budget was reached (run error code, status incomplete; behaves like `turn_limit` on the compatibility entries) |
+| `max_output_tokens` | — | The model output was truncated (run error code, status incomplete; each compatibility entry returns the truncation as a normal 200) |
+| `context_limit` | 409 | The context exceeds 2 MB (2,000,000 bytes); start a new session |
+| `output_contract` | 422 | The final answer does not match the declared output schema |
+| `structured_output_invalid` | 422 | Structured output was requested, but the agent's answer, even after the correction rounds, is not JSON that fits the request; `error.message` names the first problem, never the answer itself |
+| `output_too_large` | 413/502 | The agent output exceeds the limit |
+| `files_too_large` | 413 | Input files exceed 8 MiB in total |
+| `workspace_too_large` | 413 | The workspace transfer exceeds the limit |
+| `delegation_depth_exceeded` | 409 | Subagent delegation is nested too deeply |
+| `subagent_failed` | 502 | A subagent ended as failed without a specific error code (`subagent_${status}`) |
+| `subagent_cancelled` | 502 | A subagent ended as cancelled without a specific error code (`subagent_${status}`) |
+| `subagent_interrupted` | 502 | A subagent ended as interrupted without a specific error code (`subagent_${status}`) |
+| `subagent_incomplete` | 502 | A subagent ended as incomplete without a specific error code (`subagent_${status}`) |
+| `delegate_timeout` | 504 | A delegated subagent did not finish within the delegation timeout (the child run was cancelled) |
+| `parent_interrupted` | — | The parent run is no longer active, so the queued child run will not execute (run error code, status cancelled) |
+| `capability_unavailable` | 503 | A required execution capability is unavailable right now |
+| `node_draining` | 503 | The node that could run this task is draining |
+| `action_required` | 422 | Compat endpoint: the task is waiting for an approval and the run was created (non-streaming Chat / Claude / Gemini; carries `x-should-retry: false`, do not resend) |
+| `requires_action` | 409 | Compat endpoint: the run is in requires_action |
+| `incomplete` | 422 | Compat endpoint: the run did not complete |
+| `persistence_failed` | 500 | The output could not be persisted; execution stopped |
+| `step_checkpoint_failed` | 500 | A tool result could not be committed; execution stopped |
+| `invalid_output_event` | 500 | Invalid output event transition (an internal invariant was broken) |
+| `execution_failed` | 500/502 | Unclassified execution failure |
 
-### 审批与步骤
+### Approvals and steps
 
-| code | HTTP | 含义 |
+| code | HTTP | Meaning |
 | --- | --- | --- |
-| `approval_expired` | 409 | 审批已过期 |
-| `client_tool_timeout` | 409 | 调用方没有在 `approvalTimeoutMs` 内回传调用方工具的结果，运行以 `failed` 结束 |
-| `client_tool_abandoned` | 409 | 外部智能体（经 `oaa-caller` 中继）在调用方回传结果之前放弃了这次调用（关掉了 MCP 服务，或它的 MCP 请求超时后重启了服务）：对应步骤以此失败、待办标为 `expired`，运行不因此失败；之后再回传这个 `call_id` 不会续接（按新请求处理） |
-| `action_kind_mismatch` | 409 | `POST /v1/runs/{id}/actions/{action}` 指向一个 `client_tool` 待办：它只能由调用方经桥接回传结果 |
-| `approval_not_found` | 404 | 审批不存在 |
-| `stale_approval` | 409 | 审批已不再待处理 |
-| `permission_denied` | 403 | 操作未获批准；进程正常结束不能作为成功依据。所有接入方式一致：owner 拒绝（Codex 的 `declined` 项、Claude 的 `permission_denials`、ACP/`oaa/1-stream` 的拒绝、内核工具审批）都以此码失败 |
-| `tool_denied` | 403 | 该工具/图执行被禁用 |
-| `step_not_found` | 404 | 执行步骤不存在 |
-| `step_scope_mismatch` | 403 | 步骤属于其他运行 |
-| `invalid_step_artifact` | 403 | 步骤产物不属于该运行 |
-| `invalid_step_checkpoint` | 409 | 步骤检查点与运行不匹配 |
+| `approval_expired` | 409 | The approval has expired |
+| `client_tool_timeout` | 409 | The caller did not return the caller tool's result within `approvalTimeoutMs`, and the run ended as `failed` |
+| `client_tool_abandoned` | 409 | The external agent (through the `oaa-caller` relay) gave up on the call before the caller returned a result (it closed the MCP server, or restarted it after its MCP request timed out): the corresponding step fails with this code and the pending action is marked `expired`, but the run does not fail because of it; returning this `call_id` later does not continue anything (it is handled as a new request) |
+| `action_kind_mismatch` | 409 | `POST /v1/runs/{id}/actions/{action}` points to a `client_tool` pending action, which can only be answered by the caller returning a result through the bridge |
+| `approval_not_found` | 404 | The approval does not exist |
+| `stale_approval` | 409 | The approval is no longer pending |
+| `permission_denied` | 403 | The operation was not approved; a process ending normally cannot be taken as success. The same for every access method: an owner denial (Codex's `declined` item, Claude's `permission_denials`, an ACP / `oaa/1-stream` refusal, a kernel tool approval) fails with this code |
+| `tool_denied` | 403 | This tool or graph execution is disabled |
+| `step_not_found` | 404 | The execution step does not exist |
+| `step_scope_mismatch` | 403 | The step belongs to another run |
+| `invalid_step_artifact` | 403 | The step artifact does not belong to this run |
+| `invalid_step_checkpoint` | 409 | The step checkpoint does not match the run |
 
-### 文件与记忆
+### Files and memory
 
-| code | HTTP | 含义 |
+| code | HTTP | Meaning |
 | --- | --- | --- |
-| `file_not_found` | 404 | 文件不存在 |
-| `file_too_large` | 413 | 文件超过 8 MiB |
-| `file_required` | 400 | multipart 上传缺少文件部分 |
-| `file_integrity` | 400/500 | 文件内容摘要不匹配 |
-| `invalid_file` | 400/413 | 文件字段、引用或大小无效 |
-| `invalid_file_field` | 400 | 仅支持 purpose=user_data 或 assistants |
-| `invalid_path` | 400 | 路径必须是不含穿越的相对路径 |
-| `data_placement_denied` | 403 | 输入文件不允许发送到该节点 |
-| `memory_too_large` | 413 | 记忆条目超过 256 KB |
-| `artifact_integrity` | 502 | 原生产物摘要不匹配 |
-| `artifacts_too_large` | 413 | 原生产物导出超过上限 |
-| `unsafe_artifact` | 403 | 产物中含符号链接，拒绝自动导出 |
+| `file_not_found` | 404 | The file does not exist |
+| `file_too_large` | 413 | The file exceeds 8 MiB |
+| `file_required` | 400 | The multipart upload has no file part |
+| `file_integrity` | 400/500 | The file content digest does not match |
+| `invalid_file` | 400/413 | A file field, reference, or size is invalid |
+| `invalid_file_field` | 400 | Only purpose=user_data or assistants is supported |
+| `invalid_path` | 400 | The path must be relative and must not traverse upward |
+| `data_placement_denied` | 403 | Input files are not allowed to be sent to this node |
+| `memory_too_large` | 413 | The memory entry exceeds 256 KB |
+| `artifact_integrity` | 502 | The native artifact digest does not match |
+| `artifacts_too_large` | 413 | The native artifact export exceeds the limit |
+| `unsafe_artifact` | 403 | The artifacts contain a symbolic link; automatic export was refused |
 
-### 工具、图与 MCP
+### Tools, graphs and MCP
 
-| code | HTTP | 含义 |
+| code | HTTP | Meaning |
 | --- | --- | --- |
-| `invalid_tool_arguments` | 400 | 工具参数不符合 schema |
-| `tool_not_published` | 403 | 工具未在该能力包中发布 |
-| `result_export_denied` | 403 | 该能力不允许结果离开执行者 |
-| `capability_bound_elsewhere` | 403 | 能力绑定在其他主机 |
-| `capability_mismatch` | 403 | 节点工具元数据与发布的绑定不一致 |
-| `manifest_mismatch` | 403 | 执行内容与已发布的智能体不一致 |
-| `script_disabled` | 403 | 该 worker 不允许此脚本运行时 |
-| `skill_not_published` | 404 | 文件不在能力包中 |
-| `invalid_tool_calls` | 502 | 模型返回了重复或无效的工具调用 ID |
-| `invalid_tool_result` | 502 | worker 返回了无效的工具结果 |
-| `tool_arguments_too_large` | 502 | 模型给出的工具参数超过上限 |
-| `invalid_graph` | 400 | 执行图无效 |
-| `invalid_graph_output` | 400 | 图的返回投影引用了不存在的步骤或作用域外的变量 |
-| `workflow_output_contract` | 422 | 工作流返回值不符合发布的输出契约；不会启动下一轮模型，也不会回滚已确认的工具操作 |
-| `invalid_concurrency` | 400 | 图或叶子执行池的并发上限必须为正整数 |
-| `invalid_expression` | 400 | 图表达式无效或超过上限 |
-| `invalid_reference` | 400 | 图引用（JSON pointer）无效 |
-| `expression_budget_exceeded` | 400 | 表达式结果超过预算 |
-| `foreach_limit_exceeded` | 400 | foreach 数量超过 max_items |
-| `unsafe_graph_fallback` | 400 | fallback 不能掩盖非幂等写操作 |
-| `unsafe_graph_retry` | 400 | 步骤的 `retry` / `timeout_ms` 用在了会修改且不可安全重试（`write` / `unknown`）的工具上 |
-| `step_timeout` | 504 | 执行图里某个步骤的一次尝试超过了它声明的 `timeout_ms`；重试用尽后才会让运行失败 |
-| `mcp_unconfigured` | 503 | 所选 MCP 服务器未在该 worker 上配置 |
-| `mcp_connection_failed` | 503 | MCP 服务器初始化失败 |
-| `mcp_connection_retired` | 503 | MCP 连接在执行前已更换，请重试 |
-| `mcp_credentials_unavailable` | 503 | 声明的 MCP 凭据环境变量不可用 |
-| `mcp_executable_unavailable` | 503 | MCP 可执行文件不可用 |
-| `mcp_tool_not_found` | 404 | MCP 服务器未列出该工具 |
-| `mcp_tool_changed` | 409 | MCP 工具元数据已变化，需准备新的能力版本 |
-| `mcp_tool_failed` | 502 | MCP 工具返回 isError=true |
-| `mcp_ambiguous_tool` | 502 | MCP 服务器返回了重复的工具名 |
-| `mcp_catalog_limit` | 400/502 | MCP 工具发现超过分页上限 |
-| `mcp_invalid_catalog` | 502 | MCP 工具分页没有推进 |
+| `invalid_tool_arguments` | 400 | The tool arguments do not match the schema |
+| `tool_not_published` | 403 | The tool is not published in this bundle |
+| `result_export_denied` | 403 | This capability does not allow results to leave the executor |
+| `capability_bound_elsewhere` | 403 | The capability is bound to another host |
+| `capability_mismatch` | 403 | The node's tool metadata does not match the published binding |
+| `manifest_mismatch` | 403 | The executed content does not match the published agent |
+| `script_disabled` | 403 | This worker does not allow this script runtime |
+| `skill_not_published` | 404 | The file is not in the bundle |
+| `invalid_tool_calls` | 502 | The model returned duplicate or invalid tool call IDs |
+| `invalid_tool_result` | 502 | The worker returned an invalid tool result |
+| `tool_arguments_too_large` | 502 | The tool arguments from the model exceed the limit |
+| `invalid_graph` | 400 | The execution graph is invalid |
+| `invalid_graph_output` | 400 | The graph's return projection references a missing step or an out-of-scope variable |
+| `workflow_output_contract` | 422 | The workflow result does not match the published output contract; no further model turn starts and confirmed tool operations are not rolled back |
+| `invalid_concurrency` | 400 | The concurrency limit of a graph or leaf pool must be a positive integer |
+| `invalid_expression` | 400 | A graph expression is invalid or exceeds a limit |
+| `invalid_reference` | 400 | A graph reference (JSON pointer) is invalid |
+| `expression_budget_exceeded` | 400 | An expression result exceeds its budget |
+| `foreach_limit_exceeded` | 400 | The foreach item count exceeds max_items |
+| `unsafe_graph_fallback` | 400 | A fallback cannot mask a non-idempotent write |
+| `unsafe_graph_retry` | 400 | A step's `retry` / `timeout_ms` is used on a tool that modifies state and cannot be safely retried (`write` / `unknown`) |
+| `step_timeout` | 504 | One attempt of a step in an execution graph exceeded its declared `timeout_ms`; the run fails only after retries are used up |
+| `mcp_unconfigured` | 503/400 | The selected MCP server is not configured on this worker |
+| `mcp_connection_failed` | 503 | The MCP server failed to initialize |
+| `mcp_connection_retired` | 503 | The MCP connection was replaced before execution; retry |
+| `mcp_credentials_unavailable` | 503 | The declared MCP credential environment variable is not available |
+| `mcp_executable_unavailable` | 503 | The MCP executable is not available |
+| `mcp_tool_not_found` | 404 | The MCP server does not list this tool |
+| `mcp_tool_changed` | 409 | The MCP tool metadata changed; prepare a new capability version |
+| `mcp_tool_failed` | 502 | The MCP tool returned isError=true |
+| `mcp_ambiguous_tool` | 502 | The MCP server returned duplicate tool names |
+| `mcp_catalog_limit` | 400/502 | MCP tool discovery exceeded the paging limit |
+| `mcp_invalid_catalog` | 502 | MCP tool paging did not advance |
 
-### 模型提供方
+### Model providers
 
-| code | HTTP | 含义 |
+| code | HTTP | Meaning |
 | --- | --- | --- |
-| `provider_unavailable` | 503 | 该节点未配置模型提供方 |
-| `model_not_configured` | 503 | 未设置提供方 API 密钥环境变量 |
-| `upstream_rate_limited` | 429/502 | 上游模型限流 |
-| `upstream_failed` | 429/502 | 上游模型响应失败 |
-| `upstream_incomplete` | 502 | 上游以非正常原因结束 |
-| `upstream_truncated` | 502 | 上游未给出终止响应就结束 |
-| `upstream_output_limit` | 502 | 上游 HTTP 响应累计超过 8 MiB，或 SSE 事件超过 2 MiB；停止读取并释放连接 |
-| `upstream_timeout` | 504 | Anthropic/Gemini 请求超过配置的提供方截止时间，不等同于用户取消 |
-| `invalid_model_result` | 502 | worker 返回了无效的模型结果 |
-| `invalid_provider_key` | 400 | `X-OAA-Provider-Key` 格式不对（只允许 1–4096 个可见 ASCII 字符），或这个头出现了多次 |
-| `byok_not_supported` | 400 | 调用方自带密钥只适用于 kernel 智能体；或该节点的提供方没有开启 `byok`；或续跑的运行本来就没用调用方密钥 |
-| `provider_key_required` | 400 | `sandbox` 级密钥调用沙箱里的原生智能体时，必须带 `X-OAA-Provider-Key`（只用调用方自己的密钥） |
-| `byok_key_required` | 409 | 运行使用调用方密钥，但网关已经不再持有它（重启或过期），需要带上 `X-OAA-Provider-Key` 重新续跑 |
-| `invalid_provider_state` | 502 | 提供方原生轮次状态（Provider Turn State）缺失、畸形、校验失败、与归一化结果不匹配，或底层 SDK 无法安全重放；表明状态损坏或被篡改，调用方应开始新会话 |
-| `provider_state_mismatch` | 409 | 续接会话时提供方协议、端点、模型、工具或对话前缀改变，或尝试跨不兼容协议重放原生状态；调用方需恢复原始配置或新建会话 |
-| `provider_state_too_large` | 413 | 提供方单轮原生状态超过 2 MiB 上限；调用方应精简该轮输出/工具数据或新建会话 |
-| `provider_state_unsupported` | 502/503 | worker 节点或驱动不支持保留该提供方的原生轮次状态、网关未协商原生状态能力，或流式输出包含无法安全保留的状态增量；调用方需路由至支持的节点或新建会话 |
+| `provider_unavailable` | 503 | No model provider is configured on this node |
+| `model_not_configured` | 503 | The provider API key environment variable is not set |
+| `upstream_rate_limited` | 429/502 | The upstream model is rate limited |
+| `upstream_failed` | 429/502 | The upstream model response failed |
+| `upstream_auth_failed` | 502 | The upstream model service rejected the provider API key (HTTP 401/403) |
+| `upstream_model_not_found` | 502 | The upstream model service does not know this model name or endpoint path (HTTP 404) |
+| `upstream_incompatible` | 502 | A compatible service refused a request field (such as max_completion_tokens, stream_options, tools or images) |
+| `upstream_incomplete` | 502 | The upstream model ended for an abnormal reason |
+| `upstream_truncated` | 502 | The upstream response ended without a final message |
+| `upstream_output_limit` | 502 | The upstream HTTP response exceeded 8 MiB in total, or an SSE event exceeded 2 MiB; reading stopped and the connection was released |
+| `upstream_timeout` | 504 | The Anthropic/Gemini request exceeded the configured provider deadline; this is not a user cancellation |
+| `invalid_model_result` | 502 | The worker returned an invalid model result |
+| `invalid_provider_key` | 400 | `X-OAA-Provider-Key` is malformed (only 1-4096 visible ASCII characters are allowed), or the header appeared more than once |
+| `byok_not_supported` | 400 | A caller-supplied key applies only to kernel agents; or this node's provider does not have `byok` enabled; or the resumed run did not use a caller key in the first place |
+| `provider_key_required` | 400 | A `sandbox`-level key calling a native agent in the sandbox must send `X-OAA-Provider-Key` (only the caller's own key is used) |
+| `byok_key_required` | 409 | The run uses the caller's key, but the gateway no longer holds it (restart or expiry); resume again with `X-OAA-Provider-Key` |
+| `invalid_provider_state` | 502 | The provider's native turn state (Provider Turn State) is missing, malformed, failed verification, does not match the normalized result, or the underlying SDK cannot replay it safely; this indicates corrupted or tampered state, and the caller should start a new session |
+| `provider_state_mismatch` | 409 | The provider protocol, endpoint, model, tools, or conversation prefix changed on continuation, or native state was replayed across incompatible protocols; the caller must restore the original configuration or start a new session |
+| `provider_state_too_large` | 413 | The provider's native state for one turn exceeds the 2 MiB limit; the caller should trim that turn's output or tool data, or start a new session |
+| `provider_state_unsupported` | 502/503 | The worker node or driver cannot keep the provider's native turn state, the gateway did not negotiate native-state capability, or the streamed output contains state deltas that cannot be kept safely; the caller must route to a supported node or start a new session |
 
-### 原生智能体与适配器（含 ACP）
+### Native agents and adapters (including ACP)
 
-| code | HTTP | 含义 |
+| code | HTTP | Meaning |
 | --- | --- | --- |
-| `native_disabled` | 503 | 该原生引擎未在 worker 上启用 |
-| `native_incomplete` | 502 | 原生智能体未完整完成或提前退出；`oaa/1-stream` 适配器退出时没有结果；A2A 流结束时没有最终状态或智能体取消了任务 |
-| `native_truncated` | 502 | 原生智能体结束时没有结果 |
-| `native_closed` | 502 | 原生智能体进程已关闭 |
-| `native_protocol_error` | 502 | 原生/ACP 协议错误，或智能体拒绝了请求 |
-| `native_model_mismatch` | 409 | 智能体未确认所选模型（未发送任务） |
-| `native_resume_unsupported` | 409 | 智能体无法续接上一轮会话 |
-| `adapter_disabled` | 503 | 适配器未启用 |
-| `adapter_not_configured` | 503 | 适配器所需令牌环境变量未设置 |
-| `adapter_unavailable` | 503 | 适配器进程无法启动 |
-| `adapter_auth_required` | 503 | 外部智能体（ACP 智能体、内置的 Claude Code 等）要求先在其自身 CLI 中登录；A2A 端点返回 401/403 |
-| `adapter_timeout` | 504 | ACP 握手阶段超时 |
-| `adapter_failed` | 502 | HTTP / A2A 适配器返回错误状态或 JSON-RPC 错误；A2A 握手检查找不到 agent card |
-| `adapter_incomplete` | 502 | 适配器报告未完成（A2A 任务 `failed`/`rejected`）；适配器提供的错误文本会脱敏 |
-| `adapter_output_limit` | 502 | 适配器输出超过 2 MiB（A2A 响应/流超过 8 MiB） |
-| `approval_failed` | 500 | 审批桥内部错误 |
-| `event_failed` | 500 | 事件写入失败 |
-| `process_failed` | 502 | 受管子进程非零退出 |
-| `invalid_protocol` | 502 | worker 或子进程输出了无效协议数据（含 `oaa/1-stream` 未知消息类型、A2A 非法 JSON） |
+| `native_disabled` | 503 | This native engine is not enabled on the worker |
+| `native_incomplete` | 502 | The native agent did not finish or exited early; an `oaa/1-stream` adapter exited without a result; an A2A stream ended without a final status, or the agent cancelled the task |
+| `native_truncated` | 502 | The native agent ended without a result |
+| `image_delivery_failed` | 502 | Handing an image to an external agent failed (the image file is missing from the task workspace) ([images.md](images.md)) |
+| `native_closed` | 502 | The native agent process has closed |
+| `native_protocol_error` | 502 | Native/ACP protocol error, or the agent rejected the request |
+| `native_model_mismatch` | 409 | The agent did not confirm the selected model (the task was not sent) |
+| `native_resume_unsupported` | 409 | The agent cannot continue the previous session |
+| `adapter_disabled` | 503 | The adapter is not enabled |
+| `adapter_not_configured` | 503 | The token environment variable required by the adapter is not set |
+| `adapter_unavailable` | 503 | The adapter process cannot start |
+| `adapter_auth_required` | 503 | The external agent (an ACP agent, the built-in Claude Code, and so on) requires signing in through its own CLI first; or the A2A endpoint returned 401/403 |
+| `adapter_timeout` | 504 | The ACP handshake timed out |
+| `adapter_failed` | 502 | The HTTP / A2A adapter returned an error status or a JSON-RPC error; the A2A handshake check could not find an agent card |
+| `adapter_incomplete` | 502 | The adapter reported the task as incomplete (an A2A task `failed` / `rejected`); the error text provided by the adapter is redacted |
+| `adapter_output_limit` | 502 | The adapter output exceeded 2 MiB (8 MiB for an A2A response or stream) |
+| `approval_failed` | 500 | Internal error in the approval bridge |
+| `event_failed` | 500 | Writing an event failed |
+| `process_failed` | 502 | A managed child process exited with a non-zero code |
+| `invalid_protocol` | 502 | The worker or child process emitted invalid protocol data (including an unknown `oaa/1-stream` message type and invalid A2A JSON) |
 
-### 本机后端与节点
+### Local backends and nodes
 
-| code | HTTP | 含义 |
+| code | HTTP | Meaning |
 | --- | --- | --- |
-| `backend_not_configured` | 404 | 本地 worker 配置中没有该后端 |
-| `backend_unavailable` | 409 | 后端可执行文件缺失或不可执行，未启用 |
-| `backend_conflict` | 409 | 一键启用时，本机配置里已有同名但不同类型的适配器，不会覆盖 |
-| `worker_required` | 409 | 一键启用时，配置文件里没有本机执行机器（`localWorker`）；该码也由命令行在本地产生 |
-| `check_unsupported` | 400 | 握手检查只适用于 ACP 与 A2A 适配器 |
-| `local_node_policy` | 409 | 远程凭据控制不能改变本地 worker |
-| `node_not_found` | 404 | 节点注册不存在 |
-| `node_exists` | 409 | 该节点 ID 已注册 |
-| `node_owner_conflict` | 409 | 节点身份被其他 owner 占用 |
-| `node_revoked` | 409 | 节点已吊销（不可逆） |
-| `node_policy_integrity` | 500 | 节点策略记录不一致 |
-| `node_already_connected` | 409 | 同一身份的节点已连接 |
-| `node_identity_reserved` | 409 | 该本地节点 ID 被远程生命周期策略保留 |
-| `node_credentials_conflict` | 409 | 节点凭据身份不唯一（启动时） |
-| `node_scope_denied` | 403 | 节点通告超出其授权 |
-| `node_disconnected` | 503 | worker 连接已关闭 |
-| `node_backpressure` | 503 | worker 连接超过缓冲上限 |
-| `queue_full` | 429 | 节点队列已满 |
-| `work_timeout` | 504 | worker 超过执行截止时间 |
-| `worker_failed` | 502 | 远程 worker 执行失败（未带具体码时） |
-| `worker_capacity_exceeded` | 503 | 远程 worker 已满载，拒绝新任务 |
-| `invalid_context` | 403 | worker 归属或会话不匹配 |
-| `bundle_not_loaded` | 409 | 所需能力包尚未安装到 worker |
-| `insecure_endpoint` | 400 | 远程端点必须使用 TLS 且不得包含凭据 |
-| `invalid_credential` | 500 | 服务或节点令牌少于 24 个字符（配置错误） |
-| `key_not_found` | 404 | 该 owner 下找不到 API 密钥 |
-| `node_authentication_denied` | — | worker 侧：网关拒绝节点凭据，停止重连 |
-| `node_connection_failed` | — | worker 侧：连接网关失败 |
-| `invalid_config` | 400 | worker 侧：配置无效（如缺少 gatewayUrl）；只在 worker 进程本地启动时产生（`connectWorker`），不作为 HTTP 响应返回，400 是 `Fault` 的默认状态 |
+| `backend_not_configured` | 404 | The local worker configuration has no such backend |
+| `backend_unavailable` | 409 | The backend executable is missing or not executable; it was not enabled |
+| `backend_conflict` | 409 | On one-step enablement, a different kind of adapter with the same name already exists in the local configuration; it will not be overwritten |
+| `worker_required` | 409/400 | On one-step enablement, the configuration file has no local execution machine (`localWorker`); the command line also produces this code locally |
+| `check_unsupported` | 400 | Handshake checks apply only to ACP and A2A adapters |
+| `local_node_policy` | 409 | Remote credential controls cannot change the local worker |
+| `node_not_found` | 404 | The node registration does not exist |
+| `node_exists` | 409 | This node ID is already registered |
+| `node_owner_conflict` | 409 | The node identity is held by another owner |
+| `node_revoked` | 409 | The node has been revoked (irreversible) |
+| `node_policy_integrity` | 500 | The node policy record is inconsistent |
+| `node_already_connected` | 409 | A node with the same identity is already connected |
+| `node_identity_reserved` | 409 | This local node ID is reserved by a remote lifecycle policy |
+| `node_credentials_conflict` | 409 | Node credential identities are not unique (at startup) |
+| `node_scope_denied` | 403 | The node advertised more than it is authorized for |
+| `node_disconnected` | 503 | The worker connection closed |
+| `node_backpressure` | 503 | The worker connection exceeded its buffer limit |
+| `queue_full` | 429 | The node queue is full |
+| `work_timeout` | 504 | The worker exceeded the execution deadline |
+| `worker_failed` | 502 | The remote worker failed (when no specific code was given) |
+| `worker_capacity_exceeded` | 503 | The remote worker is at capacity and refused the new task |
+| `invalid_context` | 403 | The worker ownership or session does not match |
+| `bundle_not_loaded` | 409 | The required bundle is not installed on the worker yet |
+| `insecure_endpoint` | 400 | Remote endpoints must use TLS and must not contain credentials |
+| `invalid_credential` | 500 | A service or node token is shorter than 24 characters (configuration error) |
+| `key_not_found` | 404 | No API key with that ID exists for this owner |
+| `node_authentication_denied` | — | Worker side: the gateway rejected the node credential; reconnecting stopped |
+| `node_connection_failed` | — | Worker side: could not connect to the gateway |
+| `invalid_config` | 400 | Worker side: invalid configuration (for example, missing gatewayUrl); produced only when a worker process starts locally (`connectWorker`) and never returned as an HTTP response; 400 is the default status of `Fault` |
 
-### 开发者平台
+### Developer platform errors
 
-只在网关配置了 `platform` 段时出现。
+Present only when the gateway has a `platform` section configured.
 
-| code | HTTP | 含义 |
+| code | HTTP | Meaning |
 | --- | --- | --- |
-| `registration_closed` | 403 | 这个站点不开放自助注册 |
-| `invite_required` | 403 | 注册需要邀请码 |
-| `invalid_code` | 400 | 兑换码、邀请码或重置码无效、已用完、已过期或已被本账号用过 |
-| `email_taken` | 409 | 邮箱已注册 |
-| `invalid_credentials` | 401 | 邮箱或密码不正确 |
-| `session_invalid` | 401 | 门户会话无效或已过期 |
-| `account_disabled` | 403 | 账号已停用（会话与账号密钥都被拒绝） |
-| `account_not_found` | 404 | 账号不存在 |
-| `insufficient_balance` | 402 | 余额不足（提交任务时在创建运行之前拒绝；运营者调整余额后结果小于 0 时也返回此码） |
-| `key_limit_reached` | 409 | 账号的密钥数量已到上限 |
-| `listing_not_found` | 404 | 该智能体没有上架记录 |
-| `code_not_found` | 404 | 兑换码不存在 |
-| `reference_conflict` | 409 | 这个外部单号已经用于另一笔金额不同、或另一个账号的入账 |
-| `platform_managed_by_config` | 409 | 配置文件里已有 `platform` 段，`PUT /v1/platform/setup` 不能修改平台设置 |
+| `registration_closed` | 403 | This site does not allow self-service sign-up |
+| `invite_required` | 403 | Sign-up requires an invite code |
+| `invalid_code` | 400 | The redeem, invite, or reset code is invalid, used up, expired, or already used by this account |
+| `email_taken` | 409 | The email is already registered |
+| `invalid_credentials` | 401 | Incorrect email or password |
+| `session_invalid` | 401 | The portal session is invalid or has expired |
+| `account_disabled` | 403 | The account is disabled (both sessions and account keys are rejected) |
+| `account_not_found` | 404 | The account does not exist |
+| `insufficient_balance` | 402 | Insufficient balance (rejected at task submission before a run is created; also returned when an operator's balance adjustment would take the result below 0) |
+| `key_limit_reached` | 409 | The account has reached its key limit |
+| `listing_not_found` | 404 | This agent has no listing |
+| `usage_pricing_unsupported` | 400 | A listing sets a per-token price for an agent that does not report token usage (only per-run prices are accepted for it) |
+| `code_not_found` | 404 | The redeem code does not exist |
+| `reference_conflict` | 409 | This external reference was already used for a credit with a different amount, or for another account |
+| `platform_managed_by_config` | 409 | The configuration file already has a `platform` section, so `PUT /v1/platform/setup` cannot change the platform settings |
 
-### 调度原因码（`reasons[].code`）
+### Webhook errors
 
-出现在智能体可用性/路由检查的 `reasons` 中，说明为什么某个节点或路由当前不可用，不是 HTTP 错误：`agent_scope`、`agent_node_restriction`、`session_node_affinity`、`file_node_restriction`、`provider_unavailable`、`tool_selection_unreported`、`capability_scope`、`native_disabled`、`native_model_unsupported`、`native_model_unreported`、`host_binding`、`result_export_denied`、`builtin_unreported`、`script_runtime_disabled`、`capability_unavailable`、`capability_mismatch`、`byok_unsupported`（节点的这个提供方不接受调用方密钥）、`provider_state_unsupported`（worker 无法保留该提供方的原生轮次状态）、`sandbox_unavailable`（节点没有通过自检的脚本沙箱）、`no_online_nodes`、`node_busy`、`node_draining`、`node_revoked`、`target_cooling_down`、`required_tool_unavailable`。
+Returned by the `/v1/webhooks` endpoints ([webhooks.md](webhooks.md)).
 
-### 仅 CLI / 客户端本地
+| code | HTTP | Meaning |
+| --- | --- | --- |
+| `webhook_not_found` | 404 | No webhook endpoint with that ID (for this owner) |
+| `webhook_url_invalid` | 400 | Invalid webhook URL: only http/https without user name or password, and https for anything but loopback (unless `allow_insecure_http`) |
+| `webhook_target_denied` | 400 | Under the `public` security profile the URL points at a private, loopback, link-local or metadata address (unless `allow_private_network`) |
+| `webhook_limit_reached` | 409 | The owner already has 20 webhook endpoints |
+| `webhook_delivery_not_found` | 404 | No delivery with that ID for this endpoint |
+| `webhook_delivery_pending` | 409 | The delivery is still queued and cannot be redelivered yet |
 
-以下只由 `oaa` 命令行或 `GatewayClient` 在本地产生，网关不会返回：`arguments`、`unknown_command`、`dsh_overlay_required`、`exposure_conflict`、`native_not_installed`、`node_startup_failed`、`startup_failed`、`startup_timeout`、`tunnel_binary_missing`、`tunnel_exited`、`tunnel_timeout`、`worker_required`、`output_exists`、`tool_conflict`、`mcp_descriptor_too_large`、`mcp_task_mode_unsupported`、`host_binding`（工具导入时所选工具属于另一个节点）、`gateway_error`、`gateway_response_too_large`、`gateway_timeout`、`invalid_gateway_path`、`invalid_gateway_response`、`request_cancelled`、`token_required`、`gateway_unreachable`（连不上网关）、`not_running`（`oaa stop` 找不到由 `--detach` 启动的网关）、`port_in_use`（`oaa quickstart` 要用的端口被占用）、`sample_agent_missing`（找不到随附的离线示例智能体）、`agent_conflict`（`oaa connect` 不覆盖同名的其它引擎智能体）。
+### Placement reason codes (`reasons[].code`)
+
+These appear in the `reasons` of agent availability and route checks and explain why a node or route is currently unavailable; they are not HTTP errors: `agent_scope`, `agent_node_restriction`, `session_node_affinity`, `file_node_restriction`, `provider_unavailable`, `tool_selection_unreported`, `capability_scope`, `native_disabled`, `native_model_unsupported`, `native_model_unreported`, `host_binding`, `result_export_denied`, `builtin_unreported`, `script_runtime_disabled`, `capability_unavailable`, `capability_mismatch`, `byok_unsupported` (this node's provider does not accept a caller key), `provider_state_unsupported` (the worker cannot keep the provider's native turn state), `sandbox_unavailable` (the node has no script sandbox that passed its self-check), `no_online_nodes`, `node_busy`, `node_draining`, `node_revoked`, `target_cooling_down`, `required_tool_unavailable`.
+
+### CLI and client-local only
+
+These are produced locally only by the `oaa` command line or `GatewayClient` and are never returned by the gateway: `arguments`, `unknown_command`, `dsh_overlay_required`, `exposure_conflict`, `native_not_installed`, `node_startup_failed`, `startup_failed`, `startup_timeout`, `tunnel_binary_missing`, `tunnel_exited`, `tunnel_timeout`, `worker_required`, `output_exists`, `tool_conflict`, `mcp_descriptor_too_large`, `mcp_task_mode_unsupported`, `host_binding` (on tool import, the selected tool belongs to another node), `gateway_error`, `gateway_response_too_large`, `gateway_timeout`, `invalid_gateway_path`, `invalid_gateway_response`, `request_cancelled`, `token_required`, `gateway_unreachable` (the gateway cannot be reached), `not_running` (`oaa stop` finds no gateway started with `--detach`), `port_in_use` (the port `oaa quickstart` needs is taken), `sample_agent_missing` (the bundled offline sample agent cannot be found), `agent_conflict` (`oaa connect` does not overwrite an agent of the same name on another engine), `provider_conflict` (`oaa connect <preset>` does not overwrite a model provider of the same name with other settings), `provider_unreachable` (the model provider endpoint cannot be reached), `key_file_insecure` (the key file given to `oaa connect --key-file` is not private or not a single-line key), `approval_ambiguous` (the run given to `oaa approve` / `oaa deny` has several pending approvals and none was chosen), `approval_declined` (the answer at the `oaa approve` confirmation was no).

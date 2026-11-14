@@ -1,6 +1,9 @@
-# 把 site/ 部署到 GitHub Pages。
+# 把展示页（site/）和文档站点一起部署到 GitHub Pages。
 # 前提：仓库设置 → Pages → Build and deployment → Source 选「GitHub Actions」。
-# 只在默认分支上 site/ 下的文件变化，或手动触发时运行；手动触发在其它分支上会被下面的 if 跳过。
+# 构建：tools/docs-site/build.mjs 把 docs/、docs/zh-CN/、examples/cookbook/ 的 Markdown 生成为静态页面，
+# 与 site/ 一起输出到 site-dist/（构建产物不进仓库），--check 会校验生成页面的 HTML 与全部站内链接。
+# 站点结构：展示页在根（/、/en/），文档在 /docs/（英文）与 /docs/zh-CN/（中文）。
+# 默认分支上这些路径变化，或手动触发时运行；手动触发在其它分支上会被下面的 if 跳过。
 name: Pages
 
 on:
@@ -8,12 +11,16 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'docs/**'
+      - 'examples/cookbook/**'
+      - 'tools/docs-site/**'
+      - 'package.json'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
+# 构建作业只读仓库；写 Pages 与 id-token 的权限只给部署作业。
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # 同一时间只部署一次，新的等旧的做完，不打断正在进行的部署。
 concurrency:
@@ -21,20 +28,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      # 纯 Node，零依赖：不需要 npm ci。
+      - run: node tools/docs-site/build.mjs --check --out site-dist --ref "${{ github.event.repository.default_branch }}"
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: site-dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          sparse-checkout: site
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
-      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
-        with:
-          path: site
       - id: deployment
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

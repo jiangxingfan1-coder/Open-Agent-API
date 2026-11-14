@@ -1,4 +1,4 @@
-import { hasFeature, isAdmin, state } from '../lib/state.js';
+import { hasFeature, isAdmin, isNodeAdmin, state } from '../lib/state.js';
 import { lang, t } from '../lib/i18n.js';
 import { SCOPE_NAMES, compactTokens, num } from '../lib/format.js';
 import { formatDate } from '../shared/format.js';
@@ -22,6 +22,7 @@ import { load } from '../lib/live.js';
 import { agentById, filterText, setCount } from './common.js';
 import { openKeyDialog } from '../dialogs/key.js';
 import { snippetBlock } from '../dialogs/snippet.js';
+import { webhooksPanel } from './webhooks.js';
 
 export function renderAccess(body) {
   const d = state.data;
@@ -106,6 +107,8 @@ print(client.responses.retrieve(response.id).status)`;
   pair.append(quick.box, mcp.box);
   page.append(list.box, pair);
   if (hasFeature('client-tools-policy-v1')) page.append(callerToolsPanel(e, base, sample).box);
+  // Owner-wide admin keys only (the API refuses everyone else).
+  if (hasFeature('webhooks-v1') && isNodeAdmin()) page.append(webhooksPanel().box);
   body.append(page);
 }
 // How the tools a caller sends along are handled when the caller is itself an agent
@@ -114,12 +117,14 @@ function callerToolsPanel(e, base, sample) {
   const box = panel(t('access.callerTitle'));
   box.body.classList.add('caller-tools');
   box.body.append(el('p', t('access.callerText'), 'muted'));
+  box.body.append(el('p', t('access.progressText'), 'muted'));
   const modes = table(
     [
       { text: t('access.colMode'), width: 170 },
       { text: t('access.colMeaning'), min: 240 },
     ],
     [
+      [t('access.modeAuto'), t('access.modeAutoText')],
       [t('access.modeManaged'), t('access.modeManagedText')],
       [t('access.modeBridge'), t('access.modeBridgeText')],
       [t('access.modeReject'), t('access.modeRejectText')],

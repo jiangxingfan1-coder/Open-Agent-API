@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { bi, pick, processLocale, type Locale } from '../core/locale.js';
 import { Fault, executableExists } from '../core/util.js';
+import { whichSync } from '../core/which.js';
 import { isNativeEngine } from '../config/agent-presets.js';
 import type { GatewayClient } from './client.js';
 import { createCallerKey } from './onboarding.js';
@@ -47,11 +48,7 @@ export function engineFor(name: string): string {
 }
 
 function onPath(binary: string, pathEnv: string): string | undefined {
-  for (const dir of pathEnv.split(path.delimiter).filter(Boolean)) {
-    const candidate = path.join(dir, binary);
-    if (executableExists(candidate)) return candidate;
-  }
-  return undefined;
+  return whichSync(binary, pathEnv);
 }
 
 export async function connectAgent(client: GatewayClient, options: ConnectOptions): Promise<void> {
@@ -168,58 +165,98 @@ export async function connectAgent(client: GatewayClient, options: ConnectOption
   }
 
   // 4. 调用方密钥：quickstart 的密钥能调用所有智能体时直接沿用，否则单独建一把只能调用它的
-  const baseUrl = `${client.url.replace(/\/+$/, '')}/v1`;
-  let keyFile = path.join(options.keysDir, 'quickstart.key');
-  if (await canCall(baseUrl, keyFile, agentId))
-    out(
-      t(`4/4 同一把密钥已可调用：${keyFile}`, `4/4 The same key can already call it: ${keyFile}`),
-    );
-  else {
-    keyFile = path.join(options.keysDir, `${short.replace(/[^A-Za-z0-9_.-]/g, '_')}.key`);
-    if (!(await canCall(baseUrl, keyFile, agentId))) {
-      await createCallerKey(client, {
-        name: `connect-${short.replace(/[^A-Za-z0-9_.-]/g, '_')}`.slice(0, 64),
-        agents: [agentId],
-        out: keyFile,
-        approve: true,
-      }).catch(async (error: unknown) => {
-        // 文件在但密钥已失效：换一个文件名重建，不覆盖原文件。
-        if (!(error instanceof Fault) || error.code !== 'output_exists') throw error;
-        keyFile = keyFile.replace(/\.key$/, `-${Date.now()}.key`);
-        await createCallerKey(client, {
-          name: `connect-${short}`.slice(0, 64),
-          agents: [agentId],
-          out: keyFile,
-          approve: true,
-        });
-      });
-      out(
-        t(
-          `4/4 已生成只能调用 ${agentId} 的密钥：${keyFile}`,
-          `4/4 Created a key for ${agentId} only: ${keyFile}`,
-        ),
-      );
-    } else out(t(`4/4 沿用密钥：${keyFile}`, `4/4 Reusing key: ${keyFile}`));
-  }
-
-  const payload = JSON.stringify({
-    model: agentId,
-    messages: [{ role: 'user', content: t('你好', 'Hello') }],
+  const keyFile = await ensureCallerKey(client, {
+    keysDir: options.keysDir,
+    agentId,
+    short,
+    step: '4/4',
+    t,
+    out,
   });
-  out('');
-  out(`  model    : ${agentId}`);
-  out(`  Base URL : ${baseUrl}`);
-  out(t('  调用（粘贴运行）：', '  Call it (paste and run):'));
-  out(
-    `  curl ${baseUrl}/chat/completions -H "Authorization: Bearer $(cat '${keyFile}')" -H 'Content-Type: application/json' -d '${payload}'`,
-  );
-  out('');
+  const baseUrl = `${client.url.replace(/\/+$/, '')}/v1`;
+  for (const line of callLines(baseUrl, agentId, keyFile, t)) out(line);
   out(
     t(
       `connect 没有调用 ${engine}。第一次调用会使用它自己在这台机器上的登录状态与额度，并以你在这台机器上的权限运行；需要它做的操作要你批准时，任务会停在「待审批」。`,
       `connect did not call ${engine}. The first call uses its own sign-in and quota on this machine and runs with your permissions here; when it asks for approval, the task waits in "awaiting approval".`,
     ),
   );
+}
+
+/** The paste-and-run block printed at the end of every connect. */
+export function callLines(
+  baseUrl: string,
+  agentId: string,
+  keyFile: string,
+  t: (zh: string, en: string) => string,
+): string[] {
+  const payload = JSON.stringify({
+    model: agentId,
+    messages: [{ role: 'user', content: t('你好', 'Hello') }],
+  });
+  return [
+    '',
+    `  model    : ${agentId}`,
+    `  Base URL : ${baseUrl}`,
+    t('  调用（粘贴运行）：', '  Call it (paste and run):'),
+    `  curl ${baseUrl}/chat/completions -H "Authorization: Bearer $(cat '${keyFile}')" -H 'Content-Type: application/json' -d '${payload}'`,
+    '',
+  ];
+}
+
+/**
+ * A caller key file that can call `agentId`: the quickstart key when it covers every agent,
+ * otherwise a key limited to this agent (created once, reused afterwards).
+ */
+export async function ensureCallerKey(
+  client: GatewayClient,
+  p: {
+    keysDir: string;
+    agentId: string;
+    short: string;
+    step: string;
+    t: (zh: string, en: string) => string;
+    out: (line: string) => void;
+  },
+): Promise<string> {
+  const { t, out, agentId, step } = p;
+  const baseUrl = `${client.url.replace(/\/+$/, '')}/v1`;
+  const safe = p.short.replace(/[^A-Za-z0-9_.-]/g, '_');
+  let keyFile = path.join(p.keysDir, 'quickstart.key');
+  if (await canCall(baseUrl, keyFile, agentId)) {
+    out(
+      t(
+        `${step} 同一把密钥已可调用：${keyFile}`,
+        `${step} The same key can already call it: ${keyFile}`,
+      ),
+    );
+    return keyFile;
+  }
+  keyFile = path.join(p.keysDir, `${safe}.key`);
+  if (await canCall(baseUrl, keyFile, agentId)) {
+    out(t(`${step} 沿用密钥：${keyFile}`, `${step} Reusing key: ${keyFile}`));
+    return keyFile;
+  }
+  const create = (file: string) =>
+    createCallerKey(client, {
+      name: `connect-${safe}`.slice(0, 64),
+      agents: [agentId],
+      out: file,
+      approve: true,
+    });
+  await create(keyFile).catch(async (error: unknown) => {
+    // 文件在但密钥已失效：换一个文件名重建，不覆盖原文件。
+    if (!(error instanceof Fault) || error.code !== 'output_exists') throw error;
+    keyFile = keyFile.replace(/\.key$/, `-${Date.now()}.key`);
+    await create(keyFile);
+  });
+  out(
+    t(
+      `${step} 已生成只能调用 ${agentId} 的密钥：${keyFile}`,
+      `${step} Created a key for ${agentId} only: ${keyFile}`,
+    ),
+  );
+  return keyFile;
 }
 
 /** 这个密钥文件里的密钥能不能调用该智能体（出现在 GET /v1/models 里）。 */

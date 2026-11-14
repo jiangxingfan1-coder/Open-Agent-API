@@ -30,7 +30,15 @@ async function restart(s: Setup): Promise<Setup> {
   await s.app.close();
   const gateway = await createGateway(s.config, s.runtime);
   await gateway.app.ready();
-  return { ...s, ...gateway };
+  // Cleanup must close the new gateway's database: Windows cannot delete an open SQLite file.
+  return {
+    ...s,
+    ...gateway,
+    cleanup: async () => {
+      await gateway.app.close();
+      await s.cleanup();
+    },
+  };
 }
 
 test('setup: a gateway without the platform answers, and nothing is created by reading', async () => {

@@ -1,0 +1,790 @@
+{
+  "client": "continue",
+  "label": "Continue",
+  "version": "continuedev/continue main@5522c6f44ca0 (2026-07-21); latest releases v2.0.0-vscode and v2.1.0-vscode(pre-release), 2026-06-19; openai npm ^5.23.2 (adapters) / ^5.13.1 (core)",
+  "retrieved": "2026-11-14",
+  "overall": "verified",
+  "sources": [
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L437-L486",
+      "note": "OpenAI.modifyChatBody: stop slicing, o-series/gpt-5 rewrite (developer role, max_completion_tokens), parallel_tool_calls=false when tools present (any host)."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/packages/openai-adapters/src/apis/OpenAI.ts#L51-L88",
+      "note": "Adapter modifyChatBody: stream_options {include_usage:true} on every streaming request; max_completion_tokens/developer only for the official api.openai.com/v1/ base."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/packages/openai-adapters/src/apis/OpenAI.ts#L146-L176",
+      "note": "chatCompletionStream via the openai SDK; usage chunk held back and emitted last."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/openaiTypeConverters.ts#L109-L252",
+      "note": "toChatMessage + toChatBody: exact message shapes (assistant content ' ' fallback, text-only arrays flattened to string, image_url detail:auto) and which options reach the body."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/openaiTypeConverters.ts#L290-L399",
+      "note": "fromChatResponse / fromChatCompletionChunk: only choices[0].delta.content, delta.tool_calls and reasoning fields are read."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/index.ts#L1189-L1235",
+      "note": "streamChat uses the SDK adapter for provider openai (useOpenAIAdapterFor includes streamChat); apiBase gets a trailing slash at L275-L277."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/index.ts#L111-L132",
+      "note": "supportsCompletions(): false when useLegacyCompletionsEndpoint === false (or Groq/Mistral/port 1337/NVIDIA hosts)."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L373-L421",
+      "note": "_getHeaders (Authorization + api-key) and _getEndpoint: new URL('chat/completions', apiBase), so apiBase must end in /v1."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L488-L568",
+      "note": "Legacy /completions streaming and the core (non-SDK) chat path used by autocomplete."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L690-L699",
+      "note": "listModels: GET {apiBase}models, reads data.data (or a bare array) and m.id."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/config/yaml/models.ts#L160-L215",
+      "note": "listModels is only invoked to expand `model: AUTODETECT`."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/autocomplete/CompletionProvider.ts#L87-L95",
+      "note": "Autocomplete: temperature 0.01 default and useLegacyCompletionsEndpoint forced true for OpenAI providers."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/autocomplete/generation/CompletionStreamer.ts#L34-L39",
+      "note": "FIM vs streamComplete({raw:true}) decision."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/autocomplete/templating/AutocompleteTemplate.ts#L517-L581",
+      "note": "Template choice by model name; unknown names fall back to the stable-code FIM template."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/toolSupport.ts#L19-L40",
+      "note": "Which model names get native tool calling under provider openai; capabilities override."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/util/chatDescriber.ts#L11-L48",
+      "note": "Title generation prompt, max_tokens 16."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/packages/fetch/src/stream.ts#L111-L150",
+      "note": "streamSse parser used by the non-SDK paths."
+    },
+    {
+      "url": "https://github.com/openai/openai-node/blob/v5.23.2/src/client.ts#L890-L925",
+      "note": "openai-node v5.23.2 default headers (Accept, User-Agent, X-Stainless-*, Authorization)."
+    },
+    {
+      "url": "https://github.com/openai/openai-node/blob/v5.23.2/src/core/streaming.ts#L40-L90",
+      "note": "openai-node v5.23.2 SSE parsing: [DONE] optional, throws on JSON parse failure or top-level `error`."
+    },
+    {
+      "url": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/docs/customize/model-providers/top-level/openai.mdx#L55-L133",
+      "note": "Official docs: apiBase example http://localhost:8000/v1, useLegacyCompletionsEndpoint, useResponsesApi."
+    }
+  ],
+  "setup": {
+    "baseUrl": "config.yaml models[].apiBase: include /v1, e.g. http://localhost:8787/v1 (a trailing slash is appended automatically; chat/completions, completions and models are resolved relative to it, so omitting /v1 produces /chat/completions and 404s).",
+    "model": "models[].model: the agent name, e.g. agent/sample (models[].name is only a display label). Add `capabilities: [tool_use]` for Agent mode tools and `[image_input]` for images, otherwise Continue autodetects from the model name and will not send tools/images to an unknown name.",
+    "apiKey": "models[].apiKey, sent as `Authorization: Bearer <key>` (SDK paths) and additionally as `api-key` / `x-api-key` on the non-SDK paths (models list, legacy completions, FIM).",
+    "notes": "Provider must be `provider: openai`. YAML: models: [{name: OAA Sample, provider: openai, model: agent/sample, apiBase: http://localhost:8787/v1, apiKey: <key>, roles: [chat, edit, apply], capabilities: [tool_use]}]. Agent names that match ^o[0-9]+ or gpt-[5-9] are routed to POST /v1/responses by default (set useResponsesApi: false). Agent names that start with 'gpt' or 'o' are treated as chat-only models for autocomplete. The deprecated config.json uses the same keys (title instead of name). Requests originate from the local Continue core process, so localhost gateways are reachable."
+  },
+  "cases": [
+    {
+      "id": "models-list",
+      "title": "GET /models (only when config.yaml sets model: AUTODETECT)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L690-L699 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L373-L379 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/config/yaml/models.ts#L160-L215",
+        "note": "listModels() is only called to expand `model: AUTODETECT`; it is not called for a normally configured model. Header set is the core class's _getHeaders(), not the SDK."
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/models",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "api-key": "{{KEY}}"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "models.object_list",
+        "models.id_string"
+      ],
+      "notes": "Reads `Array.isArray(data) ? data : data.data ?? []` then `m.id` for each item; created/owned_by/object are ignored. A failure aborts the AUTODETECT expansion (error is logged). The Azure-style `api-key` header carries the same key as Authorization."
+    },
+    {
+      "id": "chat-stream",
+      "title": "Default chat turn (streaming, no tools, nothing tuned)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/openaiTypeConverters.ts#L210-L252 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/packages/openai-adapters/src/apis/OpenAI.ts#L51-L88 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/index.ts#L1189-L1235",
+        "note": "Keys verified from toChatBody + modifyChatBody. max_tokens=4096 is DEFAULT_MAX_TOKENS for models with no llm-info entry (BaseLLM constructor L231-L247). Message texts are illustrative."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "OpenAI/JS 5.23.2",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an AI assistant integrated in the developer's IDE. (illustrative text; Continue's default chat/agent system message is longer)"
+            },
+            {
+              "role": "user",
+              "content": "Hello, who are you?"
+            }
+          ],
+          "max_tokens": 4096,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "Headers come from the `openai` npm SDK (adapters ^5.23.2, core ^5.13.1; header builder read at v5.23.2): Accept, User-Agent 'OpenAI/JS <ver>', X-Stainless-*, Authorization. X-Stainless-* values (package version, OS, arch, runtime version) vary per machine. The SDK path does NOT send x-api-key or api-key. Continue's fetch wrapper (@continuedev/fetch) was not audited for extra header injection, and requestOptions.headers from config.yaml would be merged in. Stream parsing is the openai SDK SSE parser: [DONE] ends the stream but is not required, delta.role is not read, finish_reason is not read, a trailing usage chunk with `choices: []` is tolerated and re-emitted last by the adapter (usage itself is not consumed by fromChatCompletionChunk). Any chunk with a truthy top-level `error` field throws. A `data:` line that is not valid JSON throws (the SDK JSON.parse()s every non-[DONE] data line, so an empty `data:` keep-alive would fail). temperature/top_p/stop are NOT sent unless configured."
+    },
+    {
+      "id": "chat-stream-all-settings",
+      "title": "Streaming chat with every configurable sampling option set (defaultCompletionOptions maxed out)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/openaiTypeConverters.ts#L210-L252 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/packages/config-yaml/src/schemas/models.ts#L47-L63",
+        "note": "Only maxTokens, temperature, topP, frequencyPenalty, presencePenalty and stop reach the Chat Completions body. n, topK, minP, reasoning, reasoningBudgetTokens, promptCaching and keepAlive are accepted by the YAML schema but are not forwarded by toChatBody."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "OpenAI/JS 5.23.2",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an AI assistant integrated in the developer's IDE. (illustrative text; Continue's default chat/agent system message is longer)"
+            },
+            {
+              "role": "user",
+              "content": "Hello, who are you?"
+            }
+          ],
+          "max_tokens": 2048,
+          "temperature": 0.7,
+          "top_p": 0.9,
+          "frequency_penalty": 0.1,
+          "presence_penalty": 0.2,
+          "stop": [
+            "END",
+            "###",
+            "\n\n\n",
+            "</answer>",
+            "Observation:"
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "stop is sliced to getMaxStopWords(): unlimited for a custom host (4 only for api.openai.com/api.groq.com/azure/port 1337, 16 for deepseek), so more than 4 stop sequences can reach the gateway. requestOptions.extraBodyProperties (config.yaml) would additionally be merged into the body (merge point not audited)."
+    },
+    {
+      "id": "chat-basic-nonstream",
+      "title": "Non-streaming chat (defaultCompletionOptions.stream: false)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/openaiTypeConverters.ts#L210-L252 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/packages/openai-adapters/src/apis/OpenAI.ts#L129-L144 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/openaiTypeConverters.ts#L290-L345",
+        "note": "Not the default: toChatBody sets `stream: options.stream ?? true`, so non-streaming only happens when the user sets stream:false (or the model is named exactly `o1`). stream_options is added only when stream is truthy, so it is absent here."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "OpenAI/JS 5.23.2",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an AI assistant integrated in the developer's IDE. (illustrative text; Continue's default chat/agent system message is longer)"
+            },
+            {
+              "role": "user",
+              "content": "Hello, who are you?"
+            }
+          ],
+          "max_tokens": 4096,
+          "stream": false
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string"
+      ],
+      "notes": "Response is read as choices[0].message: content ?? '', tool_calls[0..] (function type only), and reasoning_content/reasoning if present. The SDK does not validate the rest of the body. The Continue CLI (`cn`) title describer uses the same shape with {model, messages, max_tokens:16, stream:false} (ChatDescriber.describeWithBaseLlmApi)."
+    },
+    {
+      "id": "title-generation",
+      "title": "Chat title generation (IDE: streamed, max_tokens 16, single user message)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/util/chatDescriber.ts#L11-L48 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/index.ts#L937-L947",
+        "note": "ChatDescriber sets maxTokens=16 and calls model.chat(), which is streamChat() underneath, so it is a normal streaming chat request with one user message and no system message."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "OpenAI/JS 5.23.2",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Given the following... please reply with a title for the chat that is 3-4 words in length, all words used should be directly related to the content of the chat, avoid using verbs unless they are directly related to the content of the chat, no additional text or explanation, you don't need ending punctuation.\n\nHow do I reverse a list in Python?"
+            }
+          ],
+          "max_tokens": 16,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "The title prompt text is verbatim from ChatDescriber.prompt (core/util/chatDescriber.ts L12-L13); the trailing user text is illustrative. Fires after the first exchange of a chat; a failure only loses the title."
+    },
+    {
+      "id": "tools-agent-turn",
+      "title": "Agent mode first turn (tools sent, parallel_tool_calls forced false)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L469-L483 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/openaiTypeConverters.ts#L226-L250 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/toolSupport.ts#L19-L40 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/toolSupport.ts#L513-L523",
+        "note": "Native tools are only used when the model is known to support them: for provider `openai` the name must match ^gpt-[4-9] / ^o[1-9] / codex / exaone / gpt-oss / a short allow-list, otherwise Continue falls back to system-message tools unless config.yaml sets `capabilities: [tool_use]`. An agent named `agent/...` therefore needs that capability to get a `tools` array at all."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "OpenAI/JS 5.23.2",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an AI assistant integrated in the developer's IDE. (illustrative text; Continue's default chat/agent system message is longer)"
+            },
+            {
+              "role": "user",
+              "content": "Summarize README.md"
+            }
+          ],
+          "max_tokens": 4096,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Use this tool to read the contents of an existing file in the project.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filepath": {
+                      "type": "string",
+                      "description": "The path of the file to read, relative to the workspace root."
+                    }
+                  },
+                  "required": [
+                    "filepath"
+                  ]
+                }
+              }
+            }
+          ],
+          "parallel_tool_calls": false,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "Tool name/description/schema are illustrative; the wrapper keys are verified: type:'function', function.{name,description,parameters}; `strict` is omitted because Continue passes undefined. `parallel_tool_calls:false` is set by OpenAI.modifyChatBody for ANY host whenever tools are present (except model names starting with 'o3'); `tool_choice` is omitted unless Continue sets options.toolChoice. Streamed tool calls are read from delta.tool_calls[].{id,type,function.name,function.arguments}; a chunk that has non-empty delta.content wins over delta.tool_calls in the same chunk (else-if), and finish_reason is never read."
+    },
+    {
+      "id": "tools-forced-tool-choice",
+      "title": "Tools with an explicit tool_choice (only when Continue forces a tool)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/openaiTypeConverters.ts#L226-L250",
+        "note": "toChatBody forwards options.toolChoice untouched; no Continue code path that forces a tool in the normal chat/agent loop was identified, so this shape is a protocol-level possibility, not an observed request."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "OpenAI/JS 5.23.2",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an AI assistant integrated in the developer's IDE. (illustrative text; Continue's default chat/agent system message is longer)"
+            },
+            {
+              "role": "user",
+              "content": "Summarize README.md"
+            }
+          ],
+          "max_tokens": 4096,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Use this tool to read the contents of an existing file in the project.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filepath": {
+                      "type": "string",
+                      "description": "The path of the file to read, relative to the workspace root."
+                    }
+                  },
+                  "required": [
+                    "filepath"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": {
+            "type": "function",
+            "function": {
+              "name": "read_file"
+            }
+          },
+          "parallel_tool_calls": false,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "Use only to check the gateway tolerates the object form of tool_choice."
+    },
+    {
+      "id": "assistant-tool-calls-history",
+      "title": "Follow-up turn after a tool call (assistant tool_calls with content ' ' + tool message)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/openaiTypeConverters.ts#L109-L208",
+        "note": "Empty assistant content is replaced by a single space ' ' (`message.content || ' '`, comment: LM Studio rejects empty content), NOT null and NOT ''. tool_call arguments default to '{}' when empty. tool message content is the raw string."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "OpenAI/JS 5.23.2",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an AI assistant integrated in the developer's IDE. (illustrative text; Continue's default chat/agent system message is longer)"
+            },
+            {
+              "role": "user",
+              "content": "Summarize README.md"
+            },
+            {
+              "role": "assistant",
+              "content": " ",
+              "tool_calls": [
+                {
+                  "id": "call_abc123",
+                  "type": "function",
+                  "function": {
+                    "name": "read_file",
+                    "arguments": "{\"filepath\":\"README.md\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "content": "# Open Agent API\nSelf-hosted gateway that publishes agents as APIs.",
+              "tool_call_id": "call_abc123"
+            }
+          ],
+          "max_tokens": 4096,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Use this tool to read the contents of an existing file in the project.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filepath": {
+                      "type": "string",
+                      "description": "The path of the file to read, relative to the workspace root."
+                    }
+                  },
+                  "required": [
+                    "filepath"
+                  ]
+                }
+              }
+            }
+          ],
+          "parallel_tool_calls": false,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "No `name` field on tool messages. If a preceding 'thinking' message exists it is merged away (role 'thinking' returns null and is filtered); reasoning/reasoning_content/reasoning_details fields are only added for providers flagged supportsReasoning* (not the plain openai provider). Assistant content given as an array is filtered down to text parts only."
+    },
+    {
+      "id": "developer-role-gpt5-or-o-series-name",
+      "title": "Agent named like ^o[0-9]+ or gpt-[5-9] with useResponsesApi:false (developer role + max_completion_tokens)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L221-L223 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L437-L450 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/index.ts#L1212-L1235",
+        "note": "OpenAI.modifyChatBody applies this rewrite regardless of host. Default config (useResponsesApi unset) instead sends POST /v1/responses for such model names (canUseOpenAIResponses), which is a different protocol; the docs tell users to set useResponsesApi:false (docs/customize/model-providers/top-level/openai.mdx L135-L167)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "OpenAI/JS 5.23.2",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "developer",
+              "content": "You are an AI assistant integrated in the developer's IDE."
+            },
+            {
+              "role": "user",
+              "content": "Hello, who are you?"
+            }
+          ],
+          "max_completion_tokens": 4096,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "ONLY applicable if the published agent name matches /^o[0-9]+/ or /gpt-[5-9]/ (e.g. `gpt-5-helper`, `o3-research`); with the default useResponsesApi the same agent is called on /v1/responses with {model, input, temperature:null, top_p:null, reasoning:{effort:'medium',summary:'auto'}, include:['reasoning.encrypted_content'], stream:true, max_output_tokens?}. Recommend avoiding such agent names or documenting useResponsesApi:false for Continue users."
+    },
+    {
+      "id": "image-part",
+      "title": "User message with an inline image (image_url data URL, detail:auto)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/openaiTypeConverters.ts#L168-L208",
+        "note": "Shape verified: {type:'image_url', image_url:{url, detail:'auto'}} next to {type:'text'} parts. Whether images are attached depends on model.supportsImages(), which is false for an unknown model name unless config.yaml has `capabilities: [image_input]` (gate inferred from core/config/yaml/models.ts L100-L125)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "OpenAI/JS 5.23.2",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "What is in this image?"
+                },
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg==",
+                    "detail": "auto"
+                  }
+                }
+              ]
+            }
+          ],
+          "max_tokens": 4096,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
+    },
+    {
+      "id": "autocomplete-legacy-completions",
+      "title": "Tab autocomplete (default for `openai` provider with a non-chat model name): POST /v1/completions",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/autocomplete/CompletionProvider.ts#L87-L95 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/autocomplete/generation/CompletionStreamer.ts#L34-L39 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L488-L568 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/autocomplete/templating/AutocompleteTemplate.ts#L517-L581 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/autocomplete/templating/getStopTokens.ts#L12-L30",
+        "note": "Autocomplete forces useLegacyCompletionsEndpoint=true for `openai` providers, OpenAI.supportsFim() is false so it calls streamComplete(prompt, {raw:true}), and _streamChat routes non-chat model names (not starting with 'gpt' or 'o') to the legacy completions endpoint. For an unknown model name the stableCode FIM template and its 7 stop tokens apply, plus 3 common stops."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "api-key": "{{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "prompt": "<fim_prefix>function add(a, b) {\n  return <fim_suffix>\n}\n<fim_middle>",
+          "max_tokens": 4096,
+          "temperature": 0.01,
+          "stop": [
+            "<fim_prefix>",
+            "<fim_suffix>",
+            "<fim_middle>",
+            "<file_sep>",
+            "<|endoftext|>",
+            "</fim_middle>",
+            "</code>",
+            "/src/",
+            "#- coding: utf-8",
+            "```"
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "OUT OF SCOPE for a chat-completions-only gateway: requires POST /v1/completions with a text_completion SSE stream (chunk.choices[0].text; Continue also checks a top-level finish_reason !== 'eos'). Skip this case if the gateway does not serve /v1/completions; Continue then shows an autocomplete error only. Not sent via the SDK: no stream_options, no X-Stainless-*; stream parsing uses Continue's streamSse (requires HTTP 200; `data: [DONE]` or `: ping` ends it; a malformed data line throws). max_tokens is the model's configured maxTokens (4096 default)."
+    },
+    {
+      "id": "autocomplete-chat-fallback",
+      "title": "Tab autocomplete with useLegacyCompletionsEndpoint:false (documented way to use chat/completions for autocomplete)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/index.ts#L111-L132 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L515-L568 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/core/llm/llms/OpenAI.ts#L373-L379 ; https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/docs/reference.mdx#L455-L493",
+        "note": "With useLegacyCompletionsEndpoint:false supportsCompletions() is false, so streamComplete -> _streamComplete -> core _streamChat sends the FIM-style prompt as ONE user message to chat/completions. This path does NOT use the openai SDK (no X-Stainless-*, no stream_options) and uses Continue's own SSE parser."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "api-key": "{{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<fim_prefix>function add(a, b) {\n  return <fim_suffix>\n}\n<fim_middle>"
+            }
+          ],
+          "max_tokens": 4096,
+          "temperature": 0.01,
+          "stop": [
+            "<fim_prefix>",
+            "<fim_suffix>",
+            "<fim_middle>",
+            "<file_sep>",
+            "<|endoftext|>",
+            "</fim_middle>",
+            "</code>",
+            "/src/",
+            "#- coding: utf-8",
+            "```"
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "Parsed with Continue's streamSse: response status must be exactly 200; `data: [DONE]` ends; a line starting with ': ping' ends the inner loop; any `data:` line that is not valid JSON, or has a top-level truthy `error`, throws. Chunks are mapped with fromChatCompletionChunk (delta.content only). The prompt text is illustrative."
+    }
+  ]
+}

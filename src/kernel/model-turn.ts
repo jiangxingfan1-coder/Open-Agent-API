@@ -1,4 +1,5 @@
 /** 模型轮次：工作区上下文、系统指令、调用模型（第一轮失败时可换线路重试）并落盘回复。 */
+import { runSandboxed } from '../core/contracts.js';
 import type {
   AgentBundle,
   AgentDefinition,
@@ -21,6 +22,7 @@ import { RunTextSink } from './text-sink.js';
 import type { KernelRuntime } from './runtime.js';
 import type { ExecutionSlice } from './types.js';
 import * as clientTools from './client-tools.js';
+import { imageDemand, messageImages } from './images.js';
 
 export async function context(rt: KernelRuntime, run: Run): Promise<WorkContext> {
   const files = [];
@@ -31,7 +33,19 @@ export async function context(rt: KernelRuntime, run: Run): Promise<WorkContext>
   }
   if (files.reduce((sum, f) => sum + f.content.length, 0) > LIMITS.workspaceTransferBytes)
     throw new Fault('workspace_too_large', 'Workspace transfer exceeds limit.', 413);
-  return { runId: run.id, sessionId: run.sessionId, owner: run.owner, digest: run.digest, files };
+  const images = (run.images ?? []).flatMap((i) =>
+    i.kind === 'file'
+      ? [{ fileId: i.fileId, mime: i.mime, workspacePath: `inputs/${i.fileId}/${i.name}` }]
+      : [],
+  );
+  return {
+    runId: run.id,
+    sessionId: run.sessionId,
+    owner: run.owner,
+    digest: run.digest,
+    files,
+    ...(images.length ? { images } : {}),
+  };
 }
 export function instructions(
   bundle: AgentBundle,
@@ -99,8 +113,10 @@ export async function runModelTurn(
       undefined,
       run.digest,
       !!run.checkpoint.byok,
-      run.checkpoint.execution === 'sandbox',
+      runSandboxed(run),
       run.checkpoint.messages.some((m) => !!m.providerState),
+      false,
+      imageDemand(messageImages(run)),
     );
     if (!availability.available)
       throw new Fault(
@@ -205,7 +221,10 @@ export async function runModelTurn(
               undefined,
               run.digest,
               !!run.checkpoint.byok,
-              run.checkpoint.execution === 'sandbox',
+              runSandboxed(run),
+              false,
+              false,
+              imageDemand(messageImages(run)),
             ),
           ),
         {

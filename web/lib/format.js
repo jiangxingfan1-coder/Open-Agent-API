@@ -209,7 +209,10 @@ const FEATURE_LABELS = {
   'error-codes-v1': t('feature.error-codes-v1'),
   'harness-bridge-acp-v1': t('feature.harness-bridge-acp-v1'),
   'harness-bridge-v1': t('feature.harness-bridge-v1'),
+  'image-input-v1': t('feature.image-input-v1'),
   'local-backends-v1': t('feature.local-backends-v1'),
+  'stream-progress-v1': t('feature.stream-progress-v1'),
+  'structured-output-v1': t('feature.structured-output-v1'),
   'oaa-lang-roundtrip-v1': t('feature.oaa-lang-roundtrip-v1'),
   'overview-activity-v1': t('feature.overview-activity-v1'),
   'overview-etag-v1': t('feature.overview-etag-v1'),
@@ -218,6 +221,7 @@ const FEATURE_LABELS = {
   'platform-v1': t('feature.platform-v1'),
   'queue-insight-v1': t('feature.queue-insight-v1'),
   'run-timeline-v1': t('feature.run-timeline-v1'),
+  'webhooks-v1': t('feature.webhooks-v1'),
   'workflow-output-v1': t('feature.workflow-output-v1'),
 };
 // A capability this console does not know yet (a newer gateway) reads as plain words and a

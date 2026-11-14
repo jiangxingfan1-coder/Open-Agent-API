@@ -7,6 +7,7 @@ import {
   executionCapabilitiesSchema,
   type AgentDefinition,
   type FilePayload,
+  type ImageMode,
   type AgentBundle,
   type NodeAdvertisement,
   type NodeCredential,
@@ -26,6 +27,8 @@ import {
   type PlacementReason,
 } from './placement.js';
 export { permits } from './placement.js';
+import { NO_NEGOTIATION, advertisedExecution } from './advertised-execution.js';
+export { advertisedExecution } from './advertised-execution.js';
 import {
   Fault,
   boundedJson,
@@ -37,6 +40,8 @@ import {
   secret,
   sha,
   sleep,
+  deadlineTimer,
+  coarseDelay,
 } from '../core/util.js';
 import { LIMITS } from '../core/limits.js';
 import { isUncertainWhenStarted } from '../core/errors.js';
@@ -547,6 +552,7 @@ export class NodeHub {
               'sandbox-v1',
               'provider-turn-v1',
               'client-tools-v1',
+              'image-input-v1',
             ],
           });
           ws.once('close', () => {
@@ -655,12 +661,14 @@ export class NodeHub {
     sandbox = false,
     providerState = false,
     clientTools = false,
+    images?: ImageMode,
   ): AvailabilityReport {
     const nodes = [...this.nodes.values()].filter(
       (n) => n.credential.owner === owner && permits(n.credential.agents, agent.id),
     );
     const advertisements = new Map(nodes.map((n) => [n, n.executor.advertisement()]));
     const request = { owner, agent, files, preferred, byok, sandbox, providerState, clientTools };
+    const placed = { ...request, images };
     const tools = agent.tools.map((binding) => {
       const inspected = nodes.map((n) => ({
         n,
@@ -688,7 +696,7 @@ export class NodeHub {
       const advert = advertisements.get(n)!;
       const constraints = [
         ...this.admissionReasons(n.credential.nodeId),
-        ...modelPlacement(request, { credential: n.credential, advertisement: advert }, toolNames),
+        ...modelPlacement(placed, { credential: n.credential, advertisement: advert }, toolNames),
       ];
       const health = n.targets.get(target);
       const wait = Math.max(0, (health?.cooldownUntil ?? 0) - Date.now());
@@ -881,7 +889,8 @@ export class NodeHub {
       });
     }
     if (this.queue.length && Number.isFinite(this.wakeAt)) {
-      this.wakeTimer = setTimeout(() => this.pump(), Math.max(1, this.wakeAt - Date.now() + 1));
+      // coarseDelay: see util.ts (an unref'd timer re-armed with exact durations leaks).
+      this.wakeTimer = setTimeout(() => this.pump(), coarseDelay(this.wakeAt - Date.now() + 1));
       this.wakeTimer.unref();
     }
   }
@@ -955,16 +964,17 @@ export class NodeHub {
       job.onStart?.(node.credential.nodeId);
       started = true;
       executionStart = Date.now();
-      const deadline =
+      // A clearable timer: AbortSignal.timeout would keep every finished job alive until its
+      // (default 30-minute) deadline fired.
+      const timer = deadlineTimer(
         job.work.kind === 'tool'
           ? job.work.binding.capability.timeoutMs
-          : job.work.agent.limits.timeoutMs;
-      executionDeadline = AbortSignal.timeout(deadline);
-      const result = await node.executor.execute(
-        job.work,
-        AbortSignal.any([job.signal, executionDeadline]),
-        job.emit,
+          : job.work.agent.limits.timeoutMs,
       );
+      executionDeadline = timer.signal;
+      const result = await node.executor
+        .execute(job.work, AbortSignal.any([job.signal, executionDeadline]), job.emit)
+        .finally(timer.clear);
       node.successes++;
       const executionMs = Date.now() - executionStart;
       health.successes++;
@@ -1052,25 +1062,6 @@ const noAnswer = (event: WorkEvent) =>
     : event.type === 'client_tool'
       ? { error: 'The caller tool call was interrupted.' }
       : undefined;
-/**
- * Execution metadata a worker may send. `byokProviders` and `sandbox` are newer fields that an
- * older gateway's strict schema would reject, so each is included only after the gateway offered
- * `byok-v1` / `sandbox-v1`.
- */
-export function advertisedExecution(
-  execution: NodeAdvertisement['execution'],
-  negotiated: { byok: boolean; sandbox: boolean; providerState?: boolean; clientTools?: boolean },
-): NodeAdvertisement['execution'] {
-  if (!execution) return execution;
-  const { byokProviders, sandbox, providerStateProviders, clientTools, ...legacy } = execution;
-  return {
-    ...legacy,
-    ...(negotiated.clientTools && clientTools ? { clientTools } : {}),
-    ...(negotiated.byok && byokProviders ? { byokProviders } : {}),
-    ...(negotiated.sandbox && sandbox ? { sandbox } : {}),
-    ...(negotiated.providerState && providerStateProviders ? { providerStateProviders } : {}),
-  };
-}
 async function workerConnection(
   url: string,
   token: string,
@@ -1099,7 +1090,7 @@ async function workerConnection(
       let metadataUpdates = false;
       let welcomed = false;
       let lastAdvertisement = '';
-      const negotiated = { byok: false, sandbox: false, providerState: false, clientTools: false };
+      const negotiated = { ...NO_NEGOTIATION };
       const advertise = (type: 'hello' | 'advertisement') => {
         const { execution: full, ...advertisement } = runtime.advertisement();
         if (!negotiated.providerState && full?.providerStateProviders?.length)
@@ -1143,6 +1134,7 @@ async function workerConnection(
             negotiated.sandbox = metadataUpdates && features.includes('sandbox-v1');
             negotiated.providerState = metadataUpdates && features.includes('provider-turn-v1');
             negotiated.clientTools = metadataUpdates && features.includes('client-tools-v1');
+            negotiated.imageInput = metadataUpdates && features.includes('image-input-v1');
             // The hello omitted newer metadata (an older gateway would reject it); report it now.
             if (Object.values(negotiated).some(Boolean)) advertise('advertisement');
             heartbeat = setInterval(

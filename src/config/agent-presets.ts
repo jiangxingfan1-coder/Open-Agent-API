@@ -18,6 +18,7 @@
 import { access, realpath, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
+import { npmShimTarget, resolveWindowsCommand } from '../core/which.js';
 
 /**
  * documented: the vendor publishes the ACP entry point; preview: the vendor labels it
@@ -524,11 +525,16 @@ export async function findOnPath(
   const dirs = pathEnv.split(path.delimiter).filter((dir) => path.isAbsolute(dir));
   for (const name of names) {
     for (const dir of dirs) {
-      const candidate = path.join(dir, name);
-      if (!(await executableFile(candidate))) continue;
+      // Windows: PATHEXT (`gemini` -> `gemini.cmd`); the guard then checks the npm shim's target.
+      const candidate =
+        process.platform === 'win32'
+          ? resolveWindowsCommand(path.join(dir, name))
+          : path.join(dir, name);
+      if (!candidate || !(await executableFile(candidate))) continue;
       if (realpathIncludes) {
         try {
-          if (!(await realpath(candidate)).toLowerCase().includes(realpathIncludes)) continue;
+          const real = npmShimTarget(candidate) ?? (await realpath(candidate));
+          if (!real.toLowerCase().includes(realpathIncludes)) continue;
         } catch {
           continue;
         }

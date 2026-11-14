@@ -1,15 +1,20 @@
-// 发布产物的烟雾测试（只在 CI 机器上运行，见 .github/workflows/release.yml）：
-//   <包内 node> scripts/smoke-release.mjs --launcher <包内 oaa 或 oaa.cmd> --expect-version <版本>
-// 依次：launcher --help；在临时目录（路径含空格与中文）init；把端口改成随机的本机回环端口；
-// 后台 serve；请求 /healthz 核对 protocol 与版本；doctor 应把 Claude 引擎标为需要另行安装；最后结束网关。
+// 发布产物的烟雾测试（只在 CI 机器上运行，见 .github/workflows/release.yml；macOS、Windows、Linux 与 npm 包都用它）：
+//   <包内 node> scripts/smoke-release.mjs --launcher <包内 oaa 或 oaa.cmd> --expect-version <版本> [--app-dir <包内应用目录>]
+// 第一段（启动检查）：launcher --help；在临时目录（路径含空格与中文）init；把端口改成随机的本机回环端口；
+// 后台 serve；请求 /healthz 核对 protocol 与版本；doctor 应把 Claude 引擎标为需要另行安装；结束网关。
+// 第二段（给了 --app-dir 时）：用包内 Node 逐个 import dist/src 下的模块，确认裁剪依赖后没有缺文件。
+// 第三段（首次调用，见 smoke-flow.mjs）：quickstart → 三种协议各调一次 → 带审批的后台任务（API 批准）→ oaa status 与
+// oaa approvals / approve 的命令行审批 → 再跑 quickstart
+// 核对幂等 → stop 并确认端口释放、没有残留进程。
 //
 // 防卡死：每条同步命令 60 秒超时；等待网关就绪最多 60 秒；结束网关先礼后兵（Windows 用 taskkill /T /F 杀整棵进程树，
-// 其他平台先 SIGTERM、10 秒后 SIGKILL）；整个脚本另有 4 分钟看门狗。清理临时目录失败只警告，不让已通过的测试变红。
+// 其他平台先 SIGTERM、10 秒后 SIGKILL）；整个脚本另有 6 分钟看门狗。清理临时目录失败只警告，不让已通过的测试变红。
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { firstCallFlow, importEveryModule, liveDirs } from './smoke-flow.mjs';
 
 const args = process.argv.slice(2);
 const arg = (name) => {
@@ -19,6 +24,8 @@ const arg = (name) => {
 };
 const launcher = path.resolve(arg('--launcher'));
 const expectVersion = arg('--expect-version').replace(/^v/, '');
+const appDirIndex = args.indexOf('--app-dir');
+const appDir = appDirIndex >= 0 ? path.resolve(args[appDirIndex + 1] ?? '') : undefined;
 const isCmd = process.platform === 'win32' && /\.cmd$/i.test(launcher);
 
 // Windows 上 .cmd 必须经 cmd.exe 运行；整条命令行再包一层引号（cmd /s /c 的规则），路径含空格与中文也安全。
@@ -86,10 +93,14 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oaa smoke 数据-'));
 let child;
 let logFd;
 const watchdog = setTimeout(async () => {
-  console.error('[smoke] 超过 4 分钟仍未结束，强制退出');
+  console.error('[smoke] 超过 6 分钟仍未结束，强制退出');
   if (child) await stopGateway(child);
+  for (const dir of liveDirs)
+    try {
+      run(['stop', '--dir', dir]);
+    } catch {}
   process.exit(1);
-}, 240_000);
+}, 360_000);
 watchdog.unref();
 
 try {
@@ -152,3 +163,10 @@ try {
     console.warn(`[smoke] 警告：没能删除临时目录 ${dataDir}（${err.message}）`);
   }
 }
+
+if (appDir) {
+  const count = importEveryModule(appDir, os.tmpdir());
+  step(`用包内 Node 逐个 import dist/src 下的 ${count} 个模块，全部通过`);
+}
+await firstCallFlow({ run, step, sleep, freePort, expectVersion });
+step('全部通过');

@@ -40,6 +40,7 @@ export class Kernel {
   private closing = false;
   private shutdown = new AbortController();
   private ajv = new JsonSchemas();
+  private outputSchemas = new JsonSchemas({ formats: true });
   private cache = new ToolCache();
   private auth?: KernelAuth;
   /** 拆出去的模块用到的内核能力（构造函数里填上）。 */
@@ -69,6 +70,7 @@ export class Kernel {
       byokExpiry: this.byokExpiry,
       shutdown: this.shutdown,
       ajv: this.ajv,
+      outputSchemas: this.outputSchemas,
       cache: this.cache,
       delegation: this.delegation,
       closing: () => this.closing,

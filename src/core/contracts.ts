@@ -216,9 +216,13 @@ export const providerStateSchema = z
   })
   .strict();
 export type ProviderTurnState = z.infer<typeof providerStateSchema>;
+import type { ModelImage, RunImage } from './images.js';
+import type { ExecutionCapabilities } from './execution-capabilities.js';
+export type { ImageMode, ModelImage, RunImage } from './images.js';
 export type ModelMessage = {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  images?: ModelImage[];
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   providerItems?: unknown[];
@@ -289,6 +293,8 @@ export type Checkpoint = {
   keyId?: string;
   /** Highest execution level the submitting key allowed; delegated sub-runs inherit it. */
   execution?: ExecutionLevel;
+  /** Agents the submitting key may run at `host` despite `execution` (see Principal.hostAgents). */
+  hostAgents?: string[];
   /**
    * The run's model calls must use a caller-supplied provider key (never the publisher's). Only
    * this flag is stored; the key itself stays in gateway memory.
@@ -300,6 +306,17 @@ export type Checkpoint = {
    * messages already handed to the caller, so a continuation only returns what is new.
    */
   bridge?: { tools: ClientTool[]; delivered: number };
+  /** Structured output (docs/structured-output.md): `repairs` correction rounds allowed, `used` spent so far. */
+  outputContract?: OutputContract & { repairs: number; used?: number };
+};
+/** What `response_format` / `text.format` / `responseSchema` / `output_config.format` asks for. */
+export type OutputContract = {
+  kind: 'json_object' | 'json_any' | 'json_schema';
+  schema?: Record<string, unknown>;
+  name?: string;
+  strict?: boolean;
+  /** The caller's own format object, echoed in the Responses `text.format` field. */
+  format?: Record<string, unknown>;
 };
 /** A tool declared by the caller in a bridged compatibility request. */
 export type ClientTool = {
@@ -326,6 +343,8 @@ export type Run = {
   updatedAt: number;
   input: string;
   fileIds: string[];
+  /** Image inputs (docs/images.md); stored images are also listed in `fileIds`. */
+  images?: RunImage[];
   output: OutputMessage[];
   usage: Usage | null;
   checkpoint: Checkpoint;
@@ -388,6 +407,11 @@ export type Principal = {
   dataScope?: 'own' | 'owner';
   /** Highest execution level this key may start. Absent means `host` (pre-P1 behaviour). */
   execution?: ExecutionLevel;
+  /**
+   * Agents this key may run at `host` although `execution` is lower: developer-platform listings
+   * whose owner explicitly opted in (docs/platform.md). Per agent: never inherited by delegates.
+   */
+  hostAgents?: string[];
 };
 /**
  * `workspace`: the kernel's model loop with built-in tools only, confined to the run's session
@@ -415,6 +439,16 @@ export function sandboxable(agent: AgentDefinition): boolean {
 /** What a principal may start. Admin keys are the owner's own management keys. */
 export function allowedExecution(p: Principal): ExecutionLevel {
   return p.scopes.includes('admin') ? 'host' : (p.execution ?? 'host');
+}
+/** The level a principal gets for one agent: `host` for agents it was explicitly opted into. */
+export function executionFor(p: Principal, agentId: string): ExecutionLevel {
+  return p.hostAgents?.includes(agentId) ? 'host' : allowedExecution(p);
+}
+/** Whether a run's own work goes into a worker sandbox (sandbox key, agent not opted into host). */
+export function runSandboxed(run: { agentId: string; checkpoint: Checkpoint }): boolean {
+  return (
+    run.checkpoint.execution === 'sandbox' && !run.checkpoint.hostAgents?.includes(run.agentId)
+  );
 }
 export function executionPermits(allowed: ExecutionLevel, required: ExecutionLevel): boolean {
   return executionLevels.indexOf(required) <= executionLevels.indexOf(allowed);
@@ -446,48 +480,18 @@ export type NodeAdvertisement = {
   concurrency: number;
   execution?: ExecutionCapabilities;
 };
-export const executionCapabilitiesSchema = z
-  .object({
-    builtins: z.array(z.string()).max(100),
-    scripts: z.array(z.enum(['node', 'python3'])).max(2),
-    toolSelection: z.boolean(),
-    nativeModels: z.record(
-      z.string(),
-      z.discriminatedUnion('mode', [
-        z.object({ mode: z.literal('declared') }).strict(),
-        z.object({ mode: z.literal('allowlist'), models: z.array(z.string()).max(100) }).strict(),
-      ]),
-    ),
-    /** Providers that accept a caller-supplied key; sent only after `byok-v1` negotiation. */
-    byokProviders: z.array(z.string()).max(100).optional(),
-    /** Providers preserving native turn state; sent only after provider-turn-v1 negotiation. */
-    providerStateProviders: z.array(z.string()).max(100).optional(),
-    /**
-     * Engines that can bridge caller tools (docs/harness.md): `kernel` and ACP `adapter/<name>`.
-     * Sent only after `client-tools-v1` negotiation.
-     */
-    clientTools: z
-      .object({ native: z.array(z.string().max(200)).max(100) })
-      .strict()
-      .optional(),
-    /** Verified OS sandbox; sent only after `sandbox-v1` negotiation. */
-    sandbox: z
-      .object({
-        backend: z.enum(['srt']),
-        version: z.string().max(64),
-        kinds: z.array(z.string().max(64)).max(32),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict();
-export type ExecutionCapabilities = z.infer<typeof executionCapabilitiesSchema>;
+export {
+  executionCapabilitiesSchema,
+  type ExecutionCapabilities,
+} from './execution-capabilities.js';
 export type WorkContext = {
   runId: string;
   sessionId: string;
   owner: string;
   digest: string;
   files: FilePayload[];
+  /** This turn's stored image inputs (bytes are in `files`); external engines read them here. */
+  images?: { fileId: string; mime: string; workspacePath: string }[];
 };
 export type Work =
   | {

@@ -15,6 +15,8 @@ import {
   type PlatformRouteDeps,
 } from './platform-wire.js';
 
+/** Unauthenticated credential forms are tiny; refuse large bodies before parsing them. */
+const CREDENTIALS_ROUTE = { bodyLimit: 64 * 1024 };
 const credentials = z.object({ email: z.string().max(320), password: z.string().max(1000) });
 const signupBody = credentials
   .extend({
@@ -89,7 +91,7 @@ export function registerPortalRoutes(
   app.get('/v1/portal/agent', async (req) =>
     wireListedAgent(platform.listedAgent(agentQuery.parse(req.query).id)),
   );
-  app.post('/v1/portal/signup', async (req, reply) => {
+  app.post('/v1/portal/signup', CREDENTIALS_ROUTE, async (req, reply) => {
     const b = signupBody.parse(req.body);
     const { account, session } = await platform.signup(
       {
@@ -102,12 +104,12 @@ export function registerPortalRoutes(
     );
     return reply.code(201).send({ account: wireAccount(account), session: wireSession(session) });
   });
-  app.post('/v1/portal/login', async (req) => {
+  app.post('/v1/portal/login', CREDENTIALS_ROUTE, async (req) => {
     const b = loginBody.parse(req.body);
     const { account, session } = await platform.login(b, clientIp(req) ?? 'unknown');
     return { account: wireAccount(account), session: wireSession(session) };
   });
-  app.post('/v1/portal/password-reset', async (req, reply) => {
+  app.post('/v1/portal/password-reset', CREDENTIALS_ROUTE, async (req, reply) => {
     const b = resetBody.parse(req.body);
     await platform.resetWithCode(
       { email: b.email, code: b.code, newPassword: b.new_password },

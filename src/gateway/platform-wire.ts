@@ -1,5 +1,5 @@
 /**
- * 开发者平台的线上形状：门面返回 camelCase，这里逐项映射成 docs/platform.md「接口一览」里的蛇形字段。
+ * 开发者平台的线上形状：门面返回 camelCase，这里逐项映射成 docs/platform.md「Endpoint overview」里的蛇形字段。
  * 刻意不用通用的驼峰转蛇形：`quota`、`conversion` 这类对象要原样带出。
  */
 import type { FastifyRequest } from 'fastify';
@@ -71,6 +71,14 @@ export const wireListing = (l: ListingView) => ({
   tags: l.tags,
   price: wirePrice(l.price),
   enabled: l.enabled,
+  host_execution: l.hostExecution,
+  // Whether account keys can call it now, and if not which agents (it or a delegate) need the
+  // host switch; see docs/platform.md#offering-external-agents.
+  callable: l.blockedBy.length === 0,
+  requires_host: l.requiresHost,
+  blocked_by: l.blockedBy,
+  usage_reported: l.usageReported,
+  auto_approvals: l.autoApprovals,
   updated_at: l.updatedAt,
   agent_exists: l.agentExists,
 });

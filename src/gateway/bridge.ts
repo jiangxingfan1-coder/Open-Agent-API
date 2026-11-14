@@ -278,10 +278,13 @@ export function responsesToolCallFrames(
   store: Store,
   runId: string,
   nextSeq: () => number,
+  /** A progress reasoning item already streamed at output_index 0 (docs/progress.md). */
+  lead?: Record<string, unknown>,
 ): string[] | undefined {
   const run = store.run(runId);
   if (!parkedOnCaller(store, run)) return undefined;
   const body = bridgedResponseObject(store, run);
+  if (lead) body.output = [lead, ...(body.output as unknown[])];
   const frames: string[] = [];
   const event = (type: string, data: Record<string, unknown>) => {
     const seq = nextSeq();
@@ -319,23 +322,28 @@ export function responsesToolCallFrames(
 export function claudeToolCallFrames(
   store: Store,
   runId: string,
-  roleSent: boolean,
+  /** Blocks so far: message_start sent, the open text block, the next free index (progress). */
+  open: { started: boolean; textIndex?: number; next: number },
   model: string,
 ): string[] | undefined {
   const run = store.run(runId);
   if (!parkedOnCaller(store, run)) return undefined;
   const frame = (type: string, data: Record<string, unknown>) =>
     `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
-  const frames = roleSent
-    ? [frame('content_block_stop', { index: 0 })]
-    : [
-        frame('message_start', {
-          message: claudeMessage(runId, model, [], null, undefined),
-        }),
-        frame('ping', {}),
-      ];
+  const frames =
+    open.textIndex !== undefined
+      ? [frame('content_block_stop', { index: open.textIndex })]
+      : open.started
+        ? []
+        : [
+            frame('message_start', {
+              message: claudeMessage(runId, model, [], null, undefined),
+            }),
+            frame('ping', {}),
+          ];
+  const first = open.textIndex !== undefined ? open.textIndex + 1 : open.next;
   pendingCalls(store, runId).forEach((call, i) => {
-    const index = (roleSent ? 1 : 0) + i;
+    const index = first + i;
     frames.push(
       frame('content_block_start', {
         index,

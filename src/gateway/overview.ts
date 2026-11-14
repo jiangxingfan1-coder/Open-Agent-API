@@ -14,7 +14,7 @@ import type { Auth } from './auth.js';
 import type { Principal } from '../core/contracts.js';
 import { visibleSubject } from '../core/contracts.js';
 import { openEventStream } from './streams.js';
-import { Fault, canonical, sha } from '../core/util.js';
+import { Fault, canonical, coarseDelay, sha } from '../core/util.js';
 
 export type OverviewReason = 'runs' | 'catalog' | 'nodes';
 const reasonOrder: OverviewReason[] = ['runs', 'catalog', 'nodes'];
@@ -90,7 +90,8 @@ export class OverviewRevisions {
         this.timers.delete(key);
         this.bump(owner, reason);
       },
-      Math.max(1, at - Date.now() + 5),
+      // Rounded: an unref'd timer re-armed with exact durations leaks a Node timer list each time.
+      coarseDelay(at - Date.now() + 5),
     );
     timer.unref();
     this.timers.set(key, { at, timer });

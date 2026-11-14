@@ -6,6 +6,7 @@ import type { AccountStatus } from './platform-accounts.js';
 import type { LedgerRecord, UsageBucket } from './platform-billing.js';
 import type { CodeKind, CodeRecord } from './platform-codes.js';
 import type { PlatformConfig } from './platform-db.js';
+import type { ListingAccess } from './platform-access.js';
 import type { Timeline } from './timeline.js';
 
 export type Price = { perRun: number; per1kTokens: number };
@@ -45,9 +46,11 @@ export type ListingView = {
   tags: string[];
   price: Price;
   enabled: boolean;
+  /** The owner's per-listing switch: account keys may run this agent with host authority. */
+  hostExecution: boolean;
   updatedAt: number;
   agentExists: boolean;
-};
+} & ListingAccess;
 export type LedgerEntryView = Omit<LedgerRecord, 'amount' | 'balanceAfter'> & {
   amount: number;
   balanceAfter: number;
@@ -86,6 +89,7 @@ export type ListingInput = {
   tags?: string[];
   price?: Partial<Price>;
   enabled?: boolean;
+  hostExecution?: boolean;
 };
 export type CodeInput = {
   kind: CodeKind;

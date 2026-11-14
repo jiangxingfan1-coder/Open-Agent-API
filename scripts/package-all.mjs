@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// 打包 macOS（.app → .dmg，本机开发另出 .pkg）与 Windows（目录 → .zip）。
+// 打包 macOS（.app → .dmg，本机开发另出 .pkg）、Windows（目录 → .zip）与 Linux（目录 → .tar.gz，只在发布模式用）。
 //
 //   本机开发：node scripts/package-all.mjs mac|win|all
 //     会先 npm run build，并把 .app 安装到 ~/Applications 与 /Applications、把 CLI 链接到 ~/.local/bin/oaa。
-//   发布构建：node scripts/package-all.mjs mac|win --release --arch <arch> --node-dir <官方 Node 目录>
+//   发布构建：node scripts/package-all.mjs mac|win|linux --release --arch <arch> --node-dir <官方 Node 目录>
 //     不安装、不链接、不写用户主目录、不 build（要求 dist/ 已由 npm run build 生成）；只写 release/ 之内，
 //     越界的写操作由 package-actions.mjs 直接拒绝。加 --dry-run 只打印每一步要写的路径与要执行的命令。
 import fs from 'node:fs';
@@ -23,11 +23,14 @@ import {
   satisfiesEngines,
   sha256sumsText,
   shouldInstallLocally,
+  stampInstallScript,
   swiftTarget,
+  tarCommand,
   topLevelPackages,
   zipCommand,
 } from './release-plan.mjs';
 import * as win from './package-windows.mjs';
+import * as linux from './package-linux.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
@@ -55,9 +58,9 @@ function log(step, msg) {
 /** 校验要打进包的 Node 版本满足 engines.node；能执行就执行 `node --version`，否则用 --node-version。 */
 function checkNodeRuntime(platform) {
   const exe =
-    platform === 'mac'
-      ? path.join(opts.nodeDir, 'bin', 'node')
-      : path.join(opts.nodeDir, 'node.exe');
+    platform === 'win'
+      ? path.join(opts.nodeDir, 'node.exe')
+      : path.join(opts.nodeDir, 'bin', 'node');
   for (const f of nodeRuntimeFiles(platform, opts.nodeDir, '')) {
     if (!fs.existsSync(f.from)) throw new Error(`--node-dir 里缺少 ${f.from}`);
   }
@@ -86,7 +89,7 @@ function checkNodeRuntime(platform) {
 function copyNodeRuntime(platform, runtimeDir) {
   for (const { from, to } of nodeRuntimeFiles(platform, opts.nodeDir, runtimeDir)) {
     act.copy(from, to);
-    if (platform === 'mac' && to.endsWith(`${path.sep}node`)) act.chmod(to, 0o755);
+    if (platform !== 'win' && to.endsWith(`${path.sep}node`)) act.chmod(to, 0o755);
   }
 }
 
@@ -99,7 +102,7 @@ function copyRuntimePayload(destAppDir, platform, arch) {
     const lock = JSON.parse(fs.readFileSync(path.join(rootDir, 'package-lock.json'), 'utf8'));
     const plan = payloadPackages(lock, platform, arch);
     const keep = payloadFilter(plan, platform, arch);
-    const releaseFilter = releaseCopyFilter(keep);
+    const releaseFilter = releaseCopyFilter(keep, platform);
     filter = (src) => releaseFilter(toRel(src));
     reportPayload(plan, filter);
   } else {
@@ -202,7 +205,13 @@ function buildMacOSBundle(arch) {
   act.exec('/usr/bin/iconutil', ['-c', 'icns', iconsetDir, '-o', icnsPath], { writes: [icnsPath] });
 
   // 2. 编译 Swift 桌面壳（WKWebView + 菜单栏 + 网关守护）
-  const swiftSrc = path.join(rootDir, 'desktop', 'macos', 'main.swift');
+  // 所有 .swift 一起编译（main.swift 放顶层代码，其余是字符串表与可单测的纯逻辑）；tests/ 下的自检不进包。
+  const swiftDir = path.join(rootDir, 'desktop', 'macos');
+  const swiftSources = fs
+    .readdirSync(swiftDir)
+    .filter((f) => f.endsWith('.swift'))
+    .sort()
+    .map((f) => path.join(swiftDir, f));
   const binOut = path.join(macosBinDir, 'OpenAgentAPI');
   act.exec(
     '/usr/bin/swiftc',
@@ -214,7 +223,7 @@ function buildMacOSBundle(arch) {
       'Cocoa',
       '-framework',
       'WebKit',
-      swiftSrc,
+      ...swiftSources,
       '-o',
       binOut,
     ],
@@ -340,6 +349,11 @@ function infoPlist() {
   <string>${version}</string>
   <key>CFBundleVersion</key>
   <string>${version}</string>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>en</string>
+    <string>zh-Hans</string>
+  </array>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>NSHighResolutionCapable</key>
@@ -480,6 +494,35 @@ function buildWindowsBundle(arch) {
   log('Windows', '完成');
 }
 
+/** Linux：目录（app/ + 自带的 Node 运行时 + oaa 启动脚本 + install.sh + 说明）→ .tar.gz。没有桌面外壳。 */
+function buildLinuxBundle(arch) {
+  const { outDir: linuxReleaseDir } = releasePaths(rootDir, 'linux', arch);
+  log('Linux', `构建 Linux 包（${arch}${opts.release ? '，发布模式' : ''}）`);
+  const bundleName = linux.linuxBundleName(arch);
+  const bundleDir = path.join(linuxReleaseDir, bundleName);
+  const req = linux.nodeRequirement(enginesNode);
+
+  act.rm(bundleDir);
+  act.mkdir(path.join(bundleDir, 'app'));
+  copyRuntimePayload(path.join(bundleDir, 'app'), 'linux', arch);
+  if (opts.release) copyNodeRuntime('linux', path.join(bundleDir, 'runtime'));
+  act.write(path.join(bundleDir, 'oaa'), linux.launcher(req), 0o755);
+  act.write(path.join(bundleDir, 'README-LINUX.txt'), linux.readme(version, arch, req));
+  const installSh = stampInstallScript(
+    fs.readFileSync(path.join(rootDir, 'scripts', 'install.sh'), 'utf8'),
+    version,
+  );
+  act.write(path.join(bundleDir, 'install.sh'), installSh, 0o755);
+
+  const tarPath = path.join(linuxReleaseDir, artifactName(version, 'linux', arch, 'tar.gz'));
+  act.rm(tarPath);
+  log('Linux', `生成 tar.gz：${tarPath}`);
+  const tar = tarCommand({ hostPlatform: process.platform, tarPath, bundleName });
+  act.exec(tar.cmd, tar.args, { cwd: linuxReleaseDir, writes: [tarPath] });
+  writeSha256Sums(linuxReleaseDir, [tarPath]);
+  log('Linux', '完成');
+}
+
 function main() {
   if (opts.dryRun)
     log('Plan', '--dry-run：以下每一步只打印，不写任何文件、不执行任何外部命令（query 除外）');
@@ -501,6 +544,7 @@ function main() {
   if (opts.target === 'mac' || opts.target === 'all')
     buildMacOSBundle(opts.arch ?? (process.arch === 'x64' ? 'x64' : 'arm64'));
   if (opts.target === 'win' || opts.target === 'all') buildWindowsBundle(opts.arch ?? 'x64');
+  if (opts.target === 'linux') buildLinuxBundle(opts.arch);
 }
 
 try {

@@ -78,11 +78,15 @@ test('发布目录都在仓库的 release/ 之下', () => {
 
 test('engines 版本判断', () => {
   const range = pkg.engines.node;
+  // The real range: the 24 line from 24.18 and the 26 line are supported; older and newer ones are not.
+  assert.equal(range, '>=24.18.0 <27');
+  for (const ok of ['v24.18.0', '24.20.1', 'v26.0.0', 'v26.13.1'])
+    assert.equal(plan.satisfiesEngines(ok, range), true, ok);
+  for (const bad of ['v24.17.9', 'v22.1.0', 'v27.0.0', 'v28.1.0'])
+    assert.equal(plan.satisfiesEngines(bad, range), false, bad);
+  // The comparison logic itself, on a range that is not the current one.
   assert.equal(plan.satisfiesEngines('v24.18.0', '>=24.18.0 <25'), true);
-  assert.equal(plan.satisfiesEngines('24.20.1', '>=24.18.0 <25'), true);
-  assert.equal(plan.satisfiesEngines('v24.17.9', '>=24.18.0 <25'), false);
   assert.equal(plan.satisfiesEngines('v25.0.0', '>=24.18.0 <25'), false);
-  assert.equal(plan.satisfiesEngines('v22.1.0', range), false);
   assert.equal(plan.satisfiesEngines('garbage', range), false);
 });
 
@@ -110,8 +114,8 @@ test('进包依赖：排除专有、开发与其他平台的包', () => {
   assert.ok(!inc.has('@anthropic-ai/claude-agent-sdk'));
   assert.equal(reasons.get('@anthropic-ai/claude-agent-sdk'), 'proprietary');
   assert.equal(reasons.get('@anthropic-ai/claude-agent-sdk-darwin-arm64'), 'proprietary');
-  // @anthropic-ai/sdk 在锁文件里只是专有 SDK 的 peer 依赖（另作开发依赖），排除后不可达。
-  assert.equal(reasons.get('@anthropic-ai/sdk'), 'unused');
+  // 专有 SDK 本身是开发依赖，它的 peer 依赖 @anthropic-ai/sdk 在锁文件里也跟着标为 dev。
+  assert.equal(reasons.get('@anthropic-ai/sdk'), 'dev');
   for (const dev of ['typescript', 'prettier', 'openai'])
     assert.equal(reasons.get(dev), 'dev', dev);
   for (const runtime of ['fastify', 'ws', 'yaml', 'zod', '@anthropic-ai/sandbox-runtime'])
@@ -209,7 +213,7 @@ test('发布模式的副作用层拒绝写 release/ 之外的路径（dry-run �
 
 test('Windows 启动器：版本提示与 engines 一致，cmd/vbs 只用 ASCII', () => {
   const req = win.nodeRequirement(pkg.engines.node);
-  assert.deepEqual([req.major, req.minor, req.below], [24, 18, 25]);
+  assert.deepEqual([req.major, req.minor, req.below], [24, 18, 27]);
   const ascii = /^[\x00-\x7f]*$/;
   for (const text of [
     win.oaaCmd(req),
@@ -222,7 +226,16 @@ test('Windows 启动器：版本提示与 engines 一致，cmd/vbs 只用 ASCII'
     assert.doesNotMatch(text, /Node\.js 22/);
   }
   const cmd = win.oaaCmd(req);
-  assert.match(cmd, /Node\.js 24\.18\+ \(below 25\)/);
+  assert.match(cmd, /Node\.js 24\.18\+ \(below 27\)/);
+  // The version check inside the .cmd accepts 24.18+ and 26, and refuses 24.17 and 27.
+  const check = /process\.exit\((.*?)\?0:1\)/.exec(cmd)?.[1];
+  assert.ok(check, 'the .cmd carries a version check');
+  const accepts = (v: string) => {
+    const [a, b] = v.split('.').map(Number);
+    return new Function('a', 'b', `return ${check}`)(a, b) as boolean;
+  };
+  for (const ok of ['24.18', '24.30', '26.0', '26.13']) assert.equal(accepts(ok), true, ok);
+  for (const bad of ['24.17', '22.20', '27.0']) assert.equal(accepts(bad), false, bad);
   // 括号块里的 %ERRORLEVEL% 会在解析时提前展开：exit /b %ERRORLEVEL% 不能出现在 ( … ) 块里。
   assert.doesNotMatch(cmd, /\([^)]*exit \/b %ERRORLEVEL%[^)]*\)/s);
   const ps1 = win.desktopPs1(req);
@@ -246,6 +259,61 @@ test('Windows 启动器：版本提示与 engines 一致，cmd/vbs 只用 ASCII'
   assert.match(win.stopPs1(), /Stop-Process/);
 });
 
+test('Windows 启动器：提示文字跟随界面语言（中英成对），版本号与端口不写死', () => {
+  const req = win.nodeRequirement(pkg.engines.node);
+  const scripts: Record<string, string> = {
+    desktop: win.desktopPs1(req),
+    stop: win.stopPs1(),
+    install: win.installPs1('9.9.9'),
+  };
+  const cjk = /[　-〿一-鿿＀-￯]/;
+  for (const [name, text] of Object.entries(scripts)) {
+    assert.match(
+      text,
+      /\(Get-UICulture\)\.Name -like "zh\*"/,
+      `${name}: follows the display language`,
+    );
+    // Every message is Say "中文" "English"; a bare string passed to Show-Error / Write-Host would
+    // speak one language only.
+    assert.doesNotMatch(text, /(Show-Error|Write-Host)\s+"/, `${name}: a message bypasses Say`);
+    const pairs = [...text.matchAll(/Say "([^"]*)" "([^"]*)"/g)];
+    assert.ok(pairs.length >= 3, `${name}: expected the messages, found ${pairs.length}`);
+    for (const [, chinese, english] of pairs) {
+      assert.match(chinese!, cjk, `${name}: the Chinese text of "${english}"`);
+      assert.doesNotMatch(english!, cjk, `${name}: the English text of "${english}"`);
+    }
+    const outside = text
+      .replace(/Say "[^"]*" "[^"]*"/g, '')
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('#'))
+      .join('\n');
+    assert.doesNotMatch(outside, cjk, `${name}: Chinese outside the Say calls`);
+  }
+  // The version comes from the argument, never from a literal; the port from the configuration.
+  assert.match(scripts.install!, /v9\.9\.9/);
+  assert.doesNotMatch(
+    Object.values(scripts).join('\n'),
+    new RegExp(pkg.version.replace(/\./g, '\\.')),
+  );
+  const readme = win.readmeTxt('9.9.9', req);
+  assert.equal(readme.match(/v9\.9\.9/g)?.length, 2, 'one heading per language');
+  assert.ok(
+    readme.indexOf('Step one') >= 0 && readme.indexOf('Step one') < readme.indexOf('第一步'),
+  );
+  assert.match(readme, /SmartScreen/);
+  const desktop = scripts.desktop!;
+  assert.match(desktop, /\$Port = \[int\]\$Config\.port/);
+  assert.match(desktop, /\$BaseUrl = "http:\/\/127\.0\.0\.1:\$Port"/);
+  const hardcoded = desktop
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('#') && line.includes('8787'));
+  assert.deepEqual(
+    hardcoded.map((line) => line.trim()),
+    ['$Port = 8787'],
+    'the only literal port is the default used before config.json exists',
+  );
+});
+
 test('package.json 提供发布打包脚本', () => {
   assert.match(pkg.scripts['package:release:mac'] ?? '', /package-all\.mjs mac --release/);
   assert.match(pkg.scripts['package:release:win'] ?? '', /package-all\.mjs win --release/);
@@ -257,8 +325,19 @@ test('CHANGELOG 取版本一节作为草稿 Release 正文', async () => {
   assert.equal(plan.changelogSection(text, '1.2.3'), '### 新增\n\n- a');
   assert.equal(plan.changelogSection(text, '1.2.30'), '- b');
   assert.equal(plan.changelogSection(text, '9.9.9'), '');
+  // The English changelog format: ASCII parentheses and an `## Unreleased` section on top.
+  const english =
+    '# Changelog\n\n## Unreleased\n\n## 1.2.3 (2026-01-01)\n\n### Added\n\n- a\n\n## 1.2.30 (2026-02-01)\n\n- b\n\n## Earlier versions\n\nsee the Chinese file\n';
+  assert.equal(plan.changelogSection(english, '1.2.3'), '### Added\n\n- a');
+  assert.equal(plan.changelogSection(english, '1.2.30'), '- b');
+  assert.equal(plan.changelogSection(english, 'Unreleased'), '');
   const real = await readFile('CHANGELOG.md', 'utf8');
   assert.notEqual(plan.changelogSection(real, pkg.version), '', '当前版本在 CHANGELOG 里有一节');
+  assert.doesNotMatch(
+    plan.changelogSection(real, pkg.version),
+    /Earlier versions/,
+    '发布说明不含「Earlier versions」一节',
+  );
 });
 
 // ── 首跑稳定性：这些工作流从没在 GitHub 上真正跑过，能离线核对的都在这里核对 ──
@@ -325,7 +404,7 @@ test('发布矩阵：字段齐全、被引用的字段都存在、与打包脚�
   const include = build.strategy.matrix.include as Record<string, string>[];
   assert.deepEqual(
     include.map((e) => `${e.platform}-${e.arch}`),
-    ['mac-arm64', 'mac-x64', 'win-x64'],
+    ['mac-arm64', 'mac-x64', 'win-x64', 'linux-x64', 'linux-arm64'],
   );
   const keys = new Set(include.flatMap((e) => Object.keys(e)));
   for (const e of include)
@@ -337,13 +416,20 @@ test('发布矩阵：字段齐全、被引用的字段都存在、与打包脚�
   for (const k of keys) assert.ok(used.has(k) || k === 'platform', `矩阵字段 ${k} 没被用到`);
   for (const e of include) {
     const arch = e.arch;
-    assert.equal(e.node_dist, e.platform === 'mac' ? `darwin-${arch}` : `win-${arch}`);
-    assert.equal(e.node_ext, e.platform === 'mac' ? 'tar.gz' : 'zip');
+    const nodeOs = { mac: 'darwin', win: 'win', linux: 'linux' }[
+      e.platform as 'mac' | 'win' | 'linux'
+    ];
+    assert.equal(e.node_dist, `${nodeOs}-${arch}`);
+    assert.equal(e.node_ext, e.platform === 'win' ? 'zip' : 'tar.gz');
     const { outDir } = plan.releasePaths('/r', e.platform, arch);
     assert.equal(e.out, path.basename(outDir), '上传路径要与打包脚本的输出目录一致');
-    const ext = plan.artifactName('1.0.0', e.platform, arch, e.artifact_ext).split('.').pop();
-    assert.equal(ext, e.artifact_ext);
-    assert.ok(plan[e.platform === 'mac' ? 'MAC_ARCHES' : 'WIN_ARCHES'].includes(arch));
+    assert.ok(
+      plan.artifactName('1.0.0', e.platform, arch, e.artifact_ext).endsWith(`.${e.artifact_ext}`),
+    );
+    const arches = { mac: 'MAC_ARCHES', win: 'WIN_ARCHES', linux: 'LINUX_ARCHES' }[
+      e.platform as 'mac' | 'win' | 'linux'
+    ];
+    assert.ok(plan[arches].includes(arch));
   }
   // 上传的产物名要能被汇总作业的 pattern 命中；两边同一份前缀。
   const upload = build.steps.find((st: any) => /upload-artifact@/.test(st.uses ?? ''));
@@ -406,6 +492,53 @@ test('发布拷贝过滤：去掉 .DS_Store、编译出的测试与基准、sour
   assert.equal(f('web/console.js'), true);
   assert.equal(f('node_modules/x/index.js'), false);
   assert.equal(f('node_modules/y/index.js'), true);
+  assert.equal(f('dist/examples/demo.js'), false, '编译出来的示例不进包');
+});
+
+test('瘦身：第三方的 source map、测试与文档目录不进包，代码与许可证不受影响', () => {
+  const f = plan.releaseCopyFilter(() => true, 'mac');
+  for (const gone of [
+    'node_modules/zod/index.js.map',
+    'node_modules/@scope/pkg/dist/a.js.map',
+    'node_modules/fastify/test/basic.test.js',
+    'node_modules/fastify/docs/Guides/x.md',
+    'node_modules/pino/benchmarks/log.js',
+    'node_modules/a/examples/one.js',
+    'node_modules/a/node_modules/b/tests/x.js',
+    'node_modules/@s/p/__tests__/y.js',
+    'node_modules/a/.github/workflows/ci.yml',
+    'node_modules/lucide/dist/esm/icons/a-arrow-up.js',
+    'node_modules/lucide/dist/cjs/lucide.js',
+  ])
+    assert.equal(f(gone), false, gone);
+  for (const kept of [
+    'node_modules/yaml/dist/doc/Document.js', // dist/doc 是代码，不是文档目录
+    'node_modules/fastify/lib/test-helper.js',
+    'node_modules/a/LICENSE',
+    'node_modules/a/README.md',
+    'node_modules/a/package.json',
+    'node_modules/a/dist/index.d.ts',
+    'node_modules/lucide/dist/umd/lucide.js',
+    'node_modules/lucide/package.json',
+    'node_modules/a/node_modules/test/index.js', // 一个叫 test 的包，不是 test 目录
+  ])
+    assert.equal(f(kept), true, kept);
+});
+
+test('瘦身：Windows 沙箱程序只留在 Windows 包，seccomp 只留在 Linux 包', () => {
+  const vendor = 'node_modules/@anthropic-ai/sandbox-runtime/vendor';
+  const win = plan.releaseCopyFilter(() => true, 'win');
+  const mac = plan.releaseCopyFilter(() => true, 'mac');
+  const linux = plan.releaseCopyFilter(() => true, 'linux');
+  const unknown = plan.releaseCopyFilter(() => true);
+  assert.equal(win(`${vendor}/srt-win/x64/srt-win.exe`), true);
+  assert.equal(mac(`${vendor}/srt-win/x64/srt-win.exe`), false);
+  assert.equal(linux(`${vendor}/srt-win/arm64/srt-win.exe`), false);
+  assert.equal(linux(`${vendor}/seccomp/x64/apply-seccomp`), true);
+  assert.equal(win(`${vendor}/seccomp/x64/apply-seccomp`), false);
+  assert.equal(mac(`${vendor}/seccomp/arm64/apply-seccomp`), false);
+  assert.equal(mac(`${vendor}/java-proxy-agent/srt-proxy-agent.jar`), true);
+  assert.equal(unknown(`${vendor}/srt-win/x64/srt-win.exe`), true, '不知道平台时不裁');
 });
 
 test('外部命令失败可重试（hdiutil create 在 macOS 运行器上偶发 Resource busy），次数用尽后抛出', async () => {
@@ -466,4 +599,88 @@ test('版本号格式：任意 x.y.z（含 0.0.x）都能走通产物命名、CH
   assert.equal(plan.changelogSection(text, '0.0.6'), 'a');
   assert.equal(plan.changelogSection(text, '0.0.640'), 'c');
   assert.equal(plan.changelogSection('## 0.0.64\r\n\r\nx\r\n', '0.0.64'), 'x');
+});
+
+// ── Linux 包、npm 包与 install.sh ──
+
+test('Linux：参数、产物命名、目录与 Node 运行时文件', () => {
+  const rel = plan.parseOptions(['linux', '--release', '--arch', 'arm64', '--node-dir', 'n']);
+  assert.equal(rel.target, 'linux');
+  assert.equal(rel.arch, 'arm64');
+  assert.equal(plan.parseOptions(['linux'], 'arm64').arch, 'arm64');
+  assert.equal(plan.parseOptions(['linux'], 'x64').arch, 'x64');
+  assert.throws(() => plan.parseOptions(['linux', '--arch', 'ppc64']), /Linux 只支持/);
+  assert.throws(() => plan.parseOptions(['linux', '--release']), /--node-dir/);
+  assert.equal(
+    plan.artifactName('0.0.64', 'linux', 'x64', 'tar.gz'),
+    'Open-Agent-API-0.0.64-linux-x64.tar.gz',
+  );
+  assert.equal(plan.nodePlatform('linux'), 'linux');
+  assert.equal(
+    plan.releasePaths('/r', 'linux', 'arm64').outDir,
+    path.join('/r', 'release', 'linux'),
+  );
+  assert.deepEqual(
+    plan.nodeRuntimeFiles('linux', '/n', '/out/runtime').map((f: { to: string }) => f.to),
+    [path.join('/out/runtime', 'bin', 'node'), path.join('/out/runtime', 'LICENSE')],
+  );
+  assert.equal(plan.npmTarballName('0.0.64'), 'open-agent-api-0.0.64.tgz');
+  assert.match(pkg.scripts['package:release:linux'] ?? '', /package-all\.mjs linux --release/);
+});
+
+test('Linux tar.gz 的命令：属主一律 0:0，只打包一个目录', () => {
+  const linux = plan.tarCommand({ hostPlatform: 'linux', tarPath: 'x.tar.gz', bundleName: 'b' });
+  assert.deepEqual(linux, {
+    cmd: 'tar',
+    args: ['--owner=0', '--group=0', '--numeric-owner', '-czf', 'x.tar.gz', 'b'],
+  });
+  const mac = plan.tarCommand({ hostPlatform: 'darwin', tarPath: 'x.tar.gz', bundleName: 'b' });
+  assert.equal(mac.cmd, '/usr/bin/tar');
+  assert.ok(mac.args.includes('--no-mac-metadata'));
+  const win32 = plan.tarCommand({
+    hostPlatform: 'win32',
+    tarPath: 'x.tar.gz',
+    bundleName: 'b',
+    env: { SystemRoot: 'D:\\Windows' },
+  });
+  assert.equal(win32.cmd, 'D:\\Windows\\System32\\tar.exe');
+  for (const c of [linux, mac, win32])
+    assert.deepEqual(c.args.slice(-3), ['-czf', 'x.tar.gz', 'b']);
+});
+
+test('install.sh 盖版本号：占位符只出现在一处，盖章后语法仍然正确', async () => {
+  const text = await readFile('scripts/install.sh', 'utf8');
+  assert.equal(text.split('@OAA_VERSION@').length - 1, 1, '占位符只能出现在赋值那一行');
+  const stamped = plan.stampInstallScript(text, '1.2.3');
+  assert.match(stamped, /^OAA_STAMPED_VERSION="1\.2\.3"$/m);
+  assert.doesNotMatch(stamped, /@OAA_VERSION@/);
+  assert.throws(() => plan.stampInstallScript(text, 'v1.2'), /版本号格式/);
+  assert.throws(() => plan.stampInstallScript('no placeholder', '1.2.3'), /占位符/);
+  // 默认仓库与 package.json 的 repository 一致。
+  const repo = /^OAA_REPO="([^"]+)"$/m.exec(text)?.[1];
+  const url = (
+    JSON.parse(await readFile('package.json', 'utf8')) as { repository: { url: string } }
+  ).repository.url;
+  assert.ok(url.includes(`github.com/${repo}.git`), `${repo} vs ${url}`);
+});
+
+test('发布工作流：Linux 两个架构、npm 包作业与汇总核对', () => {
+  const wf = workflows.get('release.yml');
+  const runners = wf.jobs.build.strategy.matrix.include.map((e: { runner: string }) => e.runner);
+  assert.ok(runners.includes('ubuntu-latest') && runners.includes('ubuntu-24.04-arm'));
+  const npmJob = wf.jobs['npm-package'];
+  assert.equal(npmJob.permissions.contents, 'read');
+  assert.equal(npmJob.needs, 'version');
+  assert.deepEqual(wf.jobs.release.needs, ['version', 'build', 'npm-package']);
+  const upload = npmJob.steps.find((st: any) => /upload-artifact@/.test(st.uses ?? ''));
+  assert.match(upload.with.name, /^oaa-/, '汇总作业按 oaa-* 下载');
+  assert.equal(upload.with['if-no-files-found'], 'error');
+  const sums = wf.jobs.release.steps.find((st: any) => /SHA256SUMS/.test(st.name ?? ''));
+  for (const piece of ['*.tar.gz', '*.tgz', 'install.sh', 'stamp-install.mjs'])
+    assert.ok(sums.run.includes(piece), `汇总 SHA256SUMS 时漏了 ${piece}`);
+  // 每个平台的烟雾测试都走同一个脚本，并带 --app-dir 做逐模块 import。
+  for (const [name, job] of Object.entries(wf.jobs as Record<string, any>))
+    for (const st of job.steps ?? [])
+      if (/smoke-release\.mjs/.test(st.run ?? ''))
+        assert.match(st.run, /--app-dir/, `${name}: ${st.name}`);
 });

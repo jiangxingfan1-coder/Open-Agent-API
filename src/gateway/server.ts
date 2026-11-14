@@ -37,6 +37,7 @@ import { principalSubject, visibleSubject } from '../core/contracts.js';
 import { Fault, canonical, faultOf, relativeName, secret, sha } from '../core/util.js';
 import { Catalog, type CatalogEntry } from './catalog.js';
 import { conversionProfile } from '../engines/conformance.js';
+import { acceptsImages, discardNewImages, materializeImages } from './image-input.js';
 import { openEventStream, observeAuthorization, revalidateObservation } from './streams.js';
 import {
   directoryQuery,
@@ -56,17 +57,16 @@ import {
 } from '../fabric/local-backends.js';
 import { registerLocalBackendRoutes } from './local-backend-routes.js';
 import { publishWarning, publishedNative } from '../fabric/runnability.js';
-import { registerMemoryRoutes } from './memory-routes.js';
-import { registerKeyRoutes } from './key-routes.js';
+import { assertUploadRoom } from './upload-quota.js';
+import { registerOwnerRoutes } from './shutdown-route.js';
 import { ERROR_CATALOG, ERROR_CATALOG_REVISION, ERROR_CATEGORIES } from '../core/errors.js';
-import { registerRunRoutes } from './run-routes.js';
 import { registerConsoleAssets } from './console-assets.js';
-import { streamEvents, type StreamMode } from './compat-stream.js';
-import { streamSlots } from './stream-slots.js';
-import { geminiQueryKey, sendError, sseRequested, zodFault } from './compat-errors.js';
+import { streamEvents, streamOptions, streamSlots, type StreamMode } from './compat-stream.js';
+import { geminiQueryKey, sendError, zodFault } from './compat-errors.js';
+import * as http from './compat-http.js';
 import { ignoredParamsHeader, paramFamily } from './compat-params.js';
 import { bridgeDialect, bridgedObject, resumeBridged, waitParkedOrTerminal } from './bridge.js';
-import { flattenClientResults } from './client-tools.js';
+import { clientToolsHeader, submitClientTools } from './client-tools-auto.js';
 import { claudeModelList } from './claude.js';
 import {
   fromGoogleClient,
@@ -108,6 +108,7 @@ export const GATEWAY_FEATURES = [
   'error-codes-v1',
   'harness-bridge-acp-v1',
   'harness-bridge-v1',
+  'image-input-v1',
   'local-backends-v1',
   'oaa-lang-roundtrip-v1',
   'overview-activity-v1',
@@ -116,6 +117,9 @@ export const GATEWAY_FEATURES = [
   'platform-setup-v1',
   'queue-insight-v1',
   'run-timeline-v1',
+  'stream-progress-v1',
+  'structured-output-v1',
+  'webhooks-v1',
   'workflow-output-v1',
 ].sort();
 export async function createGateway(
@@ -156,6 +160,7 @@ export async function createGateway(
     const kernel = new Kernel(store, hub, {
       maxActiveRuns: config.maxActiveRuns,
       approvalTimeoutMs: config.approvalTimeoutMs,
+      structuredRepairs: config.structuredOutput.maxRepairs,
       ...(config.maxActiveRunsPerSubject !== undefined
         ? { maxActiveRunsPerSubject: config.maxActiveRunsPerSubject }
         : {}),
@@ -194,8 +199,9 @@ export async function createGateway(
     };
     const app = Fastify({
       logger: false,
+      rewriteUrl: (req) => http.rewriteApiUrl(req.url),
       bodyLimit: 24 * 1024 * 1024,
-      requestTimeout: 0,
+      requestTimeout: config.security.requestTimeoutMs ?? 0,
       forceCloseConnections: true,
       ...(config.tls
         ? {
@@ -358,16 +364,9 @@ export async function createGateway(
       }
       sendError(req, reply, status >= 400 && status <= 599 ? status : 500, fault);
     });
-    app.setNotFoundHandler((req, reply) => {
-      const path = req.url.split('?')[0]!.slice(0, 200);
-      sendError(
-        req,
-        reply,
-        404,
-        new Fault('route_not_found', `No route matches ${req.method} ${path}.`, 404),
-      );
-    });
+    app.setNotFoundHandler(http.notFound);
     app.addHook('onRequest', async (req, reply) => {
+      http.tolerateEmptyJsonBody(req);
       reply
         .header('X-Content-Type-Options', 'nosniff')
         .header('Referrer-Policy', 'no-referrer')
@@ -390,7 +389,7 @@ export async function createGateway(
         reply
           .header(
             'Access-Control-Allow-Headers',
-            'Authorization, Content-Type, Idempotency-Key, Last-Event-ID, X-OAA-Provider-Key, x-api-key, x-goog-api-key, anthropic-version, x-oaa-model, x-model, x-target-model, x-oaa-agent-version, x-routing-strategy, x-oaa-strategy, x-oaa-compat, x-oaa-protocol',
+            http.corsAllowHeaders(req.headers['access-control-request-headers']),
           )
           .header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
           .code(204)
@@ -497,6 +496,7 @@ export async function createGateway(
           ...(b.agent.delegates?.length ? { delegates: b.agent.delegates } : {}),
           ...(b.agent.approvals === 'auto' ? { approvals: 'auto' as const } : {}),
           routes,
+          image_input: acceptsImages(hub, p.owner, b, routes),
           ready: chosen?.placement.ready ?? false,
           dispatchable: !!chosen,
           status:
@@ -612,6 +612,7 @@ export async function createGateway(
             object: 'model',
             created: 0,
             owned_by: 'open-agent-api',
+            image_input: a.image_input,
           })),
         };
       }
@@ -960,7 +961,7 @@ export async function createGateway(
       hub.credentials.push(result.credential);
       return { node_id: body.node_id, token: result.token };
     });
-    registerKeyRoutes(app, { auth, audit, config });
+    registerOwnerRoutes(app, { auth, audit, config, store, kernel, providerKeyOf });
     app.get('/v1/me', async (req) => {
       const usage = req.principal.keyId
         ? auth.keyUsage(req.principal.keyId)
@@ -1010,7 +1011,6 @@ export async function createGateway(
         endpoints: buildEndpointDirectory(baseUrl),
       };
     });
-    registerMemoryRoutes(app, { auth, store });
     app.get('/v1/catalog/changes', async (req, reply) => {
       auth.require(req.principal, 'read');
       const q = z
@@ -1124,6 +1124,7 @@ export async function createGateway(
             );
         }
         if (!uploaded) throw new Fault('file_required', 'A file part is required.');
+        assertUploadRoom(store, config, req.principal, uploaded.bytes.length);
         const f = await store.addFile(
           req.principal.owner,
           uploaded.name,
@@ -1152,6 +1153,7 @@ export async function createGateway(
         .parse(req.body);
       relativeName(b.filename);
       const bytes = Buffer.from(b.content, b.encoding === 'utf8' ? 'utf8' : 'base64');
+      assertUploadRoom(store, config, req.principal, bytes.length);
       const file = await store.addFile(
         req.principal.owner,
         b.filename,
@@ -1182,7 +1184,6 @@ export async function createGateway(
       );
       return reply.type('application/octet-stream').send(Buffer.from(payload.content, 'base64'));
     });
-    registerRunRoutes(app, { auth, store, kernel, providerKeyOf });
     const executeProtocolInvocation = async (
       req: FastifyRequest,
       reply: FastifyReply,
@@ -1196,23 +1197,27 @@ export async function createGateway(
       let run: Run;
       let resumed: ReturnType<typeof resumeBridged>;
       try {
+        invocation = await materializeImages(store, config, req.principal, invocation);
         resumed = resumeBridged(kernel, store, req.principal, invocation);
         run =
           resumed?.run ??
-          kernel.submit(
+          submitClientTools(
+            kernel,
             req.principal,
-            flattenClientResults(invocation),
+            invocation,
             req.headers['idempotency-key'] as string | undefined,
             providerKeyOf(req),
+            config.clientTools.default,
           );
       } catch (error) {
         release?.();
+        await discardNewImages(store, req.principal.owner, invocation);
         throw error;
       }
       reply.header('X-Run-ID', run.id);
       if (responseDialect === 'uap') reply.header('X-UAP-Version', '1.0');
-      if (invocation.metadata['oaa.client_tools_ignored'])
-        reply.header('X-OAA-Client-Tools', 'ignored');
+      const toolsMode = clientToolsHeader(run);
+      if (toolsMode) reply.header('X-OAA-Client-Tools', toolsMode);
       const ignored = ignoredParamsHeader(
         paramFamily(req.url.split('?')[0]!, responseDialect),
         req.body,
@@ -1229,7 +1234,7 @@ export async function createGateway(
           streamMode,
           includeUsage,
           run,
-          { jsonArray: responseDialect === 'gemini' && !sseRequested(req), release },
+          streamOptions(req, responseDialect, release, config.streamProgress),
         );
         return;
       }
@@ -1359,8 +1364,9 @@ export async function createGateway(
     });
 
     registerGeminiModelRoutes(app, auth, cachedAgents);
-    for (const prefix of ['/v1beta', '/v1'])
-      app.post(`${prefix}/models/*`, async (req, reply) => {
+    // `/v1beta/*` also takes `{agent}:generateContent` without `models/` (AI SDK Google provider).
+    for (const route of ['/v1beta/models/*', '/v1/models/*', '/v1beta/*'])
+      app.post(route, async (req, reply) => {
         const { rawTarget, isStream } = geminiMethod(req);
         const headers = req.headers as Record<string, unknown>;
         const invocation = parseGeminiGenerateContent(req.body, rawTarget, isStream, headers);

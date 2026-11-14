@@ -1,21 +1,23 @@
 ---
-name: 功能建议
-about: 提出一个新功能或改进
+name: Feature request
+about: Suggest a new feature or an improvement
 title: ''
 labels: enhancement
 assignees: ''
 ---
 
-## 你想解决什么问题？
+<!-- 欢迎用中文填写 / You are welcome to fill this in Chinese. -->
 
-<!-- 先讲场景和痛点，而不是方案 -->
+## What problem do you want to solve?
 
-## 你设想的做法
+<!-- Start with the scenario and the pain point, not the solution -->
 
-## 考虑过的其他做法
+## The approach you have in mind
 
-## 是否影响兼容性？
+## Other approaches you considered
 
-<!-- 例如：会不会改变已有请求的线上输出、错误码、事件字段、SQLite 结构（见 CONTRIBUTING.md 的兼容性红线） -->
+## Does it affect compatibility?
 
-## 其他信息
+<!-- For example: would it change the wire output of existing requests, error codes, event fields or the SQLite schema (see the compatibility red lines in CONTRIBUTING.md)? -->
+
+## Other information

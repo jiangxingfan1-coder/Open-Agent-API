@@ -1,7 +1,8 @@
 name: Release
 
-# 推送 v* 标签（或手动触发并填写版本号）时：在 macOS arm64 / macOS x64 / Windows x64 上各打一份自带
-# Node 运行时的安装包，烟雾测试后上传，最后汇总创建「草稿」GitHub Release（不自动公开）。
+# 推送 v* 标签（或手动触发并填写版本号）时：在 macOS arm64 / macOS x64 / Windows x64 / Linux x64 / Linux arm64
+# 上各打一份自带 Node 运行时的安装包，另打一份 npm 包（open-agent-api-<版本>.tgz），烟雾测试后上传，
+# 最后汇总（加上盖了版本号的 install.sh 与 SHA256SUMS）创建「草稿」GitHub Release（不自动公开）。
 # 步骤说明见 docs/releasing.md。
 
 on:
@@ -96,6 +97,22 @@ jobs:
             node_ext: zip
             out: windows
             artifact_ext: zip
+          # Linux：ubuntu-latest 是 x64，ubuntu-24.04-arm 是 arm64（Linux arm64 的标准运行器对公开仓库免费，
+          # 见 docs.github.com 的「GitHub-hosted runners」与 actions/runner-images 的 README）。
+          - platform: linux
+            arch: x64
+            runner: ubuntu-latest
+            node_dist: linux-x64
+            node_ext: tar.gz
+            out: linux
+            artifact_ext: tar.gz
+          - platform: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            node_dist: linux-arm64
+            node_ext: tar.gz
+            out: linux
+            artifact_ext: tar.gz
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     defaults:
@@ -116,8 +133,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm run format:check
-      - name: 离线测试（macOS）
-        if: matrix.platform == 'mac'
+      - name: 离线测试（macOS、Linux）
+        if: matrix.platform == 'mac' || matrix.platform == 'linux'
         run: npm run test:offline
       - name: 与打包相关的测试（Windows；完整离线测试含 POSIX 专用写法，见 docs/releasing.md）
         if: matrix.platform == 'win'
@@ -213,7 +230,30 @@ jobs:
           test ! -e "${res}/app/node_modules/typescript"
           file "${res}/node/bin/node" "${mnt}/Open Agent API.app/Contents/MacOS/OpenAgentAPI"
           codesign --verify --deep --strict "${mnt}/Open Agent API.app"
-          "${res}/node/bin/node" scripts/smoke-release.mjs --launcher "${res}/oaa" --expect-version "$VERSION"
+          "${res}/node/bin/node" scripts/smoke-release.mjs --launcher "${res}/oaa" --expect-version "$VERSION" --app-dir "${res}/app"
+
+      - name: 烟雾测试（Linux：解压到含空格与中文的路径，用包内 Node 运行 CLI 与网关，再把 install.sh 当本地安装源试一遍）
+        if: matrix.platform == 'linux'
+        run: |
+          dest="${RUNNER_TEMP}/解压 测试"
+          mkdir -p "$dest"
+          tar -xzf release/linux/*.tar.gz -C "$dest"
+          bundle="${dest}/Open-Agent-API-linux-${{ matrix.arch }}"
+          test -x "${bundle}/runtime/bin/node"
+          test -f "${bundle}/runtime/LICENSE"
+          test -x "${bundle}/oaa"
+          test ! -e "${bundle}/app/node_modules/@anthropic-ai/claude-agent-sdk"
+          test ! -e "${bundle}/app/node_modules/typescript"
+          file "${bundle}/runtime/bin/node"
+          "${bundle}/runtime/bin/node" scripts/smoke-release.mjs --launcher "${bundle}/oaa" --expect-version "$VERSION" --app-dir "${bundle}/app"
+          # install.sh：把 release/linux 当作「发布页」安装到临时前缀，启动一次，再卸载。
+          sh -n scripts/install.sh
+          prefix="${RUNNER_TEMP}/安装 前缀"
+          OAA_DOWNLOAD_BASE="file://${PWD}/release/linux" sh "${bundle}/install.sh" --prefix "$prefix"
+          "${prefix}/bin/oaa" --help > /dev/null
+          sh "${bundle}/install.sh" --uninstall --prefix "$prefix"
+          test ! -e "${prefix}/share/open-agent-api"
+          test ! -e "${prefix}/bin/oaa"
 
       - name: 烟雾测试（Windows：解压到含空格与中文的路径，经 oaa.cmd 运行）
         if: matrix.platform == 'win'
@@ -227,7 +267,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $node)) { throw "缺少 runtime\node.exe" }
           if (-not (Test-Path -LiteralPath (Join-Path $bundle "runtime\LICENSE"))) { throw "缺少 runtime\LICENSE" }
           if (Test-Path -LiteralPath (Join-Path $bundle "app\node_modules\@anthropic-ai\claude-agent-sdk")) { throw "不应带 claude-agent-sdk" }
-          & $node scripts/smoke-release.mjs --launcher (Join-Path $bundle "oaa.cmd") --expect-version $env:VERSION
+          & $node scripts/smoke-release.mjs --launcher (Join-Path $bundle "oaa.cmd") --expect-version $env:VERSION --app-dir (Join-Path $bundle "app")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # 只检查打包脚本自己写出的 3 个 .ps1（在 ASCII 路径的组装目录里，不依赖脚本里写中文），
@@ -260,9 +300,54 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # npm 包：open-agent-api-<版本>.tgz（package.json 保持 private，不会发布到 npm 官方源；tgz 作为发布产物附上，
+  # 用户用 npm install -g <下载地址> 安装）。npm pack 前由 prepack 重新编译 dist。
+  npm-package:
+    name: 打包 npm 包
+    needs: version
+    if: needs.version.outputs.published != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_RUNTIME_VERSION }}
+      - run: npm ci --ignore-scripts
+      - name: npm pack（prepack 先重新编译 dist）
+        run: |
+          mkdir -p "${RUNNER_TEMP}/npm-pack"
+          npm pack --pack-destination "${RUNNER_TEMP}/npm-pack"
+          ls -l "${RUNNER_TEMP}/npm-pack"
+          test -f "${RUNNER_TEMP}/npm-pack/open-agent-api-${VERSION}.tgz"
+      - name: 烟雾测试（npm install -g 到临时前缀，经 oaa 运行 CLI 与网关；再用 npx 跑一次 --help）
+        run: |
+          tgz="${RUNNER_TEMP}/npm-pack/open-agent-api-${VERSION}.tgz"
+          prefix="${RUNNER_TEMP}/npm 前缀"
+          npm install -g --prefix "$prefix" "$tgz"
+          pkgdir="${prefix}/lib/node_modules/open-agent-api"
+          test ! -e "${pkgdir}/node_modules/@anthropic-ai/claude-agent-sdk"
+          test ! -e "${pkgdir}/node_modules/typescript"
+          export PATH="${prefix}/bin:${PATH}"
+          node scripts/smoke-release.mjs --launcher "${prefix}/bin/oaa" --expect-version "$VERSION" --app-dir "$pkgdir"
+          npx --yes --cache "${RUNNER_TEMP}/npx-cache" --package "$tgz" oaa --help > /dev/null
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oaa-npm
+          path: ${{ runner.temp }}/npm-pack/open-agent-api-${{ needs.version.outputs.version }}.tgz
+          if-no-files-found: error
+          retention-days: 14
+
   release:
     name: 创建草稿 Release
-    needs: [version, build]
+    needs: [version, build, npm-package]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -280,11 +365,18 @@ jobs:
         run: |
           cd release-assets
           ls -l
-          # 必须正好是 2 个 .dmg（arm64、x64）和 1 个 .zip，少一个就不要创建 Release。
+          # 必须正好是 2 个 .dmg（arm64、x64）、1 个 .zip、2 个 .tar.gz（Linux x64、arm64）和 1 个 npm 包 .tgz，
+          # 少一个就不要创建 Release。
           test "$(ls -1 *.dmg | wc -l)" -eq 2
           test "$(ls -1 *.zip | wc -l)" -eq 1
+          test "$(ls -1 *.tar.gz | wc -l)" -eq 2
+          test "$(ls -1 *.tgz | wc -l)" -eq 1
+          test -f "open-agent-api-${VERSION}.tgz"
+          # install.sh：盖上这个版本号，随 Release 一起提供（curl .../releases/latest/download/install.sh | sh）。
+          node ../scripts/stamp-install.mjs "$VERSION" > install.sh
+          sh -n install.sh
           rm -f SHA256SUMS
-          sha256sum *.dmg *.zip > SHA256SUMS
+          sha256sum *.dmg *.zip *.tar.gz *.tgz install.sh > SHA256SUMS
           cat SHA256SUMS
       - name: 取 CHANGELOG 对应一节作为正文
         run: node scripts/changelog-section.mjs "$VERSION" > release-notes.md

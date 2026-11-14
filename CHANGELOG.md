@@ -1,348 +1,165 @@
-# 变更记录
+# Changelog
 
-## 0.0.64（2026-11-14）
+English · [简体中文](CHANGELOG.zh-CN.md)
 
-公开版本从 0.0.64 起重新编号；下面 0.1.0–0.6.4 是公开之前的内部版本号，保留作为变更记录。
+## Unreleased
 
-第一个公开版本：以 Apache-2.0 开源，并提供自带 Node 运行时的 macOS（Apple 芯片、Intel）与 Windows 安装包。网关行为与 0.6.4 相同。
+## 0.0.65 (2026-11-14)
 
-### 发布构建
+This version makes the gateway installable in more places and checks it against more clients, and it lets a request carry more than text. It installs on Linux (a tar.gz with its own Node.js, and `install.sh`), in Docker and from an npm tarball, runs on Node 24 and 26, and its full test suite passes on Windows in CI. A compatibility lab runs the official Python and Node SDKs and several frameworks against the gateway and replays the requests of a dozen chat clients, and the gateway was changed wherever that found an incompatibility. Callers can send images and ask for JSON that is guaranteed to fit a schema, run events can be pushed to your own endpoint, and approvals can be handled from the command line. A security review led to a set of fixes. One command (`oaa connect <preset>`) now gives the built-in agent a model from a local service or a hosted provider, and a long soak run found and fixed memory and database growth, with a way to prune old data. Several defaults changed on purpose; they are listed under "Behavior changes", with how to get the old behavior back where there is a way. What has not been verified is listed under "Not yet verified".
 
-- 打包脚本新增发布模式 `--release`：不安装到任何应用目录、不链接 CLI、不写用户主目录，产物只写到 `release/`（越界的写操作直接报错）；`--dry-run` 只打印每一步要写的路径与要执行的外部命令。本机开发打包（不带 `--release`）的行为不变。新增 `npm run package:release:mac`、`package:release:win`。
-- 发布包自带官方 Node 运行时（`--node-dir`，版本按 `engines.node` 校验），并按 `package-lock.json` 排除开发依赖、专有的 `@anthropic-ai/claude-agent-sdk` 及只被它引用的包、其他平台/架构的原生包。macOS 支持 `--arch arm64|x64`；产物统一命名为 `Open-Agent-API-<版本>-macOS-<arch>.dmg`、`…-win-x64.zip`，并生成 `SHA256SUMS`。
-- Claude 原生引擎在缺少 Claude Agent SDK 时返回 `adapter_unavailable` 与安装说明（可另行安装到 `~/.oaa/vendor` 或 `OAA_CLAUDE_SDK_DIR`），`oaa doctor` 与本机后端信息标为 `requires_separate_install`；随依赖安装时行为不变。
-- Windows 启动器：Node 版本提示与 `engines` 一致；修正 `oaa.cmd` 在括号块里提前展开 `%ERRORLEVEL%` 导致退出码不对；桌面启动器补上缺失的 `System.Windows.Forms` 加载（以前出错时什么提示都没有）、读取配置里的端口、端口被占用与启动失败时给出提示和日志位置；新增 `Stop-OpenAgentAPI.cmd` 退出后台网关；`.ps1` 以 UTF-8 BOM 写出以便显示中文。
-- 新增 GitHub Actions 发布工作流 `release.yml`（推送 `v*` 标签或手动触发）：三个平台各自检查、下载并用 `SHASUMS256.txt` 校验官方 Node、打包、烟雾测试（用包内 Node 运行 CLI、在随机回环端口启动网关核对 `/healthz` 版本），最后创建草稿 Release。`ci.yml` 扩展到 Ubuntu、macOS 与 Windows。说明见 `docs/releasing.md`。
+File names, commands and settings below are those of the repository; the documents they refer to are under `docs/`.
 
-### 上手
+### Behavior changes
 
-- 在干净的 HOME 下按 README 实际走了一遍源码路线与安装包路线（外部智能体用仓库里的 ACP 测试替身代替），据此修正上手步骤：先说明需要一个可发布的智能体；默认用 `serve --detach`；补上命令行建密钥、`invoke` 之后用 `wait` 取结果、常见报错表，以及不装任何智能体时用测试替身走完整条路的步骤。
-- 新增 `oaa connect <codex|claude|agy|ACP 预设名>`：检测是否安装 → 在本网关启用 → 发布为 `agent/<名字>`（已发布则跳过）→ 确认 quickstart 的密钥能调用它（否则单独建一把只能调用它的密钥）→ 打印 model 与 curl。不调用该智能体，并说明第一次调用会用它自己的登录与额度。quickstart 结尾改为每个检测到的智能体一行 `oaa connect …`。
-- Windows 桌面启动器改由 `oaa quickstart --dir %LOCALAPPDATA%\OpenAgentAPI` 启动网关，首次启动即有可调用的离线示例智能体，输出写进 `quickstart.log`；退出脚本同时处理 `oaa stop`。`README-WINDOWS.txt` 把 `oaa.cmd quickstart` 写成第一步。
-- 控制台：发布返回 `not_runnable_here` 警告时，发布对话框保持打开并显示原因；概览「快速上手」里已有示例智能体 `agent/sample` 时，第一步视为完成。
-- 示例智能体的工具演示改为「读取本机时间」，不再统计提示字数（那个数包含网关拼进去的上下文，容易误解）。
-- 新增 `oaa quickstart`：初始化（已有则跳过）→ 后台启动网关，只监听 127.0.0.1（已在运行则复用，配置变了则重启；端口被占用时报 `port_in_use` 并提示 `--port`）→ 发布离线示例智能体 `agent/sample` → 生成调用方密钥（私有文件，已有且有效则复用）→ 真调一次并打印回答、Base URL、model、curl、OpenAI SDK 代码，以及接上本机 codex / claude / agy 或内置智能体的下一步。重复运行不重复创建。中英双语输出。
-- 新增离线示例智能体 `examples/sample-agent.mjs`（ACP；不调用任何模型、不联网，回答写明是示例），演示多步、一次工具调用和可选的一次审批；定义在 `examples/sample-agent.json`。随源码与安装包分发。
-- 报错改准：`model_unavailable` 点名没安装或没启用的引擎/适配器、缺少的提供方环境变量及处理方法；发布本机当前跑不了的智能体时，发布成功但返回 `warning`（`not_runnable_here`）；受限密钥请求未授权或不存在的 `model` 时提示用 `GET /v1/models` 查看（不透露是否存在），管理员密钥的 `agent_not_found` 同样提示；401 说明密钥从哪里来。四种入口的错误体形状不变。
-- `oaa init` 输出管理员密钥文件位置与下一步（`oaa quickstart`）。
-- macOS 桌面应用：首次启动发布离线示例智能体（标记文件升级为 `.seeded-v2`，老用户也会补上）；agy 示例只在检测到 agy 时发布；去掉对不存在的 `examples/smart-repo-inspector.oaa` 的发布。自动启用检测到的本机智能体的行为不变，文档改为如实说明。
-- 安装包的 `examples/` 不再带跑不了的 `.ts`、`live-agents/` 与 `gemini-sdk-probe.mjs`；找不到 npm 时 Claude SDK 的安装提示先说明需要另装 Node.js（自带 npm）。
-- 新增 `oaa key create`：经 `POST /v1/keys` 生成调用方密钥，写进 0600 私有文件（默认 `.oaa/keys/<name>.key`，不覆盖已有文件），只打印文件路径、Base URL、模型名和一条可直接运行的 curl 命令，不打印密钥本身。
-- 新增 `oaa stop`：停止 `oaa serve --detach` 启动的网关，只向 `/health` 报告的那个 pid 发 SIGTERM。
-- 命令行连不上网关时报 `gateway_unreachable` 并提示如何启动（以前是 `execution_failed: fetch failed`）；未知选项报 `arguments`（以前是 `execution_failed`）；`token_required` 补上下一步建议。
+- **Caller tools default to `auto`.** A request that carries `tools` and chooses no mode used to be handled as `managed` on the compatibility endpoints, Claude Messages and Gemini (the agent finishes with its own tools, and the response says `X-OAA-Client-Tools: ignored`), and was refused with 400 `unsupported_parameter` on OpenAI's default endpoints (`/v1/chat/completions`, `/v1/responses`). Now the default is `auto`: when the agent can take the tools over (a built-in kernel agent, or an ACP agent whose execution machine declared `client-tools-v1`), they are bridged. The agent's calls come back as `tool_calls` (or the equivalent in the protocol), the caller runs them, and the same task continues; the response carries `X-OAA-Client-Tools: bridge`. Every other agent (Codex, Claude Code, Antigravity, A2A, HTTP adapters) behaves exactly as before on every entry. To get the old handling for all agents, send `X-OAA-Client-Tools: managed`, or set `clientTools.default` to `managed`. One difference remains: with `managed` as the default, OpenAI's default endpoints ignore the tools instead of refusing them, as only `/v1/compat` did before. A forced `tool_choice` is never bridged.
+- **A requested JSON format is now enforced.** `response_format` (`json_object`, `json_schema`), Responses `text.format`, Gemini `responseMimeType` with `responseSchema`, and Claude `output_config.format` used to be refused on OpenAI's default endpoints, or passed to the agent as a wish that was never checked. Now a successful response is JSON that parses and fits the schema. A wrong answer is sent back to the agent for correction up to `structuredOutput.maxRepairs` times (0 to 3, default 1), and then the run fails with `structured_output_invalid` (422). Streams are held until the answer has been checked and then sent in one piece. There is no switch for the old pass-through: stop sending the format, or set `structuredOutput.maxRepairs` to `0` to fail at the first wrong answer.
+- **Parameters that only influence sampling no longer fail on OpenAI's default endpoints.** `top_k`, `min_p`, `repeat_penalty`, `logit_bias`, a `stop` list of any length and similar vendor knobs are accepted and ignored, and the names that were ignored are listed in the response header `X-OAA-Ignored-Params`. Parameters that change what the gateway has to do (a forced `tool_choice`, `logprobs: true`, `n` above 1, unknown fields) are still refused.
+- **Responses and Gemini streams now carry run progress.** A streaming call on `/v1/responses` or the Gemini entry used to contain only the answer. It now also carries one short line per phase of the run (queued, started, a tool called, waiting for an approval, a correction round and so on), in the protocol's own thinking shape: a `reasoning` output item (placed first, so later `output_index` values are one higher) on Responses, parts marked `"thought": true` on Gemini. The answer text, the non-streaming responses and the usage counts are unchanged, and a client that ignores thinking sees the same answer. Chat Completions and Claude Messages stay as they were (off). To turn it off for one request, send `X-OAA-Progress: off` (or `metadata: {"oaa.progress": "off"}`); to turn it off for the gateway, set `streamProgress.responses` and `streamProgress.gemini` to `"off"`; to turn it on for Chat or Claude, set `streamProgress.chat` or `streamProgress.claude` to `"reasoning"`. Code that reads `response.output[0]` of a streamed `response.completed` event gets the reasoning item; read `output_text` instead. See `docs/progress.md`.
+- **Images are accepted.** An image part used to be refused with 400 `unsupported_content` on every entry. It is now accepted for agents that can use images; an agent that cannot still refuses it before a run exists. Nothing is fetched from a remote URL unless `images.fetchRemote` is turned on.
+- **Developer-platform billing no longer overdraws.** The per-task price is now held when a task starts and released if the task does not complete. Before, it was taken at the end, so concurrent calls could all pass the balance check and push the balance below zero. The per-token part of a charge now stops at a zero balance instead of taking it negative. A balance that was already negative is not pushed further down. There is no switch for the old behavior.
+- **A per-token price is refused for an agent that reports no token usage** (`usage_pricing_unsupported`, 400): such an agent can only be priced per task. A listing saved earlier keeps its price.
+- **Agent-limited admin keys are bounded.** An `admin` key limited to some agents can no longer revoke or change the quota of keys outside its agents, or of itself. When it has a quota, it cannot create or change a key above that quota (`quota_exceeds_own`, 403). To manage those keys, use an owner-wide admin key.
+- **In a bridged ACP turn, fewer permission requests are approved automatically.** A request is allowed without the owner only when its title names exactly a caller-supplied tool of the relay (the other words may only be filler such as "run" or "call") and the agent itself did not classify the call as running a command or changing files. A shell command whose title merely mentions the relay and a tool name now waits for owner approval.
+- **The unauthenticated portal forms** (login, sign-up, password reset) accept request bodies of at most 64 KiB.
 
-### 开源准备
+### Install
 
-- 英文适配：错误目录的每个码新增英文说明 `en` 与下一步建议 `nextEn`（`GET /v1/errors` 一并返回）；HTTP 错误响应按 `Accept-Language` 选择语言，没有该头时用进程默认语言（`OAA_LOCALE`，否则看系统区域）。原本只有中文说明的抛出点（ACP 智能体、本机后端、Claude SDK 安装提示等）改为中英双语，四种入口的错误体形状不变。`oaa` 的帮助改为分组并按进程默认语言显示中文或英文，失败时附上目录里的下一步建议。中文系统上的默认体验不变；测试统一固定为中文。规则见 `docs/protocol.md`「错误说明的语言」。
-- ACP 预设说明（`GET /v1/local/backends` 的 `presets[].notes`，控制台本机后端页显示）提供中英两版，同样按 `Accept-Language` 选择，没有该头时用进程默认语言；英文文案在 `src/config/agent-presets-en.ts`。
-- 新增 `LICENSE`（Apache License 2.0 标准全文）与 `NOTICE`（版权持有人为 The Open Agent API Authors，并保留 Open Design 的 Apache-2.0 署名）。`package.json` 声明 `"license": "Apache-2.0"`，补上 `repository`、`bugs`、`homepage` 与 `files` 白名单（只含 `dist/src`、`web`、说明与许可证类文件）；`"private": true` 仍保留。
-- `THIRD_PARTY_NOTICES.md` 补全 `@anthropic-ai/sandbox-runtime`（Apache-2.0）的署名，列出全部运行时依赖及其许可证，并单列专有许可的 `@anthropic-ai/claude-agent-sdk`（由使用者自行安装，不受本项目许可证覆盖）；附运行时依赖闭包的许可证核查结果，并把 `lucide` 的许可证全文复制到 `licenses/Lucide-ISC.txt`。
-- 新增 `CONTRIBUTING.md`、`SECURITY.md`（漏洞通过 GitHub 私密漏洞报告提交）、`CODE_OF_CONDUCT.md`，以及 issue 与 Pull Request 模板。
-- README 顶部加许可证与社区文件链接，「许可与署名」一节补充说明；上手步骤对照 `package.json` 与 `src/cli.ts` 核对过，命令与参数均存在。
-- 测试夹具里带个人名字的示例域名改为 `agents.example.com`。
+- **Linux**: `Open-Agent-API-<version>-linux-x64.tar.gz` and `…-linux-arm64.tar.gz` bundle the official Node.js runtime and an `oaa` launcher (no desktop shell; glibc 2.28 or newer). `install.sh` (`curl -fsSL …/releases/latest/download/install.sh | sh`) needs no root: it verifies the download against the release's `SHA256SUMS`, installs under `~/.local/share/open-agent-api`, links `~/.local/bin/oaa`, and supports `--version`, `--prefix` and `--uninstall`. A download that is cut short runs nothing.
+- **Docker**: a multi-stage `Dockerfile` (`node:24-slim`, a non-root user, state in the `/data` volume, a health check on `/healthz`) and `docker-compose.yml`, which publishes the port only on the host's `127.0.0.1:8787`. The first start initializes the data directory and publishes the offline sample agent. Publishing a release pushes `ghcr.io/jiangxingfan1-coder/open-agent-api` for `linux/amd64` and `linux/arm64`. The container has none of the agent command lines of your host, so it fits built-in agents, ACP and A2A remote agents, and execution nodes that connect in.
+- **npm tarball**: each release carries `open-agent-api-<version>.tgz`, installed with `npm install -g <URL of the file>`. The package stays `private`: it is not on the npm registry.
+- **Smaller packages**: third-party source maps, tests and documentation directories, unused builds of the icon library and the sandbox programs of other platforms are left out (the macOS `.dmg` went from 123 MB to 86 MB, measured).
+- **Node.js 24 and 26**: `engines` is now `>=24.18.0 <27`, and CI runs the whole suite on both lines. The runtime bundled into the installers stays 24.18.0.
+- **Release workflow**: `release.yml` also builds the two Linux packages and the npm package, stamps the version into `install.sh`, and writes every file into `SHA256SUMS`. The smoke test run on each package now imports every module, makes the first calls on three protocols against the sample agent, handles an approval through the API and through `oaa approve`, checks that a second `quickstart` creates nothing, and checks that `oaa stop` leaves no process behind.
+- **Fixed**: `oaa` started through a symbolic link (for example the command that `npm install -g` creates) printed nothing; the console returned HTTP 500 for its icon library when npm had hoisted the dependency (`npx`, installation into a project).
 
-## 0.6.4（2026-11-13）
+### Windows
 
-这一版修正了审批与调用方工具结果的等待在过期计时器早于到期时间触发时停住、不再超时的问题：运行会一直挂到智能体放弃或运行总超时，而不是按 `approvalTimeoutMs` 失败。现在没到期就重新计时。
+- Commands are found through `PATH` and `PATHEXT` (`oaa init`, `quickstart`, `connect`, `doctor`, ACP presets), and the full path with its extension is recorded. npm launchers (`codex.cmd` and the like) are started with node directly; other `.cmd` and `.bat` files go through `cmd.exe /d /s /c` with every argument escaped, so `&`, `|`, `%VAR%` and quotes in caller input are passed as text. A line break in an argument for such a file is refused (`invalid_request`).
+- On Windows, `oaa connect <preset>` restarts a background gateway that it started itself by first asking it to close through `POST /v1/gateway/shutdown`, as `oaa stop` does, because there a plain termination ends the process abruptly.
+- An agent's whole process tree is ended with `taskkill /T /F` on cancel, timeout and shutdown. `oaa stop` first asks the gateway to close itself through the new `POST /v1/gateway/shutdown` (an owner-wide admin key, from loopback only), and terminates the process only if it is still running after ten seconds.
+- The caller-tool relay uses a named pipe instead of a Unix socket. Private files (the admin key, caller keys, `server.pid`) are restricted with `icacls`, best effort. File names that Windows treats specially (reserved device names, `:`, a trailing dot or space) are refused with `invalid_path`. `oaa status` and `oaa verify` work without `ps`.
+- The whole test suite now runs on `windows-latest` in CI (`windows.yml`, one process per test file); tests that only make sense on POSIX skip with a stated reason. The messages of the PowerShell launcher scripts follow the Windows display language. Details and limits (no sandbox, forced stops, unsigned packages) are in `docs/windows.md`.
 
-### 修正
+### Security
 
-- 进程内等待调用方工具结果（外部智能体经中继调用调用方工具）与等待外部智能体权限审批时，过期计时器若比墙上时钟早到（`setTimeout` 走单调时钟、`Date.now()` 走墙上时钟，相差约 1 ms 就会出现，系统校时把时钟往回拨时更多），等待会停住不再计时：运行不按 `approvalTimeoutMs` 以 `client_tool_timeout` / `approval_expired` 失败，而是一直挂到智能体自己放弃或运行总超时。现在没到期就重新计时。
+- A security review of the gateway, and its fixes: the bounds on agent-limited admin keys, the tightened automatic approval in bridged ACP turns and the portal form limit are under "Behavior changes".
+- Log and error redaction now also covers execution-node tokens (`oan_…`), portal session tokens (`oas_…`) and common upstream key formats (Google `AIza…`, GitHub, Slack, AWS access keys).
+- New optional limit `maxStoredBytesPerSubject`: the stored bytes of one caller's files, including images stored from requests; past it, uploads fail with `storage_quota_exceeded` (413). Unset, nothing changes.
+- New optional `security.profile`: `local` (the default; nothing changes) or `public`, which sets safer defaults for every setting the configuration leaves unset: `defaultKeyExecution: workspace`, an allowlist for the environment that external agents inherit, `maxStoredBytesPerSubject` of 256 MiB, and a 120-second limit to receive a request. `oaa doctor` and `oaa status` warn when the configuration looks reachable from outside while the profile is still `local`.
+- New `docs/security-model.md`: who can do what, what is exposed by default, what to do before exposing a gateway, and what is not defended (among others: portal sign-up answers `email_taken` because there is no email verification, and login failure counters live in memory only). Regression checks were added for the Host and Origin checks and for static-asset paths.
 
-## 0.6.3（2026-11-13）
+### Compatibility
 
-这一版让开发者平台可以直接在控制台里一键启用、改设置、停用；保存后重启网关生效，不必再改配置文件。同时去掉控制台侧栏底部的密钥名与地址，并重写开发者平台未启用时的说明页。
+- **Compatibility lab** (`integrations/compat/`, `npm run compat`, and `compat.yml` in CI on every push and weekly): the official `openai`, `anthropic` and `google-genai` Python SDKs and the Node `openai`, `@anthropic-ai/sdk` and `@google/genai`, the Vercel AI SDK, LangChain, LiteLLM, the OpenAI Agents SDK and LlamaIndex run against an isolated gateway with an offline agent. The requests of Open WebUI, LibreChat, Chatbox, Cherry Studio, LobeChat, NextChat, Dify, n8n, Continue, Cline, Roo Code, Zed and Cursor, read from their source or documentation, are replayed. Which client was run, which was replayed and which is unverified, with versions and configuration, is in `docs/compatibility.md`.
+- Changes made because of what the lab found: sampling and vendor parameters are tolerated (see "Behavior changes"); `reasoning_effort` and `reasoning.effort` are routing hints; Responses accepts `instructions`, typed message items and `output_text` history; `GET /v1/models/{id}` answers in the OpenAI, Claude and Gemini shapes; a zero-length JSON body on `POST` (what the official SDKs send for `responses.cancel`) is no longer `invalid_json`; the answer to a CORS preflight lists the headers the browser asked for; Gemini bodies may use snake_case field names (`google-genai` 3.3 used to lose its tool parameters), and `/v1beta/{agent}:generateContent` without `models/` is accepted; a trailing or doubled slash in the Base URL still routes, and a 404 for a missing or duplicated `/v1` says so.
 
-### 新增
+### New capabilities
 
-- 开发者平台可以在控制台里一键启用、改设置、停用，不必手工改配置文件：新接口 `GET/PUT /v1/platform/setup`（特性 `platform-setup-v1`，平台未启用时也可用，需要 owner 级管理员密钥、只在控制台域名上）。设置保存在网关数据库的 `gateway_platform_setup` 表（第一次保存时才建，不改写 `config.json`），重启网关后生效；设置归首次启用它的 owner（其它 owner 403），修改时没填的字段保持原值；停用只关开关，账号、流水、上架都保留。配置文件里的 `platform` 段仍然可用且优先，写了之后界面只读（409 `platform_managed_by_config`）。每次保存写审计记录 `platform_setup`。
+- **Structured output** (`structured-output-v1`): the contract described under "Behavior changes", on all four wire formats, with schema checks when the request arrives (`invalid_schema`, `schema_dialect_unsupported`, `output_schema_unsupported`) and correction rounds for kernel agents and for external agents whose session can be continued. The task inspector shows the contract and the corrections used. The schema is not passed to the model provider's own structured-output feature. See `docs/structured-output.md`.
+- **Image input** (`image-input-v1`): PNG, JPEG, GIF and WebP, through OpenAI Chat and Responses, Claude Messages, Gemini, UAP and the native body, inline, as an uploaded file, or as an `https` URL. The limits are 5 MiB per image, 10 images and 8 MiB per request (`images.*`). An image is stored as an input file of the caller. Each agent receives it in the form it can use, or the request is refused before a run exists; `GET /v1/models` shows `image_input`. The gateway does not fetch remote URLs by default. New errors: `image_invalid`, `image_too_large`, `too_many_images`, `image_fetch_failed`, `image_delivery_failed`. See `docs/images.md`.
+- **Run-event webhooks** (`webhooks-v1`): signed (HMAC-SHA256) HTTPS callbacks for `run.requires_action`, `run.completed`, `run.failed`, `run.cancelled`, `run.incomplete` and `run.interrupted`, with a durable queue, six attempts over roughly 40 minutes, endpoint and delivery management under `/v1/webhooks`, outbound address checks (stricter under `security.profile: "public"`), and a read-only list in the console. `examples/webhook-receiver.mjs` is a receiver that can approve pending items. Only owner-wide admin keys configure endpoints. See `docs/webhooks.md`.
+
+- **Model provider presets**: `oaa connect <preset>` gives the built-in agent a model with one command and publishes `agent/assistant`, a general assistant with the workspace file tools. Presets: `ollama`, `lmstudio`, `openai-compatible`, `openai`, `anthropic`, `gemini-api`, `openrouter`, `deepseek`, `moonshot`, `zhipu`, `siliconflow`, `groq`, `together` and `mistral`. A provider can now take its key from a file (`apiKeyFile`, read on every call, so rotating the key needs no restart) or need no key (`noApiKey`, for local models), and has the new settings `streamUsage` and `preset`. A key is never accepted on the command line. A failing upstream call now names the provider and what to change, with the new codes `upstream_auth_failed`, `upstream_model_not_found` and `upstream_incompatible`. The console's publish dialog for a built-in agent lets you pick from the configured providers, and the agent cards show the provider in use and whether its key resolves. The preset values were taken from each service's documentation. See `docs/models.md`.
+- **Stream progress** (`stream-progress-v1`): the behavior described under "Behavior changes", chosen per request (`X-OAA-Progress`, `oaa.progress`) or per protocol (`streamProgress`). The lines never carry tool arguments, tool results, prompts or internal identifiers, and follow `Accept-Language`. The compatibility lab runs a `stream_progress` scenario for each SDK and framework; of the chat clients only Dify was checked against its source, and it would put the progress into the answer on Chat, which is why Chat stays off. See `docs/progress.md`.
 
-### 变更（界面）
+### Developer platform
 
-- 控制台侧栏底部「设置」下面那一条（状态圆点、密钥名、地址）整条去掉。未连接时，顶栏的「未连接」可以点开连接对话框；密钥被拒绝或失效时，错误横幅里带「重新连接」。已连接时在设置页「连接」里切换密钥或断开。
-- 「开发者平台」未启用时的说明页重写：先讲用途与「什么时候不需要」，再用一张两行的对照说明「API 密钥」与「开发者平台」两种分发方式的区别，最后才是启用方式。owner 只在这一页解释；启用后在「概况」里弱化显示一行「智能体归属（owner）」。
+- A listing can turn on `host_execution`, so that platform accounts may call that one external agent (Codex, Claude Code, ACP agents, adapters, kernel agents with host tools). It is off by default and audited, and an agent it delegates to needs its own switch. The console's listing dialog has the switch with its explanation, and the listing table shows which agents accounts cannot call yet. See `docs/platform.md`.
+- Billing: the per-task price is held at the start and released when a task does not complete, token charges no longer overdraw, and an agent that reports no usage can only be priced per task (see "Behavior changes").
+- `examples/platform-walkthrough.ts` runs the whole path offline with the sample agent: list, switch on, credit code, sign up, key, call, charge, top up.
 
-## 0.6.2（2026-11-12）
+### Command line
 
-这一版把 API 密钥改成常见的 `sk-oaa-` 格式（旧的 `oaa_` 密钥继续有效），并把密钥的「停用 / 吊销」改为真正的删除。创建密钥后的结果页突出服务地址（Base URL）与 API Key，设置页去掉了没有作用的条目。
+- New `oaa approvals` (with `--watch`), `oaa approve` and `oaa deny`: list and decide approvals from a terminal. The operation is printed before it is decided.
+- New `oaa status`: one read-only answer to how the gateway and its agents are doing, with `--json`.
+- New `oaa verify AGENT`: prints a plan, and with `--confirm-live-cost` runs the real-agent acceptance scenarios on an isolated gateway and writes a scrubbed `report.md` and `report.json` that can be attached to an issue (template: "Agent verification report"). `examples/live-agents-acceptance.ts` now shares its scenarios.
+- New `oaa webhook add|list|remove|test|deliveries`.
+- New `oaa connect <preset>` and `oaa models`: connect a model provider to the built-in agent, and list the configured providers with whether their keys resolve and whether their endpoints answer (loopback ones automatically, hosted ones only with `--check`, which asks for the model list and nothing else). `oaa connect` never calls a model unless you add `--test`, and then only for a loopback endpoint.
+- New `oaa prune [--older-than 30d] [--dry-run] [--vacuum]`: delete finished runs older than a cutoff, with their events and files (see "Stability"). `oaa doctor` now reports the database size.
+- The command reference is `docs/cli.md`.
 
-### 变更
+### Stability
 
-- API 密钥改成常见的 `sk-` 格式：控制台新建的密钥与开发者账号密钥都形如 `sk-oaa-` 加 48 位字母数字（此前是 `oaa_` 加 base64url）。**旧的 `oaa_` 开头的密钥继续有效**，无需重新生成。调用方只需 Base URL 与 API 密钥，`Authorization: Bearer`、`x-api-key`、`x-goog-api-key`、`?key=` 均可。错误信息脱敏与发布元数据的密钥检测同时识别新旧两种格式。
-- 删除密钥：`DELETE /v1/keys/:id` 与 `DELETE /v1/portal/keys/:id` 之后，密钥立即失效，并且不再出现在 `GET /v1/keys`、`GET /v1/portal/keys` 的列表里（此前标为已撤销后仍留在列表中；此前已撤销的旧密钥也一并不再列出）。记录在内部保留，账单、任务归属与用量结算不变；响应里的 `revoked` 字段保留，恒为 `false`。
+The new `docs/stability.md` has the method, the numbers, the crash-recovery semantics and the limits.
 
-### 变更（界面）
+- **Data retention.** Nothing is deleted unless you ask. The new `retention` setting (`runsDays`, `intervalMinutes`, `warnDatabaseMb`) prunes finished runs older than `runsDays` on a timer, and `oaa prune` (`--older-than`, `--dry-run`, `--vacuum`) or `POST /v1/maintenance/prune` (an owner-wide admin key) does it once. Runs that are queued, running, waiting for approval or interrupted are never pruned. Account and billing records (the ledger, key usage totals) and memories are not pruned either. `oaa doctor` reports the database size, and `oaa status` prints a note above `retention.warnDatabaseMb` (1024 MB by default); neither deletes anything.
+- **Memory and database growth found by a soak test, and fixed.** (1) Every execution armed an uncancellable 30-minute timeout, which kept each finished run's data reachable for 30 minutes (the heap grew by about 1.3 MB/min under load); it is now a timer that is cleared. (2) Timers that were re-armed with exact durations each left one empty internal Node timer list; Node frees such a list only once the original duration has passed, so this was a backlog that grows with load and with the length of the deadlines, not a permanent leak, and those timers now use rounded durations. (3) After a prune, the console's activity window kept the runs that had just been deleted. (4) An endpoint that kept failing let its delivery queue grow without a bound. Before these fixes a 65-minute run grew the heap by 0.29 MB/min and the database by 0.8 MB/min; after them, by 0.008 and 0.0 MB/min.
+- **Event callbacks:** at most 10,000 deliveries wait per endpoint; the oldest beyond that are marked `failed` with `queue_overflow`.
+- **Backups and logs:** the backup written before a migration is kept only for the newest 3 per source version (it was unbounded, so a supervisor restarting a failing gateway in a loop could fill the disk), and `server.log` of a background gateway is rotated to `server.log.1` at start when it is larger than 10 MB. A session workspace that a prune deleted is rebuilt by the local worker instead of being reused from its cache.
+- **`npm run soak`** (macOS and Linux only; not part of `npm test`) runs a real gateway process against a fake model and the offline sample agent under a mixed load, restarts it three times (SIGTERM, SIGKILL, SIGTERM), and checks recovery and a set of pass criteria. Its latest result, on macOS (Apple silicon), Node 24, concurrency 8, on the code of this version: a 32-minute run with the restarts (34,010 requests without an unexpected error; 24 more failed inside the restart windows, which are counted separately) and a 62-minute run in one segment (67,799 requests, no unexpected error). Both met every criterion: the database and the file descriptors, handles and child processes stayed flat, the runs that were in progress at the SIGKILL were `interrupted` after the restart, and no agent process outlived the gateway. The criterion for the memory of a short last segment was revised after the 32-minute run, whose 10-minute last segment had a fitted slope that mostly measured ordinary swings of about ±25 MB; the 32-minute run met the criterion as revised, not as first written (`docs/stability.md` has the details).
+- **`npm run upgrade-check`** repeats an upgrade with real binaries: an older release creates data, the current build serves it, and the older release opens it again. A real 0.0.64 database is a test fixture.
 
-- 控制台与门户的「停用 / 吊销密钥」统一为「删除」：删除后该行从列表消失。配置文件里定义的密钥不能在界面里删除，那一行显示锁图标并说明原因。
-- 创建密钥后的结果页只突出三样：服务地址（Base URL）、API Key、模型名，各自一键复制，另有「复制全部」（三行环境变量）；示例代码默认折叠。
-- 设置页去掉没有作用的条目：「网关地址」「所有者（owner）」「协议能力」，以及与「关于」重复的「网关版本」；连接信息里只留密钥名称、权限范围、可访问的智能体和服务地址（Base URL）。全控制台统一叫「服务地址（Base URL）」，桌面应用菜单同步改名。
+### Desktop app
 
-## 0.6.1（2026-11-12）
+- The menus, dialogs and notices of the macOS app follow the system language. The About box reads the real version. The port comes from `config.json`, and the app connects only to a gateway it can tell belongs to its own data folder. An isolated run (`OAA_DESKTOP_HOME`, `OAA_DESKTOP_PORT`) leaves installed copies and their data alone. The admin key is put into the console's `sessionStorage` in the main frame only, and copies that older versions left in `localStorage` are removed. The first launch shows a dialog once, listing what was published and enabled and where to switch an engine off. The PowerShell launcher of the Windows package shows its messages in Chinese or English.
+- The project owner checked five things by hand, once, on 2026-11-14, on an Apple silicon Mac, with an isolated run of a release-mode package: the console opens already connected with no connection dialog; the one-time first-launch note appears; the console is still connected after a reload (⌘R, which exercises the hand-over of the admin key through `sessionStorage`); the About box shows the right version; and the menus and dialogs follow the system language. Everything else about the desktop apps is not verified; see "Not yet verified".
 
-这一版用官方 SDK（`@anthropic-ai/sdk` 1.3.0、`@google/genai` 3.2.0）实测了 Claude 与 Gemini 两个兼容入口，修正了实测发现的问题，其中 Gemini SDK 默认的 `v1` 前缀此前直接返回 404。Gemini 入口还补上了调用方工具的桥接。
+### Docs
 
-### 新增
-
-- Gemini 兼容入口支持调用方工具的桥接（`X-OAA-Client-Tools: bridge`，`/v1beta` 与 `/v1` 两个前缀）：`tools[].functionDeclarations` 成为调用方工具（`parameters` 的 OpenAPI 大写类型转成 JSON Schema，`parametersJsonSchema` 原样），停车时返回 `functionCall` part（`args` 为对象，并行调用多个 part）与 `finishReason: "STOP"`，流式在一个分片里给全；`contents` 末尾的 `functionResponse` 按 `id` 或（不带 `id` 时）按名字与顺序配对续接同一个运行。`googleSearch` 等内置工具在 bridge 下报 `client_tools_unsupported`，`toolConfig` 仍列在 `X-OAA-Ignored-Params`。此前 Gemini 请求 bridge 一律 400 `client_tools_bridge_unsupported`；这个错误码保留，只用于不支持桥接的外部智能体与缺少执行机器的情况。用官方 `@google/genai` 3.2.0 一次性实测（探测脚本 `examples/gemini-sdk-probe.mjs`）。
-
-### 修正（协议转换）
-
-- `/v1/messages/*` 下网关没有的子路径（SDK 的 `messages.countTokens()`、`messages.batches.*`）的 404 改用 Claude 错误体，SDK 解析为 `NotFoundError`、`type: "not_found_error"`（此前是 OpenAI 形状，`type` 解析成 `invalid_request_error`）。
-- 带 `anthropic-version` 请求头的 `GET /v1/models` 返回 Anthropic 的 ModelInfo 列表与游标分页字段，SDK 的 `models.list()` 拿到 `type`、`display_name`、`created_at`（此前是 OpenAI 列表，这些字段为空）。不带该头时不变。
-- Gemini：接受 `/v1/models/{agent}:generateContent` 与 `:streamGenerateContent`（`@google/genai` 默认 `apiVersion` 是 `v1`，此前不显式设 `v1beta` 就是 404）；该路径的错误用 Google 错误体，`?key=` 同样可用。
-- Gemini：新增 `GET /v1beta/models` 与 `GET /v1beta/models/{agent}`，带 `x-goog-api-client` 头的 `GET /v1/models[/{agent}]` 也用 Google 的 Model 形状，SDK 的 `models.list()`/`models.get()` 拿到 `name`、`displayName`、`supportedGenerationMethods`（此前 `/v1beta` 是 404，`/v1/models` 是 OpenAI 列表，`models.list()` 静默得到空列表）。
-- OpenAPI（`/openapi.json`）登记此前漏掉的路由：`POST /v1/models/*`、`GET /v1beta/models`、`GET /v1beta/models/*`、`GET /v1/models/*`，`GET /v1/models` 说明三种响应形状并列出 `anthropic-version`、`x-goog-api-client` 两个请求头参数；同一路径的多个方法（如 `/v1beta/models/*` 的 GET 与 POST）合并登记，不再互相覆盖。
-- Claude 响应补齐官方 SDK 1.3.0 类型里必有、可为 null 的字段：`Message` 的 `container`、`stop_details`、`diagnostics`，`usage` 的缓存计数、`cache_creation`、`output_tokens_details`、`server_tool_use`、`service_tier`、`inference_geo`、`speed`（均为 `null`）；流式 `message_start`、`message_delta`（`delta` 与 `usage`）同样补齐，桥接停车时的响应一致。SDK 读到 `null` 而不是 `undefined`。
-- Gemini 桥接的 `parameters`（OpenAPI 子集）转 JSON Schema 时，除 `properties`、`items`、`anyOf` 外也递归 `oneOf`、`allOf`、`not`、对象形式的 `additionalProperties`、`prefixItems`、`$defs`/`definitions`、`patternProperties`；映射类关键字里名为 `type`、`nullable`、`items` 的属性不当关键字处理，`enum`、`default`、`const`、`example(s)` 的值原样保留。
-
-### 修正（界面）
-
-- 控制台任务列表的「模型」列：很长的模型名不再折成多行把那一行撑高，改为单行显示、超出用省略号、悬停看完整值。共享表格层新增列选项 `truncate`。余额流水里的外部单号同样处理。
-
-### 验证
-
-- Claude Messages 兼容入口用官方 `@anthropic-ai/sdk` 1.3.0（声明为开发依赖，版本与锁文件已有的一致）经进程内网关实测，新增 `test/compat-anthropic-sdk.test.ts`、`test/compat-anthropic-sdk-errors.test.ts`：非流式与流式解析、截断、系统提示与多轮、三种鉴权写法、各错误类、失败与待审批只发一次请求且只建一个运行、限流的 `Retry-After`、桥接工具（单个与并行、流式拼装）、托管模式。Gemini 入口用临时安装的官方 `@google/genai` 3.2.0 做了一次性实测（SDK 不是项目依赖；探测脚本 `examples/gemini-sdk-probe.mjs`），发现的问题用不依赖该 SDK 的 `test/compat-gemini-sdk-findings.test.ts` 回归。
-
-## 0.6.0（2026-11-12）
-
-这一版是协议兼容与控制面的一轮审计与修正。四份只读审计（OpenAI 兼容面、Claude 与 Gemini 兼容面、控制协议两部分、界面）找出协议与控制面的 7 条 P0 与 18 条 P1，以及界面的 4 处破损与 13 条体系性问题。这一版关掉了全部 P0 与 P1：其中一条 P1（桥接续接沿用同一个响应 ID）按产品语义保留并写进文档，一条控制面的 P1 经复现证伪；界面的 4 处破损与 13 条体系性问题都已处理。少数 P2 没有做。会影响已有调用方的变化（状态码、错误形状、截断、内联图片、幂等与事件流）集中列在「升级须知」一节，升级前请先读。
-
-### 修正（协议转换）
-
-- **错误形状按各家协议**：OpenAI 入口为 `error.code`、`error.param`；Claude 入口为 `{ "type": "error", "error": { "type", "message", "code" } }`，`error.type` 按 HTTP 状态映射；Gemini 入口为 `{ "error": { "code", "message", "status", "details" } }`，网关码在 `details[0].reason`。运行已创建后的错误带 `run_id`。流开始之后出错时，错误帧带真实的错误码与原因，不再是固定的一句话。
-- **失败与待审批返回 422**：非流式 Chat、Claude、Gemini 在运行已创建但没有正常结束（失败、取消、中断、待审批）时返回 422 并带 `x-should-retry: false`，不再是会被官方 SDK 自动重试的 409。`action_required`、`incomplete` 的主状态随之由 409 改为 422。
-- **截断与结束原因**：Chat Completions 截断时返回 200 与 `finish_reason: "length"`（流式照常以 `[DONE]` 结束）；Claude 为 `stop_reason: "max_tokens"`，Gemini 为 `finishReason: "MAX_TOKENS"`，Responses 为 `status: "incomplete"`。
-- **输出长度上限生效**：`max_tokens`、`max_output_tokens`、`maxOutputTokens` 取请求值与智能体自身上限的较小者，只对内置内核智能体生效。采样类参数（`temperature` 等）仍接受并忽略，被忽略的参数名经 `X-OAA-Ignored-Params` 告知。
-- **`/v1/universal` 不再猜协议**：`X-OAA-Protocol` 请求头优先；否则只按各家独有的请求头与结构判定，判定不了返回 400 `protocol_undetected`。`max_tokens`、字符串 `system` 等两家都有的字段不参与判断。
-- **Claude 的 `system` 不截断**：去掉 2000 字符的限制，整体长度受输入上限约束，超限报 `invalid_request`。
-- **内联图片明确拒绝**：Claude 与 Gemini 入口的内联图片（base64 或 URL，以及 Gemini 的 `inlineData`）返回 400 `unsupported_content`，不再当作文本交给智能体。工具调用与工具结果内容块改为以标注文本交给智能体。
-- **严格端点的参数**：`/v1/chat/completions`、`/v1/responses` 对不支持的字段返回 400 `unsupported_parameter`，`error.param` 为字段名，并指向兼容端点。
-- **Gemini 与 Claude 的流**：Gemini 支持 `?key=`；`:streamGenerateContent` 不带 `alt=sse` 时返回 JSON 数组分块；Claude 流在 `message_start` 之后发 `ping`。
-- **Responses 的续接与用量**：`GET /v1/responses/{id}?stream=true` 能重新接上后台运行的流，`starting_after` 跳过已收到的帧；流事件的 `sequence_number` 从 0 连续；`usage` 补上 `input_tokens_details` 与 `output_tokens_details`。
-- **限流与配额的重试头**：限流类 429 的 `Retry-After` 为当前窗口真实的剩余秒数；配额耗尽的 429 带 `x-should-retry: false`，不再被 SDK 当作可重试。
-- **桥接续接的响应 ID**：一个任务一个 ID、一次计费，续接沿用同一个响应 ID。这与 OpenAI「每次调用一个新 Response」不同，是有意的差异，已写进 `docs/protocol.md`。
-
-### 修正（控制面）
-
-- **密钥用量按差额累加**：同一运行多次收尾（中断后恢复、再次完成）只计一次 token；升级前已经多记的历史数据不回改。
-- **恢复计入并发**：恢复的运行与网关启动后重新入队的运行重新计入所属密钥的并发上限，并发上限对恢复生效。
-- **恢复前重新检查资格**：密钥是否过期或被吊销、账号是否停用、智能体是否仍对这把密钥可用（上架被下架）、余额与全部配额。不满足时拒绝恢复，运行保持原状；管理员代恢复别人的运行而原密钥已失效时返回 409 `run_key_inactive`。
-- **平台流水与中断**：中断的运行即按已用 token 结算；恢复时这一行改回进行中，完成后按差额补结。
-- **取消不再静默**：取消一个不在本进程执行的进行中运行，返回 409 `run_not_attached`。
-- **大运行的事件流续传**：单个大帧（带完整输出的终态帧）不再因缓冲上限被截断，断线重连后一定能收到终态；补发按背压分批，读不动的慢客户端仍会被断开。
-- **事件流数量上限**：每个调用方 64 条、每个 owner 256 条运行事件流，超限返回 429 `too_many_streams` 并带 `Retry-After`；兼容入口的流式请求在创建运行之前占名额。
-- **节点消息校验**：网关对节点上行的消息做结构校验，畸形、超大或类型不对的消息以 1008 断开；旧版节点的合法消息照常接受。
-- **终态后的等待步骤**：运行终结时仍在等待的步骤标为 `failed`，错误写明 `not_executed: <运行错误码>`。
-- **幂等指纹**：区分是否带了自带的提供方密钥（BYOK）及是哪一把，只并入密钥的摘要，密钥本身不落库。
-- **调用方工具的审批检查**：`action_kind_mismatch` 的检查移入内核的 `decide`，任何入口都不能人工批准调用方工具。
-- **只作运行错误码的写法**：`turn_limit`、`token_budget`、`max_output_tokens` 改用不带 HTTP 状态的 `RunErrorFault` 抛出，错误目录里状态统一为 `null`（`turn_limit`、`token_budget` 原为 409，实际从不作为 HTTP 状态返回）；兼容入口错误体的类别按原因区分：调用自身的上限（这三个码）流式与非流式都归 Claude `invalid_request_error`、Gemini `FAILED_PRECONDITION`（流里原为 `conflict_error` / `ABORTED`）；服务一侧的原因（`gateway_restarted`、`run_timeout`、`parent_interrupted`）归 `api_error` / `INTERNAL`（非流式原为 `invalid_request_error` / `FAILED_PRECONDITION`）。HTTP 状态与 `x-should-retry` 不变。
-
-### 界面
-
-- **字体随产品发布**：Geist、Geist Mono、Instrument Serif、Noto Serif SC（OFL-1.1，约 3.4 MB），放在 `web/fonts/`，许可证在 `licenses/`，`THIRD_PARTY_NOTICES.md` 已登记。不联网下载。
-- **修复 4 处破损**：门户登录后页头在约 1000px 以下重叠；控制台任务表在 1024 下耗时列被裁；开发者平台表在 1024 下数字列相撞；调用地址页代码块的复制按钮盖住首行。
-- **体系统一**：间距、字号、圆角走设计变量；卡片改为无投影的 1px 细边，删去渐变与印章装饰；控制台与门户共用表格列模型（数字列右对齐，放不下时在容器内横向滚动）、格式函数（点数、token、时间）与设计变量。
-- **样式拆分**：控制台的 `console.css` 与门户的 `runs.css` 按分节拆成多个文件，拆分本身不改变渲染结果。
-- **用词统一**：控制台的「请求」统一叫「任务」（界面文案；协议字段、路由、错误码不变）。
-- **开发者平台页分四个标签**：概况与用量、上架与定价、开发者、兑换码。
-- **门户导航**：主导航为首页、智能体、文档、试用；用量、任务、密钥、账单与退出收进账户菜单。
-- **任务的输入预览**：控制台任务列表与概览的「输入」取最后一条用户消息的文本，不再显示 `[user]`、`[system]` 等角色标记与系统提示；已有的旧摘要在读取时同样处理，交给智能体的输入不变。
-
-### 升级须知
-
-- **非流式失败与待审批**：Chat、Claude、Gemini 从 409 改为 422 并带 `x-should-retry: false`。按状态码分支的客户端需要改；官方 SDK 不再自动重试这类调用。
-- **截断**：Chat Completions 的截断从 409 改为 200 与 `finish_reason: "length"`。
-- **通用入口**：`/v1/universal` 判定不了协议时返回 400 `protocol_undetected`，不再猜。
-- **内联图片**：Claude 与 Gemini 入口的内联图片从「被当作文本」变为明确拒绝（400 `unsupported_content`）。需要图片的调用方请先 `POST /v1/files` 上传，再按文件 ID 引用。
-- **严格端点的参数**：`/v1/chat/completions` 与 `/v1/responses`（不带兼容头）对不支持的字段返回 400 `unsupported_parameter`。
-- **输出长度上限**：`max_tokens` 等现在真正生效，只能调低智能体自身的上限。
-- **Responses 流**：`sequence_number` 从 0 开始（之前直接用事件 ID）；`usage` 多了 `input_tokens_details` 与 `output_tokens_details`。
-- **错误目录**：新增 5 个码（`unsupported_parameter`、`unsupported_content`、`protocol_undetected`、`run_key_inactive`、`run_not_attached`）；`action_required`、`incomplete` 的主状态改为 422；`GET /v1/errors` 的修订号随之变化，按修订号做缓存的需要重新拉取一次。
-- **幂等**：同一个 `Idempotency-Key` 在带与不带自带提供方密钥之间切换，现在返回 409 `idempotency_conflict`。
-- **事件流上限**：每个调用方同时打开超过 64 条运行事件流时返回 429 `too_many_streams`。
-- **恢复与取消**：恢复会检查资格，不满足时拒绝；取消不在本进程执行的运行返回 409 `run_not_attached`。
-- **平台流水**：中断的运行即按已用 token 结算（之前停在进行中）。
-- **数据库**：新增表 `api_key_run_tokens`（密钥 token 差额记账），第一次启动时为已中断的运行补记。`SCHEMA_VERSION` 仍为 4。
-- **静态资源路径**：控制台新增 `/styles/`、`/shared/`、`/fonts/`，门户新增 `/portal/styles/`、`/portal/shared/`、`/portal/fonts/`。自建反向代理若对路径做了白名单，需要放行（见 [docs/deploy-public.md](docs/deploy-public.md) 第 5 节）。
-- **节点**：远程执行机器收到的 `Work.maxOutputTokens` 是可选字段，不认识它的旧版节点仍按已发布的上限执行；畸形消息会被断开。
-- **界面用词**：控制台里的「请求」改叫「任务」。
-
-### 限制
-
-- Claude 与 Gemini 的兼容性没有用官方 SDK 实测，断言按各家官方文档写。OpenAI 兼容接口（Chat Completions、Responses）用官方 Node SDK 经进程内网关测试。
-- 不支持内联图片与音频（base64 或 URL）。所有兼容入口（OpenAI、Claude、Gemini 与 `/v1/universal`）都明确拒绝，返回 400 `unsupported_content`，需先经 `POST /v1/files` 上传再按文件 ID 引用，见 [docs/protocol.md](docs/protocol.md#兼容入口的参数错误与结束原因060)。
-- 运行记录已被清理、而流水仍在进行中时，启动对账按 0 token 结算，可能少收。
-- 仍然是单网关 + SQLite，不支持多实例与 Postgres。
-- 仍然没有支付渠道与邮件。
-
-### 验证
-
-全量测试 696 项通过（其中离线 528 项；0.5.0 是 620 项）。OpenAI 的两个入口用官方 Node SDK（经自定义 `fetch` 接进程内网关）测了非流式、流式、截断、失败与待审批不被自动重试、限流、桥接往返、内联图片被拒绝。在本机隔离网关上用本地确定性模型抽查了各入口的错误形状、被忽略参数的响应头、Claude 的长系统提示、Gemini 的 `?key=`、通用入口的协议识别，并逐页看了控制台（1440 浅色与 1024 深色的全部视图）与门户（1280 浅色与 390 深色的全部页面）：没有横向溢出，没有浏览器控制台报错，每屏实心主操作不超过一个。
-
-没有验证的：Claude 与 Gemini 没有用官方 SDK 实测（断言按官方文档写）；没有调用真实模型，没有在公网与反向代理环境里验证；界面只在 Chromium 内核的浏览器里看过，1440 与 1920 宽度的完整页面只看了离线截图；「30 秒不读数据即断开慢客户端」只有代码核对。
-
-## 0.5.0（2026-11-12）
-
-这一版让「智能体即 API」在门户里看得见，并补齐接入支付与运营稳健性：开发者能看到自己每个任务的过程，并能在浏览器里试用智能体；运营者可以用只能加点数的密钥接自己的支付回调，并按外部单号去重；忘记密码的开发者凭运营者给的重置码自己设置新密码；网关重启后未结算的流水会被对账。不配置 `platform` 段时，除本节列出的变化外，行为与 0.4.0 相同。
-
-### 新增
-
-- **门户任务记录与任务详情**：「任务」页列出账号发起的任务，可按智能体过滤、翻页；详情给出状态、起止时间、用量、费用、输出，以及按段列出的执行过程（类别、名称、状态与耗时）。见 [docs/platform.md](docs/platform.md#查看任务的过程)。
-- **门户试用台**：「试用」页选择已上架的智能体，填入自己的账号密钥，流式查看输出，结束后给出这个任务的记录页链接。密钥只留在页面内存里，不写入 `localStorage`；试用同样计费。不新增后端接口。
-- **充值专用密钥（`billing`）**：只能给账号加点数（`POST /v1/platform/accounts/:id/credit`，`amount` 必须大于 0）和按邮箱找账号（`GET /v1/platform/accounts?query=`），不受 `consoleHosts` 限制。见 [docs/platform.md](docs/platform.md#接入你自己的支付)。
-- **按外部单号去重的入账**：`credit` 的请求体可带 `reference`。同一单号再次提交时不再入账，返回第一次的结果并带 `duplicate: true`；金额或账号与第一次不同时返回 409 `reference_conflict`。带单号的流水行多一个字段 `reference`。
-- **一次性重置码**：`POST /v1/platform/accounts/:id/reset-code` 生成 20 个字符的重置码，24 小时有效、只能用一次，数据库里只存散列。开发者用 `POST /v1/portal/password-reset` 或门户登录页自己设置新密码，运营者不再需要知道开发者的密码。
-- **启动对账**：平台启用后，网关启动完成之后异步核对流水里仍为进行中的行。运行已经结束的按终态结算，运行已不存在的记为 `interrupted`，仍在进行的不动。不阻塞启动，重复执行结果不变。
-- **控制台平台页**：新增「用量」区块（近 30 天按天、按智能体、按账号）；开发者一行的操作里可以生成重置码；密钥对话框的权限里新增「充值（billing）」。
-- **英文开发者指南** [docs/platform.en.md](docs/platform.en.md)。
-- **错误码** `reference_conflict`（409）。
-
-### 变化
-
-- 平台的用量统计改为数据库聚合，数值不变；`GET /v1/platform/usage` 的 `by_account` 最多返回消耗最高的 50 个账号。
-- 权限取值新增 `billing`，配置与 `POST /v1/keys` 都接受。
-- `invalid_code` 的含义扩展到重置码：重置码错误、过期、已用过或邮箱不存在时，也返回 400 `invalid_code`。
-
-### 修正
-
-- 重置密码对话框生成重置码后，结果页的副标题不再显示「选一种做法」的提示。
-
-### 升级须知
-
-- **错误目录变化**：`GET /v1/errors` 的目录内容与修订号因新增 `reference_conflict` 与 `invalid_code` 的说明而变化，未启用平台的部署也一样。按 `code` 分支的客户端无需改动；按修订号做缓存的，需要重新拉取一次。
-- 启用平台时新增两张表 `platform_references`、`platform_reset_codes`，`SCHEMA_VERSION` 仍为 4。旧版网关打开这个库时会忽略这些表。
-
-### 限制
-
-- 仍然没有支付渠道与邮件：重置码要由运营者经其它渠道交给开发者，没有邮箱验证。
-- 单网关 + SQLite，不支持多实例与 Postgres。
-- 启动对账会扫描流水里仍为进行中的行，流水很多时启动后的这一步会慢一些（它不阻塞启动）。
-
-### 验证
-
-全量测试 620 项通过（其中离线 452 项）；在本机隔离网关上用本地确定性模型实测了充值专用密钥的权限边界、单号去重、重置码、任务记录与试用台。启动对账只有进程内测试。没有调用真实模型，没有在公网部署上验证。
-
-## 0.4.0（2026-11-12）
-
-这一版是「开发者平台」：网关可以作为面向开发者的 Agent API 平台对外提供。开发者自助注册、自己建密钥、调用运营者上架的智能体，按点数结算。分发的是智能体，不做订阅池，也不中转登录态；与模型中转平台的区别见 [docs/platform.md](docs/platform.md#定位)。不配置 `platform` 段时，除本节列出的变化外，行为与 0.3.0 相同。
-
-### 新增
-
-- **`platform` 配置段**：配置后启用开发者平台，字段与默认值见 [docs/platform.md](docs/platform.md#启用)。未配置时不建表、不注册路由，`/health` 的 `features` 不变。
-- **开发者账号与门户会话**：注册方式由 `registration` 决定（`closed`、`invite`、`open`），支持登录与改密码。门户会话（`oas_…`）只用于 `/v1/portal/*`。密码用 scrypt 存储；注册与登录按来源 IP 与邮箱限流。
-- **账号密钥**（`oaa_…`）：同一账号的多把密钥共享运行、文件与记忆，不同账号之间互相隔离。权限固定为 `invoke`、`read`、`files`；只能调用上架且启用的智能体；执行等级只能是 `workspace` 或 `sandbox`。
-- **智能体上架与定价**：运营者把 `platform.owner` 名下已发布的智能体上架，设置标题、简介、标签，以及按次与按千 token 的价格（各 0 到 1000 点）。下架保留记录，移除则删除记录。
-- **点数、流水、兑换码与邀请码**：点数是中性的记账单位（1 点 = 1,000,000 微点），由运营者通过兑换码、邀请码或手动调整发放。每次变动记一行流水；兑换码只存散列，明文只返回一次。
-- **计费**：提交前检查余额，不足返回 402 `insufficient_balance`；运行开始时登记流水，结束时按实际结果结算；同一运行重复结算只补差额，不会重复扣费。规则见 [docs/platform.md 的计费规则](docs/platform.md#计费规则)。
-- **接口**：门户接口 `/v1/portal/*`；运营者接口 `/v1/platform/*`，需要 owner 级管理员密钥，只在控制台域名上可用。`GET /openapi.json` 在启用平台时包含这两组路由。
-- **开发者门户 `/portal/`**：中文为主，可切换英文。
-- **控制台「开发者平台」页**：概况、上架与定价、开发者、兑换码四个区块。
-- **审计码**：`platform_credit_adjusted`、`platform_account_status`、`platform_password_reset`。记录不含密码、备注原文与兑换码。
-- **错误类别 `platform`**：12 个错误码，见 [docs/protocol.md「错误码」](docs/protocol.md#错误码errorcode)。
-- **`/health` 特性 `platform-v1`**：启用平台时出现在 `features` 中。
-- **文档**：新增 [docs/platform.md](docs/platform.md)；`README.en.md` 增加开发者平台一节。
-- **外部智能体可在发布时设为自动批准**（`approvals: "auto"`，缺省 `ask`）：它运行中的权限请求不再进入 `requires_action`，由策略直接批准并留下记录（审批记录 `response: { auto: true }`，事件 `approval.resolved` 的 `actor: "policy:auto"`）；超大审批详情仍被拒绝。入口：`POST /v1/agents/publish-native` 的 `approvals`、CLI `publish-native` / `expose` 的 `--approvals ask|auto`、OAA-Lang 的 `approvals = auto`、控制台发布对话框的开关。内核智能体写 `auto` 报校验错误；不写时定义与摘要不变。`GET /v1/agents` 与概览的条目对这类智能体带 `approvals: "auto"`；发布或更新这类智能体写审计记录 `approval_policy_auto`。`/health` 的 `features` 增加 `approval-policy-v1`。**风险**：调用方以你在这台机器上的权限驱动这个智能体，请配合专用且限定智能体的 API 密钥，必要时用沙箱执行等级。见 [docs/protocol.md](docs/protocol.md#approval-policy-for-external-agents-approval-policy-v1)。
-
-### 修正（真实联调发现，见 [docs/evidence.md](docs/evidence.md)）
-
-- **Claude Code 失败时带出原因**：结果消息的文本（或 `errors`）脱敏、限长 240 字符后写进错误消息；能识别为未登录（`not logged in`、`please run /login`、`invalid api key`、`authentication`）时报 `adapter_auth_required`（503），其余仍是 `native_incomplete`（502）。
-- **桥接回合里对调用方工具的权限请求自动放行**：ACP 智能体对中继 `oaa-caller` 提供的工具发 `session/request_permission` 时直接允许一次，不再创建 owner 审批（无人值守时原来会卡住），记进度 `permission_auto_allowed`；智能体自带工具照旧走 owner 审批。见 [docs/harness.md](docs/harness.md#外部智能体的桥接是怎么工作的)。
-- **ACP 全零用量按未知处理**：`PromptResponse.usage` 三项全为 0 时不再记成 0 个 token，运行的 `usage` 为 null、`oaa.usage_complete` 为 `false`，Chat 响应不带 `usage`。
-
-### 升级须知
-
-- **错误目录变化**：`GET /v1/errors` 的目录内容与修订号因新增平台错误码而变化，未启用平台的部署也一样。按 `code` 分支的客户端无需改动；按修订号做缓存的，需要重新拉取一次。
-- **`GET /v1/me` 的新字段**：账号密钥调用时，响应多一个 `account: { id, balance }` 字段；其它密钥的响应不变。
-- `/health` 的 `features` 增加 `approval-policy-v1`（所有部署）；启用平台时另有 `platform-v1`。
-
-### 限制
-
-- 单网关 + SQLite，不支持多实例与 Postgres。
-- 不接支付渠道，不发邮件：没有邮箱验证与自助找回密码，密码由运营者重置。不做多个发布者各自结算。
-- 限流计数在内存里，重启后清零。网关在反向代理后面时必须开启 `trustProxy`，否则所有访客共用同一个计数。
-- 外部智能体可能不报告 token，此时只有按次价格生效，token 数不是费用估算。
-
-### 验证
-
-全量测试 602 项通过（其中离线 434 项）；在本机隔离网关上用本地确定性模型走通了上架、注册、兑换、建密钥、三种协议调用与扣费。没有调用真实模型，没有在公网部署上验证。
-
-## 0.3.0（2026-11-11）
-
-### 新增
-
-- **ACP 外部智能体的调用方工具桥接**（`X-OAA-Client-Tools: bridge`）：调用方工具经 stdio MCP 中继 `oaa mcp-relay`（服务名 `oaa-caller`，本机 Unix 域套接字，0600，一次性令牌，不监听网络端口）交给 ACP 智能体；智能体调用时以标准的 `tool_calls` / `function_call` / `tool_use` 交给调用方，回传后同一个运行接着做。等待期间内层进程保持存活；网关重启会中断这类运行。见 [docs/harness.md](docs/harness.md#外部智能体的桥接是怎么工作的)。
-- 新事件 `run.awaiting_caller`（`data: { approval_ids }`）：外部智能体的桥接运行在等调用方时发出，同一时刻的并行调用合并成一次。
-- 节点特性 `client-tools-v1`：执行机器上报 `execution.clientTools.native`（支持桥接的引擎）；桥接运行只放到声明了支持的执行机器上，没有时提交阶段报 `client_tools_bridge_unsupported`（400）。内核智能体的桥接运行同样按这个特性放置（0.2.0 是到执行时才报 `manifest_mismatch`）。
-- `/health` 的 `features` 增加 `harness-bridge-acp-v1`；ACP 接入的画像 `client_tools` 改为 `bridge`。
-
-- 请求列表与概览的行新增可选字段 `waiting_on`（`caller` / `owner`）：区分「等待调用方执行工具」与「待审批」。控制台相应显示「等待调用方」，详情里单列待处理的调用，时间线新增「调用方执行工具」段，「调用地址」页新增「调用方自己也是智能体时」小节。见 [docs/console.md](docs/console.md)。
-- 调用方工具中继在等待期间按 MCP 的进度通知保活（智能体的 MCP 客户端给了 progressToken 时）；智能体放弃某次调用后，对应步骤以 `client_tool_abandoned` 结束，不再挂到超时。
-- OAA-Lang：流程表达式里的 `input` 与 `$input` 等价（如 `when $(input.limit > 0)`）。
-
-### 工程
-
-- `web/run-inspector.js` 按职责拆分为入口加 3 个模块。
-
-### 升级须知
-
-- 不带 `tools`、或不请求 `bridge` 的请求，交给 ACP 智能体的 `mcpServers` 仍是 `[]`，线上字节不变。
-- 0.2.0 的远程执行机器不声明 `client-tools-v1`：它们不再接收任何桥接任务（包括内核智能体的）。需要桥接时请升级执行机器。
-- 没有对真实 ACP 智能体联调；`mcpServers` 条目的字段形状依据 ACP 规范的公开描述。 （2026-11-11 更新：已对本机 agy 1.5.5 的 ACP 入口用 Gemini 3.8 Flash 做过一次真实联调，托管与桥接各一次调用均通过，`mcpServers` 的 stdio 条目形状被接受；并行调用、流式、慢回传与其它 ACP 智能体仍未验证。）
-
-## 0.2.0
-
-这一版是「架构统一升级」：源码分层、内核与接入层收口、调用方工具桥接、错误 / 事件 / 限额目录、OAA-Lang 变严格、控制台术语统一。
-
-### 升级须知
-
-可能影响现有使用者的变化：
-
-- **OAA-Lang 变严格**：以前「碰巧能编译」或会崩溃的写法现在会报错，例如单值属性重复声明、`delegate` 块里拼错的键、修饰与类型不符、名为 `input` 的步骤、`route r null`、超出范围的数字。常量不再替换工具名与键名。合法程序的编译产物不变，`oaa fmt` 的输出有变化。逐条对照见 [docs/language.md「升级说明（0.2.0）」](docs/language.md#升级说明020)。
-- **Gemini 兼容接口带 `tools` 时的行为**：原来静默丢弃 `tools`，现在按托管 / 拒绝模式处理（默认托管，响应头 `X-OAA-Client-Tools: ignored`）；请求 `bridge` 报 `client_tools_bridge_unsupported`。见 [docs/harness.md](docs/harness.md)。
-- **远程执行机器需要升级才能运行桥接请求**：执行机器比对智能体定义时要放行尾部的合成绑定，旧版执行机器会拒绝带调用方工具的副本。
-- **进度事件新增字段**：外部智能体的进度事件经入口约束（字段白名单、字符串截断），并新增 `source: "agent"` 等字段；只增字段不改名。见 [docs/adapters.md](docs/adapters.md#外部智能体事件的入口约束2026-11-11)。
-- **新接口 `GET /v1/errors`**：错误目录（需要 `read` 权限，带 ETag）；`/health` 的 `features` 增加 `error-catalog-v1`、`client-tools-policy-v1`、`harness-bridge-v1`。
-- **关闭时挂起的运行的错误码**：网关关闭时仍在挂起的运行，错误码统一为 `shutting_down`。
-- **没有变化的部分**：存储结构（schema v4）与节点线协议没有变化；不带 `tools` 的兼容请求，线上字节与此前一致。
-
-### 新增
-
-- 双层 Harness：兼容接口带非空 `tools` 时按 `managed`（默认）/ `reject` / `bridge` 处理，用请求头 `X-OAA-Client-Tools` 或 `metadata["oaa.client_tools"]` 选择；画像新增 `client_tools`。见 [docs/harness.md](docs/harness.md)。
-- 调用方工具桥接：内置内核智能体在 Chat Completions（`tool_calls`）、Responses（`function_call` / `function_call_output`）与 Claude Messages（`tool_use` / `tool_result`）上把调用方工具交回调用方执行，回传结果后同一个运行接着做；Gemini 与 UAP/1 不支持桥接。
-- 错误目录（238 条、11 个类别）、事件目录（31 个事件）与限额目录，错误目录通过 `GET /v1/errors` 对外提供。见 [docs/architecture.md 第 9 节](docs/architecture.md#9-三份目录错误事件限额)。
-- 运行状态机：合法转移登记成表，存储层落盘前校验，非法转移报 `invalid_run_transition` 且不写入。见 [docs/architecture.md 3.2](docs/architecture.md#32-运行状态机)。
-- OAA-Lang：agent 级属性同时接受 `=` 与 `:`，`network` 接受 `allowed_domains`，flow 里的 `$常量` 解析为常量的值，校验错误带源码位置；新错误码 `oaa_validation_error`。
-- `docs/language.md` 重写为完整语法参考，其中的示例代码块由测试保证能编译且格式化幂等。
-- 控制台：智能体详情新增「工具与模型」说明，发布方式随选项给出解释，可用性检查的原因显示中文。见 [docs/console.md](docs/console.md)。
-- 新文档：[docs/harness.md](docs/harness.md)、[docs/engineering.md](docs/engineering.md)、[docs/operations.md](docs/operations.md)、[docs/README.md](docs/README.md)。
-
-### 变更
-
-- 委托步骤按子智能体的实际情况登记副作用等级：外部智能体与会继续委托的智能体是「影响未知」，重启后等人工确认，不再自动重跑。
-- 备选智能体（`oaa.agent_fallback`）按真实可用性（执行机器、BYOK、沙箱条件）与完整的执行级别检查选取，不合格的候选被跳过。
-- 「可换线路重试 / 不触发换人 / 结果按未知处理」三份错误码名单并入错误目录（`routeRetryable`、`fallbackExempt`、`uncertainWhenStarted`），`GET /v1/errors` 会带出这些标记。
-- 调用方回传的工具结果写回对话时：能解析成 JSON 对象或数组就按值写回，否则按原字符串写回、不加引号。
-- `oaa fmt` 保留 `let` 声明，多行说明输出三引号，连续的 `use builtin` 合并成列表；源码含注释时给出警告。
-- 控制台术语按统一术语表替换（网关、执行机器、模型线路、内置内核、外部智能体、调用名称、关键路径、中位耗时 / P95 耗时），错误说明改为读取后端错误目录；去掉了前端自行猜测的「意图识别」徽标。
-- `docs/architecture.md` 按主题重整为中文；README 重写，操作细节移入 [docs/operations.md](docs/operations.md)。
-
-### 修复
-
-- 委托：恢复后不再重复委托同一个子运行；子运行「结果未知」会传到父运行；并行委托不再突破 `maxActiveRuns`；父运行已不活跃的排队子运行以 `cancelled / parent_interrupted` 结束；委托超时报 `delegate_timeout`。见 [docs/architecture.md 3.7](docs/architecture.md#37-委托与子智能体一致性)。
-- 准入队列去重，修掉了「换人重新排队后任务登记被旧任务的清理误删」的问题。
-- `context_limit` 的文案与数值一致（2 MB）。
-- 外部智能体：事件回调失败不再成为未处理的 Promise 拒绝；产物全部校验落盘后才标记步骤完成；Antigravity 只有能识别为拒绝的工具错误才报 `permission_denied`；超过 256 KiB 的审批详情直接拒绝。
-- OAA-Lang：常量不再替换工具名（`let read_file = "write_file"` 后授予的仍是 `read_file`）；原来会抛 `TypeError` 的写法改为带位置的报错；默认提供方与声明顺序无关。
-- 控制台：错误说明修正 `permission_denied` 与 `catalog_capacity`；密钥删除地址编码、停用图标、命令面板 `aria-expanded`、重绘时保留折叠区展开状态与滚动位置。
-
-### 工程
-
-- 全仓按 Prettier 统一排版，新增 `npm run format` / `format:check`。
-- `src/` 按层分为 10 个目录，架构测试守住依赖方向、循环引用、文件行数与 `any` 数量（上限 0）。见 [docs/engineering.md](docs/engineering.md#2-目录分层与依赖规则)。
-- 新增 `npm run test:offline`（不监听端口的测试）与 `npm run verify`（类型检查 + 排版检查 + 全量测试），CI 运行 `verify`；打开 `noImplicitOverride`、`noFallthroughCasesInSwitch`、`noImplicitReturns`。
-- 纯重构：`lang.ts` 按职责拆成词法、解析、类型、流程、语句、编译、输出、诊断等文件；`web/console.js` 拆成原生 ES 模块，不引入构建步骤；`engines/` 的四种接入方式共用 `engines/shared.ts`；内核把委托、备选智能体链、记忆工具等移到独立文件。
-- 依赖：移除不再使用的 `eventsource-parser` 直接依赖，`openai` 移到 `devDependencies`。
-
-## 0.1.0
-
-初始版本。
+- Every document is English first, with the Chinese version in `docs/zh-CN/` (and `README.zh-CN.md`, `CHANGELOG.zh-CN.md`, `ROADMAP.zh-CN.md`). A test checks that links and anchors resolve, that every document has a twin, that the language switch lines are there, that the error tables agree with the error catalog, and that this changelog starts with an empty "Unreleased" section.
+- **Documentation site and example set.** `tools/docs-site/` generates a static site from the English and Chinese documents, with search; the Pages workflow now builds it first and then deploys it together with the landing page, and a check validates the generated pages and their links. `examples/cookbook/` has eight groups of copy-and-run calls (first call, long tasks, approvals, caller tools, structured output, images, errors and retries, connecting tools) in curl, Python and Node, and the compatibility lab runs each of them. `examples/README.md` says which file is for whom. The landing page's navigation links to both.
+- Smaller: the documents now say that every entry honours `Idempotency-Key`, and what a caller sees after a cancellation (`cancelled`, or `interrupted` with `effect_outcome_unknown` when an external effect cannot be ruled out). The offline sample agent no longer calls its reply "turn N of this session", and its README says that it cannot continue a session.
+- New: `ROADMAP.md`, `docs/cli.md`, `docs/install.md`, `docs/windows.md`, `docs/security-model.md`, `docs/compatibility.md`, `docs/structured-output.md`, `docs/images.md`, `docs/webhooks.md`, `docs/models.md`, `docs/progress.md`, `docs/stability.md`, and an issue template for agent verification reports. `docs/evidence.md` now separates what the offline tests and CI show from what has been run with a real agent.
+
+### Not yet verified
+
+- **Real agents.** End-to-end verification with a real agent was done once, with Antigravity on 2026-11-13, using an earlier version of the acceptance script. Codex and Claude Code have not been run through it; `oaa verify` is the way for anyone with one of them installed to do so.
+- **Image delivery to Codex and Claude Code** is implemented from the vendors' documentation and has not been run against the real agents. Whether the Claude Agent SDK ends a session normally after the single streamed message that carries an image is an open question. Antigravity and DSH receive images as workspace files, also not run against the real agents.
+- **Structured-output correction rounds with real external agents**, and caller-tool bridging beyond the manual session of 2026-11-11 (Antigravity and Qoder), are tested with stand-in agents only.
+- **Webhook delivery to a real public HTTPS endpoint**: the tests use local plain-http receivers.
+- **The desktop apps, beyond those five checks.** Not verified: the three messages for a port that is in use; switching the system language between Chinese and English in both directions (only the owner's current language was seen); that a second start with the same data folder no longer shows the first-launch note; recognizing and reusing a gateway that outlived a crashed app; the Intel package; the normal, non-isolated installation (default data folder, port 8787) of this version; and the bilingual messages of the Windows launcher (there is no Windows machine for it, and CI only checks the PowerShell syntax). The logic behind the macOS app is covered by offline tests.
+- **Windows with real agents.** CI passes the full suite on Windows with stand-in agents.
+- **The release workflow with its new parts.** The Linux packages, `install.sh`, the npm tarball, the extended smoke test and the multi-architecture Docker push have not yet run on GitHub: the first run is the release of this version, and so is the first run of the Windows package of this version. The Docker image has been built (amd64) and smoke-tested in CI.
+- **The compatibility lab uses a deterministic fixture model and the sample agent**, never a real agent. A replay shows that the gateway accepts a client's recorded request and answers in a form it parses, not that the whole application works. Cursor is unverified, and LibreChat and LobeChat are only partly derived from source.
+- **Developer platform**: the success path of billing with a real external agent, and a public deployment, have not been seen.
+- **Model provider presets** have not been run against any real model service. The addresses and differences come from each service's documentation, and the tests use fake services. If a preset stops working, `oaa models --check` and the error code say which setting to change.
+- **The documentation site** has been built and its links checked, but not seen on real GitHub Pages: the first deployment is its first look.
+- **The soak** used a fake model and the offline sample agent only, and ran for at most 62 minutes. Real providers and real agent command lines add latency, memory and failure modes it does not measure, and caches with designed bounds fill over hours. In one earlier 32-minute attempt the gateway needed about 110 seconds to answer after a SIGKILL; it did not recur in three further SIGKILL restarts or in a manual try, and the cause is not known (`docs/stability.md`, "Known limits").
+- **Stream progress for external agents** is tested with stand-ins, not with the real agents.
+- **Not done**: passing a schema to the model provider's own structured-output feature, forced tool choice, and a real payment channel.
+
+## 0.0.64 (2026-11-14)
+
+Public versions are renumbered from 0.0.64. The 0.1.0 to 0.6.4 entries in the Chinese changelog are internal version numbers from before the public release, kept as a record.
+
+The first public version: open source under Apache-2.0, with macOS (Apple silicon and Intel) and Windows installers that bundle their own Node runtime. Gateway behavior is the same as 0.6.4.
+
+### Release builds
+
+- The packaging script has a new release mode, `--release`: it installs nothing into any application directory, links no CLI, and writes nothing to the user's home directory; artifacts are written only to `release/` (a write outside it is an outright error). `--dry-run` only prints the paths each step would write and the external commands it would run. Local development packaging (without `--release`) behaves as before. New scripts: `npm run package:release:mac` and `package:release:win`.
+- Release packages bundle the official Node runtime (`--node-dir`, with the version checked against `engines.node`), and, following `package-lock.json`, exclude development dependencies, the proprietary `@anthropic-ai/claude-agent-sdk` and the packages only it references, and native packages for other platforms and architectures. macOS supports `--arch arm64|x64`; artifacts are named uniformly `Open-Agent-API-<version>-macOS-<arch>.dmg` and `…-win-x64.zip`, and a `SHA256SUMS` is generated.
+- When the Claude Agent SDK is missing, the Claude native engine returns `adapter_unavailable` with installation instructions (it can be installed separately into `~/.oaa/vendor` or `OAA_CLAUDE_SDK_DIR`), and `oaa doctor` and the local backend information mark it `requires_separate_install`; when the SDK is installed with the dependencies, behavior is unchanged.
+- Windows launcher: the Node version hint now matches `engines`; fixed `oaa.cmd` expanding `%ERRORLEVEL%` too early inside a parenthesized block, which gave a wrong exit code; the desktop launcher now loads the previously missing `System.Windows.Forms` (before, a failure showed no message at all), reads the port from the configuration, and on a busy port or a failed start shows a message and the log location; a new `Stop-OpenAgentAPI.cmd` quits the background gateway; the `.ps1` files are written with a UTF-8 BOM so Chinese text displays correctly.
+- A new GitHub Actions release workflow, `release.yml` (triggered by pushing a `v*` tag or manually): on each of the three platforms it checks, downloads the official Node and verifies it with `SHASUMS256.txt`, packages, and smoke-tests (running the CLI with the Node inside the package, and starting the gateway on a random loopback port to check the `/healthz` version), and finally creates a draft Release. `ci.yml` is extended to Ubuntu, macOS and Windows. See `docs/releasing.md`.
+
+### Getting started
+
+- Walked through the README in full on a clean HOME, on both the source route and the installer route (using the ACP test stand-in in the repository in place of an external agent), and corrected the getting-started steps accordingly: first say that you need an agent to publish; use `serve --detach` by default; add creating a key on the command line, fetching the result with `wait` after `invoke`, a table of common errors, and the steps to walk the whole path with the test stand-in when no agent is installed.
+- New `oaa quickstart`: initialize (skipped if already done), start the gateway in the background listening only on 127.0.0.1 (reused if already running, restarted if the configuration changed; on a busy port it reports `port_in_use` and suggests `--port`), publish the offline sample agent `agent/sample`, generate a caller key (a private file, reused if one exists and is valid), make one real call and print the answer, the Base URL, the model, a curl command, OpenAI SDK code, and the next step to connect a local codex / claude / agy or a built-in agent. Running it again does not create anything twice. Output is bilingual, Chinese and English.
+- New `oaa connect <codex|claude|agy|ACP preset name>`: detect whether it is installed, enable it on this gateway, publish it as `agent/<name>` (skipped if already published), confirm that the quickstart key can call it (otherwise create a separate key that can call only it), and print the model and a curl command. It does not call the agent, and it explains that the first call uses the agent's own login and quota. The end of quickstart now prints one `oaa connect …` line for each detected agent.
+- The Windows desktop launcher now starts the gateway with `oaa quickstart --dir %LOCALAPPDATA%\OpenAgentAPI`, so a callable offline sample agent exists from the first launch, with the output written to `quickstart.log`; the stop script also handles `oaa stop`. `README-WINDOWS.txt` makes `oaa.cmd quickstart` the first step.
+- Console: when publishing returns the `not_runnable_here` warning, the publish dialog stays open and shows the reason; when the sample agent `agent/sample` already exists, the first step of the overview's getting-started checklist counts as done.
+- The sample agent's tool demo now reads the local time instead of counting prompt characters (that number included context the gateway adds, which was easy to misread).
+- New offline sample agent `examples/sample-agent.mjs` (ACP; it calls no model and uses no network, and its answer says it is a sample), demonstrating several steps, one tool call, and one optional approval; it is defined in `examples/sample-agent.json`. It ships with the source and the installers.
+- Error messages made more accurate: `model_unavailable` names the engine or adapter that is not installed or not enabled, the provider environment variable that is missing, and how to fix it; publishing an agent that cannot run on this machine right now succeeds but returns a `warning` (`not_runnable_here`); when a restricted key requests an unauthorized or non-existent `model`, the message suggests `GET /v1/models` (without revealing whether it exists), and an admin key's `agent_not_found` gets the same hint; the 401 message says where the key comes from. The error body shapes of the four entries are unchanged.
+- `oaa init` prints the location of the admin key file and the next step (`oaa quickstart`).
+- macOS desktop app: on first launch it publishes the offline sample agent (the marker file is upgraded to `.seeded-v2`, so existing users get it too); the agy sample is published only when agy is detected; the publishing of the non-existent `examples/smart-repo-inspector.oaa` is removed. The behavior of automatically enabling the detected local agents is unchanged, and the documentation now describes it truthfully.
+- The `examples/` in the installers no longer carries the `.ts` files that cannot run, `live-agents/` and `gemini-sdk-probe.mjs`; when npm cannot be found, the Claude SDK install hint first says that Node.js (which includes npm) must be installed separately.
+- New `oaa key create`: generates a caller key through `POST /v1/keys`, writes it to a private file with mode 0600 (by default `.oaa/keys/<name>.key`, never overwriting an existing file), and prints only the file path, the Base URL, the model name and a ready-to-run curl command, never the key itself.
+- New `oaa stop`: stops the gateway started by `oaa serve --detach`, sending SIGTERM only to the pid that `/health` reports.
+- When the command line cannot reach the gateway it reports `gateway_unreachable` with a hint on how to start it (before, it was `execution_failed: fetch failed`); an unknown option reports `arguments` (before, `execution_failed`); `token_required` gains a next-step suggestion.
+
+### Preparing for open source
+
+- English support: every error code in the error catalog gains an English description `en` and a next-step suggestion `nextEn` (returned by `GET /v1/errors` as well); HTTP error responses choose their language by `Accept-Language`, and without that header use the process default language (`OAA_LOCALE`, otherwise the system locale). Throw sites that had only Chinese text (ACP agents, local backends, the Claude SDK install hint and so on) are now bilingual, and the error body shapes of the four entries are unchanged. The help of `oaa` is now grouped and shown in Chinese or English by the process default language, and on failure it appends the next-step suggestion from the catalog. The default experience on Chinese systems is unchanged; tests are all fixed to Chinese. The rules are in `docs/protocol.md`, "Language of error messages".
+- The descriptions of ACP presets (`presets[].notes` of `GET /v1/local/backends`, shown on the console's local backends page) come in Chinese and English versions and are chosen by `Accept-Language` in the same way, with the process default language when the header is absent; the English text is in `src/config/agent-presets-en.ts`.
+- Added `LICENSE` (the standard full text of the Apache License 2.0) and `NOTICE` (the copyright holder is The Open Agent API Authors, and the Open Design Apache-2.0 attribution is kept). `package.json` declares `"license": "Apache-2.0"` and gains `repository`, `bugs`, `homepage` and a `files` allowlist (only `dist/src`, `web`, and documentation and license files); `"private": true` is kept.
+- `THIRD_PARTY_NOTICES.md` now includes the attribution for `@anthropic-ai/sandbox-runtime` (Apache-2.0), lists all runtime dependencies with their licenses, and lists the proprietary `@anthropic-ai/claude-agent-sdk` separately (installed by users themselves and not covered by this project's license); it carries the license review of the runtime dependency closure, and the full license text of `lucide` is copied to `licenses/Lucide-ISC.txt`.
+- Added `CONTRIBUTING.md`, `SECURITY.md` (vulnerabilities are reported through GitHub's private vulnerability reporting) and `CODE_OF_CONDUCT.md`, plus issue and pull request templates.
+- The top of the README gains links to the license and the community files, and the "Licenses and attribution" section is expanded; the getting-started steps were checked against `package.json` and `src/cli.ts`, and every command and argument exists.
+- Example domains in test fixtures that carried a personal name were changed to `agents.example.com`.
+
+## Earlier versions
+
+The records of the earlier internal versions (0.1.0 to 0.6.4, from before the public release) are in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md), in Chinese.

@@ -143,6 +143,7 @@ export async function callDelegate(
     subject: run.subject ?? LEGACY_SUBJECT,
     // ...and can never exceed the execution level of the key that started the parent.
     execution: run.checkpoint.execution ?? 'host',
+    ...(run.checkpoint.hostAgents ? { hostAgents: run.checkpoint.hostAgents } : {}),
   };
   const fail = (status: 'failed' | 'uncertain', code: string, childRunId?: string): void => {
     step.status = status;
@@ -200,7 +201,9 @@ export async function callDelegate(
         const child = store.bundle(run.owner, delegate.agent).agent;
         if (
           child.engine === 'kernel' ||
-          (run.checkpoint.execution === 'sandbox' && sandboxable(child))
+          (run.checkpoint.execution === 'sandbox' &&
+            sandboxable(child) &&
+            !run.checkpoint.hostAgents?.includes(child.id))
         )
           childKey = rt.providerKey(run.id);
       } catch {

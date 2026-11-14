@@ -1,4 +1,5 @@
 /** 工具阶段：执行模型要求的工具调用（含图、工作流、委托与内置记忆工具），结果写回对话。 */
+import { runSandboxed } from '../core/contracts.js';
 import type {
   AgentBundle,
   ExecutionStep,
@@ -355,7 +356,7 @@ export async function callTool(
           binding,
           arguments: call.arguments,
           context: await rt.context(run),
-          ...(run.checkpoint.execution === 'sandbox' && binding.handler.kind === 'script'
+          ...(runSandboxed(run) && binding.handler.kind === 'script'
             ? { isolation: 'sandbox' as const }
             : {}),
         },

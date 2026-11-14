@@ -306,7 +306,7 @@ async function loadWorkspace() {
   await optional(['overview', 'agents'].includes(view) && activityStale, () =>
     fetchActivity(token),
   );
-  const local = await optional(view === 'nodes' && nodeAdmin, () =>
+  const local = await optional(['nodes', 'agents'].includes(view) && nodeAdmin, () =>
     api('GET', '/v1/local/backends'),
   );
   const registrations = await optional(
@@ -321,6 +321,7 @@ async function loadWorkspace() {
   state.data = data;
   notifyApprovals(data.runs ?? []);
   if (keys) state.keys = keys;
+  if (local?.providers) state.providers = local.providers;
   if (view === 'nodes') {
     state.registrations = registrations ?? null;
     state.backends = local?.data ?? null;

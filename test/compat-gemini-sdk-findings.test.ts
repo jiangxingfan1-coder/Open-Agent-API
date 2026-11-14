@@ -101,7 +101,7 @@ test('gemini sdk findings: models.list / models.get get the Gemini Model shape',
     assert.equal(missing.json().error.status, 'NOT_FOUND');
     const byKey = await s.app.inject({ method: 'GET', url: `/v1beta/models?key=${token}` });
     assert.equal(byKey.statusCode, 200, byKey.body);
-    // 不带 x-goog-api-client 的 `/v1/models` 仍是 OpenAI 列表，`/v1/models/{id}` 仍不存在。
+    // 不带 x-goog-api-client 的 `/v1/models` 仍是 OpenAI 列表，`/v1/models/{id}` 是 OpenAI 的 Model 对象。
     const openai = await s.app.inject({
       method: 'GET',
       url: '/v1/models',
@@ -113,8 +113,13 @@ test('gemini sdk findings: models.list / models.get get the Gemini Model shape',
       url: '/v1/models/agent/test',
       headers: { authorization: `Bearer ${token}` },
     });
-    assert.equal(plain.statusCode, 404);
-    assert.equal(plain.json().error.code, 'route_not_found');
+    assert.equal(plain.statusCode, 200);
+    assert.deepEqual(plain.json(), {
+      id: 'agent/test',
+      object: 'model',
+      created: 0,
+      owned_by: 'open-agent-api',
+    });
   } finally {
     await s.cleanup();
   }

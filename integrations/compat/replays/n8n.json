@@ -1,0 +1,832 @@
+{
+  "client": "n8n",
+  "label": "n8n (OpenAI Chat Model sub-node on LangChain ChatOpenAI, plus the OpenAI node)",
+  "version": "n8n-io/n8n release n8n@2.47.7 = commit d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063 (default branch 'master'); @n8n/nodes-langchain 2.47.5; @langchain/openai 1.4.4 (n8n-patched, tag '@langchain/openai@1.4.4' of langchain-ai/langchainjs); openai-node pinned 6.46.0 (headers logic read at v6.49.0, not diffed against 6.46.0).",
+  "retrieved": "2026-11-14",
+  "overall": "verified",
+  "sources": [
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/nodes-langchain/nodes/llms/LMChatOpenAi/LmChatOpenAi.node.ts#L753-L862",
+      "note": "supplyData(): builds ChatOpenAI. baseURL = options.baseURL (typeVersion < 1.1 only) else the credential's url; only temperature/topP/frequencyPresence penalties/maxTokens that the user ADDED under Options are passed; modelKwargs: response_format / reasoning_effort when Responses API is off; supportsStrictToolCalling:false; useResponsesApi forced true when the 'Use Responses API' toggle is on."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/nodes-langchain/nodes/llms/LMChatOpenAi/LmChatOpenAi.node.ts#L253-L265",
+      "note": "'Use Responses API' boolean, DEFAULT TRUE for node typeVersion >= 1.3: LangChain then calls POST <baseURL>/responses instead of /chat/completions. Must be switched off for a Chat-Completions-only gateway."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/nodes-langchain/nodes/llms/LMChatOpenAi/LmChatOpenAi.node.ts#L119-L196",
+      "note": "typeVersion < 1.2 'Model' dropdown: routing GET <credential url>/models with rootProperty 'data', filter, items {name: id, value: id}. typeVersion >= 1.2 uses the resourceLocator + searchModels (loadModels.ts)."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/nodes-langchain/nodes/llms/LMChatOpenAi/methods/loadModels.ts#L10-L38",
+      "note": "searchModels: credential url (default https://api.openai.com/v1), headers = Authorization + openai-platform (+ custom credential header), via proxyFetch."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/ai-utilities/src/model-discovery/providers/openai.ts#L49-L59",
+      "note": "listOpenAiModels: GET <base>/models, reads data[] items with string non-empty id (others dropped), custom hosts keep all ids, sorted by id."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/ai-utilities/src/model-discovery/request.ts#L6-L31",
+      "note": "getJson: 401/403 -> 'Models couldn't be loaded...'; other non-2xx -> 'Failed to list openai models (status N): <body>'; success = response.json()."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/nodes-base/credentials/OpenAiApi.credentials.ts#L16-L104",
+      "note": "'OpenAI' credential: API Key, Organization ID (optional), Base URL (default https://api.openai.com/v1), Add Custom Header. Credential test = GET {{url}}/models. authenticate() sets Authorization: Bearer <apiKey> and OpenAI-Organization: <organizationId> (empty string when unset) plus the optional custom header."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/config/src/configs/ai.config.ts#L56-L59",
+      "note": "openAiDefaultHeaders = { 'openai-platform': 'org-qkmJQuJ2WnvoIKMr2UJwIJkZ' } is sent as a default header on every ChatOpenAI request and model listing, to ANY configured base URL (including a self-hosted gateway)."
+    },
+    {
+      "url": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/chat_models/completions.ts#L62-L141",
+      "note": "invocationParams(): body keys model, temperature, top_p, frequency_penalty, presence_penalty, logprobs, top_logprobs, n, logit_bias, stop, user, stream, functions, function_call, tools, tool_choice, response_format, seed, stream_options, parallel_tool_calls, ...modelKwargs, prompt_cache_key, prompt_cache_retention, verbosity, reasoning_effort, max_tokens | max_completion_tokens (reasoning-model ids). All undefined values are dropped by JSON.stringify. temperature/top_p/penalties/n have NO defaults (undefined) in this version."
+    },
+    {
+      "url": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/chat_models/completions.ts#L143-L306",
+      "note": "_generate non-stream: POST with stream:false; reads data.choices[].message (content, tool_calls), finish_reason, data.usage (optional) and data.id/model."
+    },
+    {
+      "url": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/chat_models/completions.ts#L308-L440",
+      "note": "_streamResponseChunks: stream:true + stream_options {include_usage:true} (streamUsage default true); reads choices[0].delta only (chunks without choices[0] are skipped, e.g. usage-only); final usage chunk optional; role taken from delta.role else the previously seen role."
+    },
+    {
+      "url": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/converters/completions.ts#L396-L483",
+      "note": "Delta conversion: role = delta.role ?? defaultRole; role 'assistant' -> AIMessageChunk (tool_call_chunks from delta.tool_calls), any other/undefined role -> generic ChatMessageChunk (the stream then no longer behaves as an AI message). So the FIRST chunk must carry delta.role = 'assistant'."
+    },
+    {
+      "url": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/converters/completions.ts#L774-L856",
+      "note": "Outgoing messages: {role, content} where content is the string as-is or an array of content blocks passed through; name, tool_calls (id,type,function{name,arguments}), tool_call_id, function_call added when present; system -> developer only for reasoning model ids (^o\\d or gpt-5*, not gpt-5-chat)."
+    },
+    {
+      "url": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/chat_models/base.ts#L639-L694",
+      "note": "bindTools: each function tool gets function.strict = supportsStrictToolCalling (n8n sets false -> 'strict': false in every tool); no tool_choice/parallel_tool_calls unless the caller passes them."
+    },
+    {
+      "url": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/utils/azure.ts#L173-L187",
+      "note": "User-Agent set to 'langchainjs-openai/1.0.0 (<env>)' where env = '(node/<version>; <platform>; <arch>)'; it replaces openai-node's own UA."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/patches/@langchain__openai@1.4.4.patch#L1-L54",
+      "note": "n8n patch: non-stream response with zero choices throws 'Received empty response from chat model call (no choices)'; assistant tool-call turns of deepseek-named models echo reasoning_content."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/nodes-langchain/nodes/vendors/OpenAi/v1/actions/text/message.operation.ts#L241-L385",
+      "note": "OpenAI node (typeVersion 1.x) 'Message a Model': POST <credential url>/chat/completions with body {model, messages, tools?, response_format?, ...options} where options maxTokens -> max_completion_tokens, topP -> top_p, plus frequency_penalty, presence_penalty, temperature, n, reasoning_effort; tool-call loop re-posts the same body object."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/nodes-langchain/nodes/vendors/OpenAi/transport/index.ts#L25-L70",
+      "note": "OpenAI node apiRequest: baseUrl = credential url || https://api.openai.com/v1, uri = baseUrl + endpoint, json:true, requestWithAuthentication('openAiApi'). The OpenAI node has no per-node Base URL option; v2 'Message a Model' uses the Responses API."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/pnpm-workspace.yaml#L112",
+      "note": "catalog: '@langchain/openai': 1.4.4 (openai: 6.46.0 at L255)."
+    },
+    {
+      "url": "https://github.com/openai/openai-node/blob/v6.49.0/src/client.ts#L1164-L1181",
+      "note": "openai-node default headers used by ChatOpenAI: Accept: application/json, User-Agent (overridden by LangChain), X-Stainless-Retry-Count, platform headers (X-Stainless-Lang/Package-Version/OS/Arch/Runtime/Runtime-Version), Authorization: Bearer <key>, OpenAI-Organization / OpenAI-Project only when set."
+    },
+    {
+      "url": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/config/src/configs/ssrf-protection.config.ts#L76-L100",
+      "note": "N8N_SSRF_PROTECTION_ENABLED defaults to false; when an operator turns it on, private/loopback gateway addresses are blocked unless allow-listed (N8N_SSRF_ALLOWED_IP_RANGES / _HOSTNAMES)."
+    }
+  ],
+  "setup": {
+    "baseUrl": "http://host.docker.internal:8787/v1  (WITH /v1: openai-node appends '/chat/completions' and '/models'). Create an 'OpenAI' credential: 'API Key', 'Base URL' = this value (default is https://api.openai.com/v1), optional 'Organization ID' left empty. For the sub-node 'OpenAI Chat Model' typeVersion < 1.1 there was also an Options > Base URL override; newer versions read only the credential.",
+    "model": "In 'OpenAI Chat Model' (typeVersion >= 1.2) the 'Model' field is a resource locator: 'From List' (calls GET /v1/models, all ids kept on custom hosts) or 'By ID' (type agent/sample). Older nodes use a plain dropdown filled from GET /models.",
+    "apiKey": "Credential 'API Key' (required; sent as 'Authorization: Bearer <key>').",
+    "notes": "CRITICAL: for 'OpenAI Chat Model' typeVersion >= 1.3 the option 'Use Responses API' defaults to ON, which makes n8n call POST /v1/responses; turn it OFF to get POST /v1/chat/completions (older typeVersions use chat/completions unless LangChain auto-switches for built-in tools). The OpenAI node v2 'Message a Model' always uses the Responses API; the OpenAI node v1.x uses chat/completions. n8n always adds the header 'openai-platform: org-qkmJQuJ2WnvoIKMr2UJwIJkZ' to requests sent to the configured base URL. Requests are made server-side by the n8n process (Node, no CORS); if n8n runs in Docker the gateway must be reachable at host.docker.internal / LAN IP; the optional N8N_SSRF_PROTECTION_ENABLED setting (off by default) would block private addresses. Sampling parameters are sent ONLY when the user adds them under Options (temperature, top_p, frequency/presence penalty, max tokens); by default the body is just model + messages + stream. Credential 'Test' = GET /v1/models. n8n has no connectivity-ping or title-generation request of its own. The AI Agent / Basic LLM Chain nodes decide whether to stream; the model node itself defaults to non-stream (stream:false)."
+  },
+  "cases": [
+    {
+      "id": "models-list",
+      "title": "Model dropdown 'From List': GET /v1/models with Authorization and openai-platform headers",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/ai-utilities/src/model-discovery/request.ts#L6-L31",
+        "note": "Headers verified: Authorization (bearerHeaders), openai-platform (AiConfig) and an optional custom credential header. The request goes through n8n's proxyFetch (Node fetch); any further default headers it adds (Accept, User-Agent, Accept-Language) are not verified."
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/models",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "models.object_list",
+        "models.id_string",
+        "models.nonempty"
+      ],
+      "notes": "Only data[] is read; each item needs a non-empty string 'id' (other items silently dropped); 'object', 'created', 'owned_by' are ignored. 401/403 -> 'Models couldn't be loaded'; any other non-2xx -> 'Failed to list openai models (status N): <first 500 chars of body>'. An empty list just yields an empty dropdown (the node can still be used with 'By ID')."
+    },
+    {
+      "id": "credential-test",
+      "title": "Credential 'Test' button: GET /v1/models with Authorization and (empty) OpenAI-Organization",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/nodes-base/credentials/OpenAiApi.credentials.ts#L78-L104",
+        "note": "test = { baseURL: '={{$credentials?.url}}', url: '/models' }; authenticate() sets Authorization and 'OpenAI-Organization' = credentials.organizationId (the default is the empty string, whether an empty header is actually transmitted by the HTTP library is not verified). The credential test runs through n8n's HTTP helper (axios-style User-Agent/Accept, not verified)."
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/models",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "OpenAI-Organization": ""
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "models.object_list"
+      ],
+      "notes": "Success = HTTP 2xx; the credential tester does not inspect the body shape beyond that (inferred from the generic credential-test mechanism). A 404 on /models therefore fails the credential test even though chat would work."
+    },
+    {
+      "id": "chat-basic-nonstream",
+      "title": "Default chat call (LangChain invoke): non-stream, only model + stream:false + messages",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/chat_models/completions.ts#L203-L214",
+        "note": "completionWithRetry({...invocationParams, stream:false, messages}) with nothing set -> JSON {model, stream:false, messages}. Headers: openai-node defaults (Accept application/json), LangChain User-Agent (utils/azure.ts L173-L187), openai-platform default header, X-Stainless-* Node values (examples). The message list shown (system + user, plain strings) is what the AI Agent/Basic LLM Chain typically produce - inferred; the converter itself is verified."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "langchainjs-openai/1.0.0 ((node/v22.0.0; linux; x64))",
+          "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.46.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": false,
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.id_string",
+        "chat.model_string",
+        "chat.choices_nonempty",
+        "chat.message_role_assistant",
+        "chat.message_content_string",
+        "chat.finish_reason_string",
+        "chat.usage_numbers"
+      ],
+      "notes": "Response handling: n8n's patch throws 'Received empty response from chat model call (no choices)' when choices is missing/empty; message.role must be 'assistant' (any other role makes LangChain build a generic ChatMessage); content is read as message.content || ''; id -> AIMessage.id, model -> response_metadata.model_name, finish_reason -> generationInfo (all optional-tolerant); usage optional (prompt_tokens/completion_tokens/total_tokens + *_details read with tolerance; falsy -> skipped). 'object' and 'created' are not read. The n8n error handler surfaces non-2xx bodies (openai-node APIError)."
+    },
+    {
+      "id": "chat-stream",
+      "title": "Streaming chat (LangChain stream, e.g. AI Agent with streaming): stream:true + stream_options.include_usage",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/chat_models/completions.ts#L308-L440",
+        "note": "Request: {...invocationParams(options,{streaming:true}), messages, stream:true}; stream_options {include_usage:true} because streamUsage defaults true. Which n8n node/configuration triggers streaming (AI Agent with streaming enabled, chat trigger streaming) is inferred."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "langchainjs-openai/1.0.0 ((node/v22.0.0; linux; x64))",
+          "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.46.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.first_delta_role_assistant",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "Parser behaviour: chunks whose choices[0] is absent are skipped (a trailing usage chunk with choices: [] is fine and is turned into usage_metadata; usage is optional - without it LangChain estimates tokens); chunks whose choices[0].delta is absent are skipped; delta.content null/missing is read as ''; role = delta.role ?? last seen role, and a role other than 'assistant' (or no role at all on the very first chunk) yields a generic ChatMessageChunk instead of an AIMessageChunk -> keep delta.role:'assistant' on the first chunk; finish_reason on the last choice chunk is stored with model name/system_fingerprint; '[DONE]' or EOF ends the stream; a chunk carrying a top-level 'error' makes openai-node throw. No content-type check is made by the SDK stream reader (SSE parsing of 'data:' lines)."
+    },
+    {
+      "id": "chat-stream-all-settings",
+      "title": "Streaming chat with every Options entry set (temperature, top_p, penalties, max tokens) - settings maxed out",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/nodes-langchain/nodes/llms/LMChatOpenAi/LmChatOpenAi.node.ts#L813-L837",
+        "note": "includedOptions = pick(options, [frequencyPenalty, maxTokens, presencePenalty, temperature, topP, baseURL]) -> ChatOpenAI fields -> body keys temperature, top_p, frequency_penalty, presence_penalty, max_tokens (non-reasoning ids; 'max_tokens' is omitted when the option equals -1). Values are examples inside the UI ranges (temperature 0-2, penalties -2..2, maxTokens <= 32768)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "langchainjs-openai/1.0.0 ((node/v22.0.0; linux; x64))",
+          "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.46.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "temperature": 0.7,
+          "top_p": 0.9,
+          "frequency_penalty": 0.5,
+          "presence_penalty": 0.5,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "max_tokens": 1024,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.first_delta_role_assistant",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
+      ],
+      "notes": "The sub-node does not expose n, stop, seed, logit_bias or user. Optional (Responses-API-only) options such as serviceTier, safetyIdentifier, promptCacheKey, metadata, conversationId, topLogprobs, store are not sent on the chat/completions path (Responses toggle off) except via 'Extra Body', which is spread verbatim into the body (user-controlled)."
+    },
+    {
+      "id": "reasoning-effort",
+      "title": "Options > Reasoning Effort set (Responses API off): reasoning_effort key",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/nodes-langchain/nodes/llms/LMChatOpenAi/LmChatOpenAi.node.ts#L802-L807",
+        "note": "'if (options.reasoningEffort && [low,medium,high].includes(...)) modelKwargs.reasoning_effort = options.reasoningEffort' -> spread into the body (...this.modelKwargs). Only low/medium/high are offered by the UI. With the Responses API ON the effort goes into a 'reasoning' object of /responses instead."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "langchainjs-openai/1.0.0 ((node/v22.0.0; linux; x64))",
+          "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.46.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": false,
+          "reasoning_effort": "medium",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_role_assistant",
+        "chat.message_content_string",
+        "chat.usage_numbers"
+      ],
+      "notes": "Off unless the user adds the option (UI default 'medium' once added). completion_tokens_details.reasoning_tokens in usage is read if present (null-safe)."
+    },
+    {
+      "id": "response-format-json",
+      "title": "Options > Response Format = JSON object (chat/completions path): response_format json_object",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/nodes-langchain/nodes/llms/LMChatOpenAi/LmChatOpenAi.node.ts#L802-L805",
+        "note": "'if (options.responseFormat) modelKwargs.response_format = { type: options.responseFormat }' (values text | json_object). The only JSON option on the chat/completions path is json_object; 'json_schema' is offered only for the Responses API (textFormat). LangChain's own json_schema path (completion .parse()) is used only when a caller passes response_format json_schema, e.g. structured-output parsers (not verified for n8n nodes)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "langchainjs-openai/1.0.0 ((node/v22.0.0; linux; x64))",
+          "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.46.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": false,
+          "response_format": {
+            "type": "json_object"
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "Reply with a JSON object."
+            },
+            {
+              "role": "user",
+              "content": "Say hi"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_role_assistant",
+        "chat.message_content_string"
+      ],
+      "notes": "Off by default (no response_format key)."
+    },
+    {
+      "id": "developer-role-reasoning-name",
+      "title": "Model id looks like an OpenAI reasoning model (^o\\d or gpt-5*): system -> developer, max_completion_tokens",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/converters/completions.ts#L785-L788",
+        "note": "role 'system' becomes 'developer' when isReasoningModel(model) (utils/misc.ts: /^o\\d/ or startsWith('gpt-5') && !startsWith('gpt-5-chat')); completions.ts L133-L135 sends max_completion_tokens instead of max_tokens for those ids (only when a max-tokens option is set)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "langchainjs-openai/1.0.0 ((node/v22.0.0; linux; x64))",
+          "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.46.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": false,
+          "max_completion_tokens": 1024,
+          "messages": [
+            {
+              "role": "developer",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_role_assistant",
+        "chat.message_content_string"
+      ],
+      "notes": "Only triggers when the agent id itself matches (e.g. 'o3-helper', 'gpt-5-bot'); included so the gateway proves it accepts role 'developer' and max_completion_tokens. For all other ids the first message stays 'system'."
+    },
+    {
+      "id": "tools-and-tool-choice",
+      "title": "AI Agent with tools: tools array (function.strict:false), no tool_choice / parallel_tool_calls",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/chat_models/base.ts#L639-L694",
+        "note": "Shape verified from bindTools/_convertChatOpenAIToolToCompletionsTool with supportsStrictToolCalling=false (strict:false inside each function). That n8n's agent binds tools without passing tool_choice/parallel_tool_calls (so those keys are absent), and the exact JSON-schema 'parameters' produced by n8n tools (zod-to-json-schema adds additionalProperties:false and $schema), is inferred."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "langchainjs-openai/1.0.0 ((node/v22.0.0; linux; x64))",
+          "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.46.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": false,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the current weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ],
+                  "additionalProperties": false,
+                  "$schema": "http://json-schema.org/draft-07/schema#"
+                },
+                "strict": false
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_role_assistant",
+        "chat.message_content_string",
+        "chat.finish_reason_string"
+      ],
+      "notes": "Response tool calls are read from choices[0].message.tool_calls (parseToolCall: id, function.name, function.arguments as a JSON string; an unparsable arguments string becomes an invalid_tool_call instead of an exception). In streaming mode tool_calls deltas (index, id, function.name/arguments) are concatenated by index. 'strict: false' inside function objects is explicit (n8n sets it so servers that reject strict:null work)."
+    },
+    {
+      "id": "assistant-tool-calls-history",
+      "title": "Agent round 2: assistant with content '' + tool_calls, then role:tool with tool_call_id (and name)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/converters/completions.ts#L814-L835",
+        "note": "Converter verified: {role, content} + name when message.name != null + tool_calls via convertLangChainToolCallToOpenAI ({id, type:'function', function:{name, arguments(JSON string)}}) for AI messages, tool_call_id for ToolMessage. AI message content is '' when the model produced only tool calls (message.content || ''); that ToolMessage carries the tool name ('name') is inferred from LangGraph/agent behaviour."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "langchainjs-openai/1.0.0 ((node/v22.0.0; linux; x64))",
+          "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.46.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": false,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the current weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ],
+                  "additionalProperties": false,
+                  "$schema": "http://json-schema.org/draft-07/schema#"
+                },
+                "strict": false
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_abc123",
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"city\":\"Paris\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "content": "{\"temp\":18}",
+              "tool_call_id": "call_abc123",
+              "name": "get_weather"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_role_assistant",
+        "chat.message_content_string"
+      ],
+      "notes": "The gateway must accept a role:'tool' message with an extra 'name' key and an assistant message with empty-string content next to tool_calls."
+    },
+    {
+      "id": "image-part",
+      "title": "AI Agent with a binary image passed through: user content array [text, image_url]",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/converters/completions.ts#L790-L812",
+        "note": "LangChain passes array content through (data/image blocks are converted by completionsApiContentBlockConverter to {type:'image_url', image_url:{url}}). n8n's AI Agent forwards image binaries as base64 data-URL image parts (limit N8N_AI_AGENT_MAX_PASSTHROUGH_BINARY_SIZE_BYTES, 50 MB; ai.config.ts L26-L32); the exact part layout (e.g. presence of detail) was not traced."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "langchainjs-openai/1.0.0 ((node/v22.0.0; linux; x64))",
+          "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.46.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": false,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "What is in this picture?"
+                },
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAfbLI3wAAAABJRU5ErkJggg=="
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string"
+      ],
+      "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
+    },
+    {
+      "id": "chat-multimodal-array-text-only",
+      "title": "User/system message whose content is an array of text blocks",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/langchain-ai/langchainjs/blob/%40langchain/openai%401.4.4/libs/providers/langchain-openai/src/converters/completions.ts#L790-L812",
+        "note": "The converter forwards content verbatim when it is an array (content blocks like {type:'text', text}); whether a given n8n node/chain builds text-only block arrays (some LangChain templates and the n8n tools agent do when binary or multi-part inputs are present) is inferred."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "langchainjs-openai/1.0.0 ((node/v22.0.0; linux; x64))",
+          "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.46.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": false,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Hello"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_role_assistant",
+        "chat.message_content_string"
+      ],
+      "notes": "Gateway should accept both string and [{type:'text'}] content."
+    },
+    {
+      "id": "openai-node-v1-message",
+      "title": "OpenAI node (typeVersion 1.x) 'Message a Model': chat/completions with only model + messages (default options)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/nodes-langchain/nodes/vendors/OpenAi/v1/actions/text/message.operation.ts#L293-L303",
+        "note": "body = {model, messages, tools, response_format, ...options minus maxToolsIterations}; undefined values vanish. Messages are {content, role} items from the node's 'Messages' list (roles user/assistant/system, string content). URL = credential url + '/chat/completions' (transport/index.ts L50-L57). Header set is inferred from n8n's request helper (json:true): Content-Type/Accept application/json, Authorization from the credential's authenticate(), OpenAI-Organization (empty when unset); the helper's User-Agent is not verified."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "OpenAI-Organization": ""
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "content": "Hello",
+              "role": "user"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string",
+        "chat.usage_numbers"
+      ],
+      "notes": "Non-stream; no stream key at all. The node reads response.choices[0].message (content, tool_calls) and, if present, usage.prompt_tokens/completion_tokens for token accounting; 'simplify' returns each choice as an item. If tool_calls come back the node executes connected tools and re-posts the SAME body object with the growing messages array (assistant message copied verbatim from the response, then {tool_call_id, role:'tool', content})."
+    },
+    {
+      "id": "openai-node-v1-message-all-settings",
+      "title": "OpenAI node 1.x with every Option set (frequency/presence penalty, max completion tokens, n, temperature, top_p, reasoning_effort) + JSON output",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/n8n-io/n8n/blob/d4dcb1b152a98fc31ea7c4ee6aecdc45c5c88063/packages/@n8n/nodes-langchain/nodes/vendors/OpenAi/v1/actions/text/message.operation.ts#L257-L277",
+        "note": "options.maxTokens -> max_completion_tokens, options.topP -> top_p, the rest spread unchanged; 'Output as JSON' prepends a system message 'You are a helpful assistant designed to output JSON.' and sets response_format {type:'json_object'}. Option names/defaults from L123-L214: frequency_penalty, maxTokens, n, presence_penalty, temperature, topP, reasoning_effort (low|medium|high). Header values: see previous case."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "OpenAI-Organization": ""
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant designed to output JSON."
+            },
+            {
+              "content": "Say hi in JSON",
+              "role": "user"
+            }
+          ],
+          "response_format": {
+            "type": "json_object"
+          },
+          "frequency_penalty": 0.5,
+          "max_completion_tokens": 256,
+          "n": 2,
+          "presence_penalty": 0.5,
+          "temperature": 0.7,
+          "top_p": 0.9,
+          "reasoning_effort": "medium"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string",
+        "chat.usage_numbers"
+      ],
+      "notes": "n > 1 asks for multiple choices; the node maps over response.choices (each becomes an item when simplify is on). With 'Output as JSON' the node JSON-parses each choice's message.content (parse errors are swallowed)."
+    }
+  ]
+}

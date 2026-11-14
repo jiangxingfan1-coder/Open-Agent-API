@@ -218,6 +218,15 @@ export const enCore = {
     'Publish a third-party agent installed on this machine. It does the work with its own tools and models.',
   'dlg.publish.mode.oaa':
     'Define an agent in a config file. The built-in kernel drives the model and runs the tools you declare.',
+  'dlg.publish.provider.option': '{name} ({kind})',
+  'dlg.publish.provider.option_nokey': '{name} ({kind}, key missing)',
+  'dlg.publish.provider.other': 'The source uses {name} (not a configured provider)',
+  'dlg.publish.provider.ready':
+    'Routes go to {url}. Choosing a provider rewrites the provider of every route in the source.',
+  'dlg.publish.provider.nokey':
+    'The gateway process cannot read this provider key ({ref}): publishing works, calls fail until it is set and the gateway restarted.',
+  'dlg.publish.provider.hint':
+    'Pick one of the configured providers; it rewrites the provider of every route in the source. Add providers with oaa connect <preset>.',
   'dlg.publish.mode.bundle':
     'Import a bundle that has already been reviewed. Its contents will not change.',
   'dlg.publish.diag.ok': 'Check passed: the syntax is valid and no problems were found.',

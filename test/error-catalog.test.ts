@@ -153,6 +153,7 @@ test('error catalog: dynamic codes are registered and still produced by the sour
 
 test('error catalog: codes are unique, categorized, documented and described', async () => {
   const docs = await readFile(path.resolve('docs/protocol.md'), 'utf8');
+  const docsZh = await readFile(path.resolve('docs/zh-CN/protocol.md'), 'utf8');
   const codes = ERROR_CATALOG.map((e) => e.code);
   const duplicates = codes.filter((code, i) => codes.indexOf(code) !== i);
   assert.deepEqual(duplicates, [], 'no duplicate codes');
@@ -160,6 +161,10 @@ test('error catalog: codes are unique, categorized, documented and described', a
     assert.match(entry.code, /^[a-z][a-z0-9_]*$/, `${entry.code} is snake_case`);
     assert.ok(entry.category in ERROR_CATEGORIES, `${entry.code} has a known category`);
     assert.ok(docs.includes(`\`${entry.code}\``), `${entry.code} appears in docs/protocol.md`);
+    assert.ok(
+      docsZh.includes(`\`${entry.code}\``),
+      `${entry.code} appears in docs/zh-CN/protocol.md`,
+    );
     assert.ok(entry.zh.trim().length > 0, `${entry.code} has a zh description`);
     assert.ok(hanCount(entry.zh) <= 40, `${entry.code} zh is at most 40 Han characters`);
     if (entry.next !== undefined) assert.ok(entry.next.trim().length > 0, `${entry.code} next`);

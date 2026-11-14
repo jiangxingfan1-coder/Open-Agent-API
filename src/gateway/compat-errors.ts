@@ -17,6 +17,7 @@ import type { Run } from '../core/contracts.js';
 import { errorClassStatus, errorEntry, faultMessage } from '../core/errors.js';
 import { processLocale, requestLocale, type Locale, type LocalText } from '../core/locale.js';
 import { Fault, RetryLaterFault } from '../core/util.js';
+import { ParamFault } from '../core/param-fault.js';
 import { fromGoogleClient, isGeminiPath } from './gemini.js';
 
 /** 带参数名或运行 ID 的错误：`param` 进 OpenAI 的 `error.param`，`runId` 说明运行已经创建。 */
@@ -92,6 +93,9 @@ export function geminiStatus(status: number): string {
   return table[status] ?? (status >= 500 ? 'INTERNAL' : 'INVALID_ARGUMENT');
 }
 
+const paramOf = (fault: Fault): string | null =>
+  fault instanceof CompatFault || fault instanceof ParamFault ? fault.param : null;
+
 export function errorBody(
   dialect: ErrorDialect,
   status: number,
@@ -129,7 +133,9 @@ export function errorBody(
       code: fault.code,
       message,
       type: 'invalid_request_error',
-      ...(dialect === 'openai' ? { param: extra?.param ?? null } : {}),
+      ...(dialect === 'openai' ? { param: paramOf(fault) } : {}),
+      // Native bodies gain `param` only when a fault names a field (an image part, ...).
+      ...(dialect === 'native' && paramOf(fault) ? { param: paramOf(fault) } : {}),
       ...runId,
     },
   };

@@ -2,6 +2,8 @@ import { zh as coreZh } from './messages-core-zh.js';
 import { en as coreEn } from './messages-core-en.js';
 import { zh as viewsZh } from './messages-views-zh.js';
 import { en as viewsEn } from './messages-views-en.js';
+import { zh as platformZh } from './messages-platform-zh.js';
+import { en as platformEn } from './messages-platform-en.js';
 import { zh as dialogsZh } from './messages-dialogs-zh.js';
 import { en as dialogsEn } from './messages-dialogs-en.js';
 
@@ -13,11 +15,11 @@ import { en as dialogsEn } from './messages-dialogs-en.js';
 // the first form when the value is 1: '{n} {n|agent|agents}'.
 //
 // The dictionaries sit next to this file as messages-<group>-<lang>.js (groups: core, views,
-// dialogs): the gateway serves only flat web/lib/<name>.js files, not a subdirectory.
+// platform, dialogs): the gateway serves only flat web/lib/<name>.js files, not a subdirectory.
 export const LANG_KEY = 'oaa.console.lang';
 const DICT = {
-  zh: { ...coreZh, ...viewsZh, ...dialogsZh },
-  en: { ...coreEn, ...viewsEn, ...dialogsEn },
+  zh: { ...coreZh, ...viewsZh, ...platformZh, ...dialogsZh },
+  en: { ...coreEn, ...viewsEn, ...platformEn, ...dialogsEn },
 };
 
 function initialLang() {

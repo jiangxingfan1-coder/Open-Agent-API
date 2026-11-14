@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { mkdir, readdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { JsonSchemas } from '../core/schemas.js';
 import { McpConnections, mcpConfigured, descriptorDigest, findMcpTool } from './mcp-connections.js';
 import type { WorkerConfig } from '../config/config.js';
@@ -17,7 +18,7 @@ import {
   type WorkContext,
 } from '../core/contracts.js';
 import { installBundle, builtin } from '../lang/bundle.js';
-import { createModelDriver, OpenAIModel, type ModelDriver } from '../providers/models.js';
+import { createModelDriver, providerApiKey, type ModelDriver } from '../providers/models.js';
 import { validateProviderState } from '../providers/provider-state.js';
 import {
   SrtLauncher,
@@ -30,6 +31,7 @@ import { runNative, type NativeSandbox } from '../engines/native.js';
 import { runAdapter } from '../engines/adapter.js';
 import { runAcp, type AcpTimings } from '../engines/acp.js';
 import { runA2A } from '../engines/a2a.js';
+import * as img from './image-capabilities.js';
 import { safeEmit, type Emit } from '../engines/shared.js';
 import { adapterNamePattern } from '../config/agent-presets.js';
 import { collectProcess } from '../engines/process.js';
@@ -133,7 +135,7 @@ export class WorkerRuntime implements Executor {
             .filter(([, p]) => {
               try {
                 validateEndpoint(p.baseUrl);
-                return !!process.env[p.apiKeyEnv];
+                return providerApiKey(p) !== undefined;
               } catch {
                 return false;
               }
@@ -166,6 +168,7 @@ export class WorkerRuntime implements Executor {
             ...adapters.filter(([, a]) => a.transport === 'acp').map(([n]) => `adapter/${n}`),
           ],
         },
+        imageInput: img.imageInputAdvert(this.config, this.drivers),
         providerStateProviders: [
           ...new Set([
             ...Object.entries(this.config.providers)
@@ -264,7 +267,7 @@ export class WorkerRuntime implements Executor {
       if (injected?.withApiKey) return injected.withApiKey(apiKey);
     } else {
       const cfg = this.config.providers[provider];
-      if (cfg?.byok) return createModelDriver(cfg, apiKey);
+      if (cfg?.byok) return createModelDriver(cfg, apiKey, provider);
     }
     throw new Fault(
       'byok_not_supported',
@@ -313,9 +316,8 @@ export class WorkerRuntime implements Executor {
         .join(';'),
     );
     const cached = this.workspaces.get(sessionKey);
-    if (cached && cached.fingerprint === fingerprint) {
-      return cached.root;
-    }
+    // A pruned workspace (oaa prune) is rebuilt instead of reused from the cache.
+    if (cached && cached.fingerprint === fingerprint && existsSync(cached.root)) return cached.root;
     const inFlight = this.workspaceInFlight.get(sessionKey);
     if (inFlight) return inFlight;
 
@@ -389,10 +391,7 @@ export class WorkerRuntime implements Executor {
       if (work.kind === 'native') {
         const outputRoot = path.join(root, 'outputs');
         await mkdir(outputRoot, { recursive: true, mode: 0o700 });
-        const inputPaths = work.context.files
-          .map((f) => f.workspacePath ?? `inputs/${f.id}/${f.name}`)
-          .join('\n');
-        const nativeInput = `${work.input}\n\n${inputPaths ? `Available input files:\n${inputPaths}\n` : ''}Place any downloadable deliverables under the outputs/ directory of this task workspace. Do not copy credentials into outputs.`;
+        const nativeInput = img.nativeInputText(work.input, work.context);
         const adapterName = agent.engine.startsWith('adapter/')
           ? agent.engine.slice('adapter/'.length)
           : undefined;
@@ -412,13 +411,14 @@ export class WorkerRuntime implements Executor {
                   work.nativeState,
                   this.acpTimings,
                   work.clientTools,
+                  work.context.images,
                 )
               : adapterName !== undefined
                 ? await runAdapter(
                     agent,
                     this.config,
                     root,
-                    work.input,
+                    work.input + img.imageNote(work.context),
                     work.context,
                     signal,
                     work.nativeState,
@@ -433,6 +433,7 @@ export class WorkerRuntime implements Executor {
                     emit,
                     work.nativeState,
                     work.kind === 'native' ? this.nativeSandbox(work) : undefined,
+                    work.context.images,
                   );
         const artifacts: ArtifactPayload[] = [];
         let total = 0;
@@ -473,9 +474,9 @@ export class WorkerRuntime implements Executor {
             'Model provider is not configured on this node.',
             503,
           );
-        const version = sha(canonical(cfg) + (process.env[cfg.apiKeyEnv] ?? ''));
+        const version = sha(canonical(cfg) + (providerApiKey(cfg) ?? ''));
         if (!driver || this.driverVersions.get(agent.provider) !== version) {
-          driver = createModelDriver(cfg);
+          driver = createModelDriver(cfg, undefined, agent.provider);
           this.drivers.set(agent.provider, driver);
           this.driverVersions.set(agent.provider, version);
         }
@@ -516,7 +517,8 @@ export class WorkerRuntime implements Executor {
       signal.addEventListener('abort', stop, { once: true });
       let refused: Error | undefined;
       try {
-        const result = await driver.call(effectiveAgent, work.messages, turn.signal, (delta) => {
+        const messages = img.withImageData(work.messages, work.context.files);
+        const result = await driver.call(effectiveAgent, messages, turn.signal, (delta) => {
           safeEmit(emit, { type: 'text', data: { delta } }, (error) => {
             refused ??=
               error instanceof Error ? error : new Fault('event_failed', String(error), 500);

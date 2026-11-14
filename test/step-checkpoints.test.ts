@@ -496,7 +496,9 @@ for (const phase of ['inside', 'after'] as const)
           });
         },
       );
-      assert.equal(end.signal, 'SIGKILL', errors);
+      // Windows reports TerminateProcess as a non-zero exit code without a signal name.
+      if (process.platform === 'win32') assert.notEqual(end.code, 0, errors);
+      else assert.equal(end.signal, 'SIGKILL', errors);
       const marker = JSON.parse(await readFile(path.join(dir, 'checkpoint.json'), 'utf8'));
       assert.equal(marker.transaction, phase === 'inside');
       reopened = new Store(dir);

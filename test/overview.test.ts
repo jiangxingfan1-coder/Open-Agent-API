@@ -438,11 +438,16 @@ test('framework and routing failures use stable error codes', async () => {
   }
 });
 
-test('every gateway error code in the source is documented in docs/protocol.md', async () => {
+test('every gateway error code in the source is documented in docs/protocol.md and docs/zh-CN/protocol.md', async () => {
   const ts = createRequire(path.resolve('package.json'))(
     'typescript',
   ) as typeof import('typescript');
-  const docs = await readFile(path.resolve('docs/protocol.md'), 'utf8');
+  const docsByFile = await Promise.all(
+    ['docs/protocol.md', 'docs/zh-CN/protocol.md'].map(async (file) => ({
+      file,
+      text: await readFile(path.resolve(file), 'utf8'),
+    })),
+  );
   const codes = new Set<string>([
     // Codes assigned outside `new Fault(...)`: run errors and framework mappings.
     'gateway_restarted',
@@ -482,17 +487,26 @@ test('every gateway error code in the source is documented in docs/protocol.md',
     visit(source);
   }
   assert.ok(codes.size > 150, `expected the full code inventory, found ${codes.size}`);
-  const missing = [...codes].filter((code) => !docs.includes(`\`${code}\``)).sort();
-  assert.deepEqual(missing, [], `document these error codes: ${missing.join(', ')}`);
+  for (const { file, text } of docsByFile) {
+    const missing = [...codes].filter((code) => !text.includes(`\`${code}\``)).sort();
+    assert.deepEqual(missing, [], `document these error codes in ${file}: ${missing.join(', ')}`);
+  }
 });
 
 test('executable checks are memoized briefly and refreshed for explicit owner actions', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'oaa-exec-'));
   try {
     const file = path.join(dir, 'tool');
-    await writeFile(file, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+    if (process.platform !== 'win32') {
+      // POSIX only: a file without the execute bit is not executable (Windows has no mode bits).
+      await writeFile(file, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+      forgetExecutableChecks();
+      assert.equal(executableExists(file), false);
+      await rm(file);
+    }
     forgetExecutableChecks();
-    assert.equal(executableExists(file), false);
+    assert.equal(executableExists(file), false, 'missing');
+    await writeFile(file, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     await chmod(file, 0o755);
     assert.equal(executableExists(file), false, 'cached within the TTL');
     assert.equal(executableExists(file, { fresh: true }), true, 'owner actions re-check');

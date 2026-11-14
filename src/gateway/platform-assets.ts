@@ -1,7 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { Fault } from '../core/util.js';
-import { AGENT_ICON_CSP, CONSOLE_CSP, FONT_CACHE, FONT_FILE } from './console-assets.js';
+import {
+  AGENT_ICON_CSP,
+  CONSOLE_CSP,
+  FONT_CACHE,
+  FONT_FILE,
+  lucideScriptUrl,
+} from './console-assets.js';
 
 /**
  * 开发者门户的静态资源（只在配置了 `platform` 时注册）：`/portal/` 页面，`web/portal/` 下的
@@ -38,12 +44,7 @@ export function registerPortalAssets(app: FastifyInstance): void {
     send(reply, web('brand.svg'), 'image/svg+xml'),
   );
   app.get('/portal/icons.js', async (_req, reply) =>
-    send(
-      reply,
-      new URL('../../../node_modules/lucide/dist/umd/lucide.js', import.meta.url),
-      'text/javascript',
-      null,
-    ),
+    send(reply, lucideScriptUrl(), 'text/javascript', null),
   );
   app.get('/portal/agents/:file', async (req, reply) => {
     const file = (req.params as { file: string }).file;

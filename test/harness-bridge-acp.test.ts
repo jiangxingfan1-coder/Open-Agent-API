@@ -154,9 +154,14 @@ test('acp bridge: a single call becomes tool_calls; the reply reaches the agent 
     assert.deepEqual(server.args.slice(1, 3), ['mcp-relay', '--socket']);
     assert.equal(server.args[4], '--token-file');
     assert.deepEqual(server.env, []);
-    assert.equal(statSync(server.args[3]).mode & 0o777, 0o600, 'socket 0600');
-    assert.equal(statSync(server.args[5]).mode & 0o777, 0o600, 'token 0600');
-    assert.equal(statSync(path.dirname(server.args[3])).mode & 0o777, 0o700, 'dir 0700');
+    if (process.platform === 'win32') {
+      // Windows: a named pipe (no file, no mode bits); the token file is what authenticates.
+      assert.match(server.args[3], /^\\\\\.\\pipe\\oaa-relay-[0-9a-f]{32}$/);
+    } else {
+      assert.equal(statSync(server.args[3]).mode & 0o777, 0o600, 'socket 0600');
+      assert.equal(statSync(server.args[5]).mode & 0o777, 0o600, 'token 0600');
+      assert.equal(statSync(path.dirname(server.args[3])).mode & 0o777, 0o700, 'dir 0700');
+    }
     const tools = JSON.parse(lines.find((l) => l.startsWith('tools:'))!.slice(6));
     assert.deepEqual(tools, [
       { name: 'edit-file', description: 'Edit a file.', inputSchema: EDIT_SCHEMA },
@@ -452,7 +457,11 @@ test('acp bridge: without tools or without bridge the agent still gets mcpServer
       token,
       BRIDGE,
     );
-    const managed = await chat(s, { messages: [user(script([[edit()]]))] }, {});
+    const managed = await chat(
+      s,
+      { messages: [user(script([[edit()]]))] },
+      { 'x-oaa-client-tools': 'managed' },
+    );
     assert.equal(managed.headers['x-oaa-client-tools'], 'ignored');
     for (const r of [plain, managed]) {
       assert.equal(r.statusCode, 200, r.body);
@@ -461,6 +470,28 @@ test('acp bridge: without tools or without bridge the agent still gets mcpServer
       assert.equal(s.store.run(runId).checkpoint.bridge, undefined);
       assert.ok((await fixtureLog(s, runId)).includes('session/new:[]'));
     }
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('acp bridge: with no mode chosen an ACP agent is bridged on the compat and the default endpoints', async () => {
+  const s = await acpSetup();
+  try {
+    const compat = await chat(s, { messages: [user(script([[edit()]]))] }, {});
+    assert.equal(compat.statusCode, 200, compat.body);
+    assert.equal(compat.headers['x-oaa-client-tools'], 'bridge');
+    assert.equal(compat.json().choices[0].finish_reason, 'tool_calls');
+    // The default (strict) endpoint hands the tools over as well, instead of refusing them.
+    const strict = await s.request(
+      'POST',
+      '/v1/chat/completions',
+      { model: 'agent/caller', tools: [EDIT, LINT], messages: [user(script([[edit()]]))] },
+      token,
+    );
+    assert.equal(strict.statusCode, 200, strict.body);
+    assert.equal(strict.headers['x-oaa-client-tools'], 'bridge');
+    assert.equal(strict.json().choices[0].finish_reason, 'tool_calls');
   } finally {
     await s.cleanup();
   }

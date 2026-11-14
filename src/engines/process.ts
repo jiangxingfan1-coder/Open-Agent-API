@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { checkAbort, Fault, redact } from '../core/util.js';
 import type { SandboxLauncher, SandboxPolicy } from './sandbox-types.js';
+import { killWindowsTree, launchPlan } from './win-spawn.js';
 
 /** How a worker passes its environment to native agents, ACP agents and stdio adapters. */
 export type NativeEnvPolicy = { mode: 'inherit' | 'allowlist'; allow: string[] };
@@ -60,11 +61,22 @@ export function nativeEnvironment(
 }
 
 export function terminateOwned(child: ChildProcessWithoutNullStreams): void {
+  if (process.platform === 'win32') {
+    // No SIGTERM equivalent for a console process tree: end the whole tree (the .cmd/node shim
+    // and the real CLI behind it), falling back to the direct child if taskkill is unavailable.
+    if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
+    killWindowsTree(child.pid);
+    const timer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }, 1500);
+    timer.unref();
+    child.once('close', () => clearTimeout(timer));
+    return;
+  }
   const kill = (signal: NodeJS.Signals) => {
     if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
     try {
-      if (process.platform !== 'win32') process.kill(-child.pid, signal);
-      else child.kill(signal);
+      process.kill(-child.pid, signal);
     } catch {
       // The process group already exited.
     }
@@ -83,10 +95,13 @@ export function ownedProcess(
 ): ChildProcessWithoutNullStreams {
   checkAbort(signal);
   const safeEnv = env ?? nativeEnvironment();
-  const child = spawn(command, args, {
+  const plan = launchPlan(command, args, safeEnv);
+  const child = spawn(plan.command, plan.args, {
     cwd,
     env: safeEnv,
     shell: false,
+    windowsHide: true,
+    windowsVerbatimArguments: plan.windowsVerbatimArguments ?? false,
     detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
   });

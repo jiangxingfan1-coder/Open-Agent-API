@@ -1,5 +1,5 @@
 import { LIMITS } from '../core/limits.js';
-import type { AgentBundle } from '../core/contracts.js';
+import type { AgentBundle, ImageMode } from '../core/contracts.js';
 import type { NodeHub } from '../fabric/network.js';
 import type { RouteTopologyHint } from './routing.js';
 
@@ -31,6 +31,7 @@ export function routeInspector(
     sandbox: boolean;
     providerState: boolean;
     clientTools?: boolean;
+    images?: ImageMode;
   },
 ) {
   const inspected = new Map<string, ReturnType<NodeHub['availability']>>();
@@ -48,6 +49,7 @@ export function routeInspector(
         when.sandbox,
         when.providerState,
         when.clientTools ?? false,
+        when.images,
       );
       inspected.set(key, report);
     }

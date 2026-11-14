@@ -284,7 +284,7 @@ test('unsupported OpenAI fields fail instead of being silently ignored', async (
         ...extra,
       });
     // 不支持的字段报 unsupported_parameter 并给出 param，不再静默。
-    for (const extra of [{ tools: [] }, { n: 2 }]) {
+    for (const extra of [{ tools: [{ type: 'function' }] }, { n: 2 }]) {
       const r = await chat(extra);
       assert.equal(r.statusCode, 400);
       assert.equal(r.json().error.code, 'unsupported_parameter');

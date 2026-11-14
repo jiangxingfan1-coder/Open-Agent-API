@@ -11,6 +11,7 @@ import { isNativeEngine, nativeBackends } from '../config/agent-presets.js';
 import { claudeSdkStatus } from '../engines/claude-sdk.js';
 import { WorkerRuntime, adapterReady } from './worker.js';
 import type { NodeHub } from './network.js';
+import { providerKeyReady } from '../providers/provider-key.js';
 
 /** 本网关进程内的 local worker 配置（没有则 undefined）。 */
 export function localWorkerConfig(hub: NodeHub): WorkerConfig | undefined {
@@ -29,10 +30,18 @@ const enableHint = (engine: string) =>
     `Enable it under "Execution machines" in the console, or POST /v1/local/backends/${encodeURIComponent(engine)} with {"enabled":true} using the admin key.`,
   );
 
+/** `unavailableReason` 只读智能体的这几个字段（`oaa status` 用目录里的条目调用它）。 */
+export type RunnabilityShape = Pick<
+  AgentDefinition,
+  'id' | 'engine' | 'allowedNodes' | 'provider'
+> & {
+  routes: { provider: string }[];
+};
+
 /** 这个智能体在本机 local worker 上跑不起来的具体原因；跑得起来或看不出来时返回 undefined。 */
 export function unavailableReason(
   worker: WorkerConfig | undefined,
-  agent: AgentDefinition,
+  agent: RunnabilityShape,
   env: NodeJS.ProcessEnv = process.env,
 ): LocalText | undefined {
   if (!worker || (agent.allowedNodes?.length && !agent.allowedNodes.includes(worker.nodeId)))
@@ -88,11 +97,16 @@ export function unavailableReason(
   const providers = [...new Set([agent.provider, ...agent.routes.map((r) => r.provider)])];
   const usable = providers.some((p) => {
     const cfg = worker.providers[p];
-    return !cfg || !cfg.apiKeyEnv || !!env[cfg.apiKeyEnv];
+    return !cfg || (!cfg.apiKeyFile && !cfg.apiKeyEnv) || providerKeyReady(cfg, env);
   });
   if (usable) return undefined;
   for (const p of providers) {
     const cfg = worker.providers[p];
+    if (cfg?.apiKeyFile)
+      return bi(
+        `智能体 ${agent.id} 的模型提供方 ${p} 读不到密钥文件 ${cfg.apiKeyFile}（不存在、为空、无权限读取或大于 8 KiB）。修好文件后重新调用即可，不需要重启。`,
+        `Model provider ${p} of agent ${agent.id} cannot read its key file ${cfg.apiKeyFile} (missing, empty, unreadable or larger than 8 KiB). Fix the file and call again; no restart is needed.`,
+      );
     if (cfg?.apiKeyEnv && !env[cfg.apiKeyEnv])
       return bi(
         `智能体 ${agent.id} 的模型提供方 ${p} 缺少环境变量 ${cfg.apiKeyEnv}。在启动网关的环境里设置它（export ${cfg.apiKeyEnv}=…）后重启网关。`,
