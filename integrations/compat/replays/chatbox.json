@@ -1,0 +1,616 @@
+{
+  "client": "chatbox",
+  "label": "Chatbox",
+  "version": "v1.24.4 (release tag, published 2026-11-12; uses @ai-sdk/openai-compatible 3.0.44, ai 7.0.93, @ai-sdk/provider-utils 5.0.36)",
+  "retrieved": "2026-11-14",
+  "overall": "verified",
+  "sources": [
+    {
+      "url": "https://github.com/chatboxai/chatbox/blob/v1.24.4/src/shared/providers/definitions/models/custom-openai.ts#L26-L125",
+      "note": "Custom OpenAI-compatible provider: createOpenAICompatible with apiKey/apiHost, the chat URL is forced to `${apiHost}${apiPath}` by a custom fetch, listModels uses fetchRemoteModels; temperature/topP/maxOutputTokens/stream come from settings."
+    },
+    {
+      "url": "https://github.com/chatboxai/chatbox/blob/v1.24.4/src/shared/utils/llm_utils.ts#L3-L70",
+      "note": "normalizeOpenAIApiHostAndPath: trims, strips trailing slash, prepends https:// when no scheme, default apiPath '/chat/completions'; accepts a host that already ends with /chat/completions."
+    },
+    {
+      "url": "https://github.com/chatboxai/chatbox/blob/v1.24.4/src/shared/models/openai-compatible.ts#L134-L213",
+      "note": "fetchRemoteModels: GET {apiHost}/models with Authorization: Bearer; throws if json.data is missing; maps id, optional name/context_length/architecture."
+    },
+    {
+      "url": "https://github.com/chatboxai/chatbox/blob/v1.24.4/src/renderer/utils/request.ts#L44-L82",
+      "note": "buildHeaders sets Content-Type: application/json on every request (also GET); with useProxy on web the call is rerouted to https://cors-proxy.chatboxai.app/proxy-api/completions with CHATBOX-TARGET-URI; otherwise plain fetch() from the renderer."
+    },
+    {
+      "url": "https://github.com/chatboxai/chatbox/blob/v1.24.4/src/shared/models/abstract-ai-sdk.ts#L168-L200",
+      "note": "stream !== false means streaming; stream === false wraps the model with simulateStreaming (non-stream request)."
+    },
+    {
+      "url": "https://github.com/chatboxai/chatbox/blob/v1.24.4/src/shared/models/abstract-ai-sdk.ts#L289-L420",
+      "note": "streamText(...) with allowSystemInMessages, tools, maxRetries 0; temperature/topP/maxOutputTokens come from callSettings."
+    },
+    {
+      "url": "https://github.com/chatboxai/chatbox/blob/v1.24.4/src/shared/models/utils/openai-chat-sse-termination.ts#L76-L133",
+      "note": "Chatbox closes the stream at the exact event `data: [DONE]` (terminate) so a gateway that keeps the connection open without [DONE] is not detected as finished; non-JSON frames pass through."
+    },
+    {
+      "url": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/chat/openai-compatible-chat-language-model.ts",
+      "note": "L173-L325 getArgs (keys: model, user, max_tokens, temperature, top_p, frequency_penalty, presence_penalty, response_format, stop, seed, provider-option extras, reasoning_effort, verbosity, messages, tools, tool_choice); L331-L353 doGenerate (no stream key); L427-L440 doStream (stream:true, stream_options only when includeUsage); L835-L916 response/chunk zod schemas."
+    },
+    {
+      "url": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/chat/convert-to-openai-compatible-chat-messages.ts",
+      "note": "L33-L45 user content: single text part becomes a string, otherwise an array (text/image_url/video_url/input_audio/file parts); L224-L255 assistant: content = text or null when tool calls exist and no text, tool_calls with JSON-string arguments; tool messages {role:'tool', tool_call_id, content:string}."
+    },
+    {
+      "url": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/openai-compatible-provider.ts",
+      "note": "L146-L152: Authorization: Bearer <apiKey> + User-Agent suffix `ai-sdk/openai-compatible/<version>`; includeUsage option (not set by Chatbox)."
+    },
+    {
+      "url": "https://github.com/chatboxai/chatbox/blob/v1.24.4/src/shared/prompts.ts#L4-L35",
+      "note": "nameConversation: the auto-title request is one user message ('Based on the chat history, give this conversation a name...')."
+    },
+    {
+      "url": "https://github.com/chatboxai/chatbox/blob/v1.24.4/packages/chatbox-core/src/application/session/SessionNamingService.ts#L246-L274",
+      "note": "Title generation calls the same model.chat(...) path (streaming by default, same temperature/topP settings), reads text parts."
+    }
+  ],
+  "setup": {
+    "baseUrl": "Provider > API Host: http://<gateway-host>:8787/v1  (WITH /v1; the client then POSTs to `${apiHost}${apiPath}` with the default API Path /chat/completions and lists models at `${apiHost}/models`). A host typed without http:// gets https:// prepended.",
+    "model": "Add the agent name (e.g. agent/sample) as a model of the custom provider, or use the provider's model-fetch button which calls GET /v1/models; the selected model id is sent as 'model'.",
+    "apiKey": "Provider > API Key (sent as Authorization: Bearer). Provider type: Settings > Model Provider > Add custom provider > API mode 'OpenAI API Compatible' (field names in code: apiHost, apiPath, apiKey; Improve Network Compatibility = useProxy).",
+    "notes": "Where requests originate depends on the platform: mobile uses a native request path; desktop and web run fetch() inside the renderer (browser context), so CORS applies unless the 'useProxy' (Improve Network Compatibility) switch is on. On web with useProxy and a non-localhost host the call is relayed through Chatbox's own cors-proxy.chatboxai.app server (the gateway then sees Chatbox's cloud IP and the body travels via a third party). On desktop with useProxy the request goes through desktopDirectRequestFromWindow. For a self-hosted gateway reached from the web version, allow CORS (preflight below) or use the desktop app."
+  },
+  "cases": [
+    {
+      "id": "models-list",
+      "title": "Model list fetch (custom provider 'fetch models')",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/chatboxai/chatbox/blob/v1.24.4/src/shared/models/openai-compatible.ts#L134-L165",
+        "note": "Only Authorization is set by the model code; Content-Type: application/json is added by buildHeaders for every request (request.ts#L45-L47). User-Agent behaviour of the platform fetch is not specified."
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/models",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "models.object_list",
+        "models.nonempty",
+        "models.id_string"
+      ],
+      "notes": "Throws (ApiError with the raw JSON) if the response has no data key; data items need id, optional name (becomes nickname), context_length, architecture. object/created/owned_by are typed but not used. If the list call fails the UI shows an error and the user can still add models manually."
+    },
+    {
+      "id": "chat-stream",
+      "title": "Streaming chat, default settings (no stream_options, no sampling keys)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/chat/openai-compatible-chat-language-model.ts",
+        "note": "doStream sets stream:true and stream_options only if config.includeUsage, which custom-openai.ts does not set. temperature/top_p/max_tokens are undefined unless the session sets them. User-Agent value is from provider-utils withUserAgentSuffix (exact runtime suffix not verified)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "User-Agent": "ai-sdk/openai-compatible/3.0.44 ai-sdk/provider-utils/5.0.36"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.done_sentinel",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "A new session usually starts with a system message (default system prompt) so messages may be [system, user]; role is 'system' (never 'developer'). Every chunk is validated against a zod schema in which `choices` is a REQUIRED array: a chunk without choices (e.g. a bare usage chunk) is turned into an error part; delta.role must be 'assistant' or '' if present; unknown extra fields are allowed. Chatbox force-terminates the stream at `data: [DONE]`; without [DONE] it relies on the body ending. SSE content-type is not validated."
+    },
+    {
+      "id": "chat-stream-all-settings",
+      "title": "Streaming chat with every optional setting Chatbox exposes (temperature, top_p, max tokens)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/chatboxai/chatbox/blob/v1.24.4/src/shared/providers/definitions/models/custom-openai.ts#L45-L65",
+        "note": "getCallSettings returns only temperature, topP, maxOutputTokens (and reasoning providerOptions). frequency_penalty, presence_penalty, stop, seed, user, n, logit_bias are never sent by this provider."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "User-Agent": "ai-sdk/openai-compatible/3.0.44 ai-sdk/provider-utils/5.0.36"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "max_tokens": 1024,
+          "temperature": 0.7,
+          "top_p": 0.9,
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.done_sentinel",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "max_tokens (not max_completion_tokens) is the key name; a non-integer or <1 value is dropped client-side. Kimi K2/K3 ids have temperature/top_p dropped."
+    },
+    {
+      "id": "chat-basic-nonstream",
+      "title": "Non-streaming chat (provider setting stream = false): note there is NO stream key at all",
+      "evidence": {
+        "status": "verified",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/chat/openai-compatible-chat-language-model.ts",
+        "note": "doGenerate posts getArgs() output unchanged; the stream key is only added by doStream. Chatbox then replays the result as a simulated stream."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "User-Agent": "ai-sdk/openai-compatible/3.0.44 ai-sdk/provider-utils/5.0.36"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string",
+        "chat.message_role_assistant",
+        "chat.finish_reason_string",
+        "chat.usage_numbers"
+      ],
+      "notes": "Response schema: choices is a required array of {message:{role?: 'assistant', content: string|null|array, tool_calls?}, finish_reason?}; id/created/model/usage are nullish. message.role, if present, must be exactly 'assistant'."
+    },
+    {
+      "id": "title-generation",
+      "title": "Automatic conversation naming (same chat path, one user message)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/chatboxai/chatbox/blob/v1.24.4/packages/chatbox-core/src/application/session/SessionNamingService.ts#L246-L274",
+        "note": "model.chat(toModelMessages(nameConversation(...))) with only {sessionId}; streaming and sampling settings are the session's, so stream:true by default. The text template is from src/shared/prompts.ts#L4-L35."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "User-Agent": "ai-sdk/openai-compatible/3.0.44 ai-sdk/provider-utils/5.0.36"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Based on the chat history, give this conversation a name.\nKeep it short - 10 words max, no quotes.\nUse English.\nJust provide the name, nothing else.\n\nHere's the conversation:\n\n```\nHello\n\n---------\n\nHi there\n```\n\nName this conversation in 10 words or less.\nUse English.\nOnly give the name, nothing else.\n\nThe name is:"
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.done_sentinel",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "A second agent run is triggered after the first assistant reply (unless 'auto generate title' is off). If the naming model/provider is configured in settings (threadNamingModel) it may be another provider. There is no dedicated connectivity-test request: the provider 'check' is the models-list call."
+    },
+    {
+      "id": "developer-or-system-role",
+      "title": "System prompt (role system, string content; developer never sent)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/chat/convert-to-openai-compatible-chat-messages.ts",
+        "note": "case 'system' pushes {role:'system', content}. Chatbox passes allowSystemInMessages:true so a system message may also appear mid-history."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "User-Agent": "ai-sdk/openai-compatible/3.0.44 ai-sdk/provider-utils/5.0.36"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hello"
+            },
+            {
+              "role": "assistant",
+              "content": "Hi! How can I help?"
+            },
+            {
+              "role": "user",
+              "content": "Tell me a joke"
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "Plain string content everywhere for text-only turns; no name fields."
+    },
+    {
+      "id": "chat-multimodal-array-text-only",
+      "title": "User turn made of several text parts (content as array of text parts)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/chat/convert-to-openai-compatible-chat-messages.ts",
+        "note": "Converter verified: a user message with more than one part (or a single non-text part) becomes an array of {type:'text', text} / image_url parts; Chatbox producing multiple text parts (e.g. text file attachments inlined next to the prompt) is assumed, not traced."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "User-Agent": "ai-sdk/openai-compatible/3.0.44 ai-sdk/provider-utils/5.0.36"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Summarize the attached file."
+                },
+                {
+                  "type": "text",
+                  "text": "File: notes.txt\nBuy milk\nCall Bob"
+                }
+              ]
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "The gateway must accept content as either a string or an array of {type:'text'} parts."
+    },
+    {
+      "id": "chat-multimodal-image-part",
+      "title": "User message with an attached image (image_url data URL)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/chat/convert-to-openai-compatible-chat-messages.ts",
+        "note": "image file parts become {type:'image_url', image_url:{url:'data:<mime>;base64,...'}} (or the remote URL for url data). Audio becomes input_audio, PDF becomes a file part, video becomes video_url."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "User-Agent": "ai-sdk/openai-compatible/3.0.44 ai-sdk/provider-utils/5.0.36"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "What is in this picture?"
+                },
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 400,
+        "code": "unsupported_content"
+      },
+      "consumes": [],
+      "notes": "Chatbox special-cases the error text 'Invalid content type. image_url is only supported by certain models.' to show a 'model does not support images' hint, so using that exact message in the 400 body gives the nicest UX."
+    },
+    {
+      "id": "assistant-tool-calls-history",
+      "title": "Follow-up turn after a tool call (assistant content null + tool_calls, then tool message)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/chat/convert-to-openai-compatible-chat-messages.ts",
+        "note": "assistant: content = toolCalls.length > 0 ? text || null : text, so null when the model produced only tool calls; arguments = JSON.stringify(input); tool message content is a string (JSON.stringify for json outputs)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "User-Agent": "ai-sdk/openai-compatible/3.0.44 ai-sdk/provider-utils/5.0.36"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            },
+            {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_abc123",
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"city\":\"Paris\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_abc123",
+              "content": "{\"temp_c\":18}"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "If the assistant also produced text before calling tools, content is that text string. Reasoning replays add reasoning_content on assistant messages when the earlier turn returned reasoning."
+    },
+    {
+      "id": "tools-and-tool-choice",
+      "title": "Request with tools (MCP/built-in tools enabled); tool_choice and parallel_tool_calls not sent",
+      "evidence": {
+        "status": "verified",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/chat/openai-compatible-prepare-tools.ts",
+        "note": "tools mapped to {type:'function', function:{name, description, parameters, strict?}}; tool_choice is undefined unless the caller passes toolChoice (Chatbox's streamText call does not). parallel_tool_calls is not part of this provider's body at all."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "User-Agent": "ai-sdk/openai-compatible/3.0.44 ai-sdk/provider-utils/5.0.36"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "Default chats have no tools key; it appears only when tools (MCP servers, web search, knowledge base, etc.) are active. Streamed tool_call deltas are tolerated with missing index or with the name arriving late."
+    },
+    {
+      "id": "reasoning-effort",
+      "title": "Reasoning effort chosen for a reasoning-capable model id",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/chat/openai-compatible-chat-language-model.ts",
+        "note": "reasoning_effort: compatibleOptions.reasoningEffort ?? custom reasoning level is a top-level body key (verified). Chatbox strips stale reasoning options for model ids it does not recognise as reasoning-capable (abstract-ai-sdk.ts#L253-L280), so for an arbitrary agent name it is normally absent; not tested end to end."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "User-Agent": "ai-sdk/openai-compatible/3.0.44 ai-sdk/provider-utils/5.0.36"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "reasoning_effort": "high",
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "Responses may include delta.reasoning_content or delta.reasoning, rendered as thinking; <think>...</think> tags in content are also extracted by extractReasoningMiddleware."
+    },
+    {
+      "id": "cors-preflight-models",
+      "title": "Browser preflight for GET /v1/models (web version / desktop renderer without useProxy)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/chatboxai/chatbox/blob/v1.24.4/src/renderer/utils/request.ts#L44-L82",
+        "note": "Plain fetch() from the renderer with Authorization + Content-Type: application/json (non-simple headers) forces a preflight. The origin of the hosted web app is assumed to be https://web.chatboxai.app; the desktop app's origin differs."
+      },
+      "request": {
+        "method": "OPTIONS",
+        "path": "/v1/models",
+        "headers": {
+          "Origin": "https://web.chatboxai.app",
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Headers": "authorization,content-type"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "cors.allow_origin_echo",
+        "cors.allow_headers_cover_request"
+      ],
+      "notes": "A 204 is equally acceptable. Without a correct preflight answer the web version shows a network error even though curl works."
+    },
+    {
+      "id": "cors-preflight-chat",
+      "title": "Browser preflight for POST /v1/chat/completions (web version / desktop renderer without useProxy)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@3.0.44/src/openai-compatible-provider.ts",
+        "note": "authorization and content-type are certain; the AI SDK also sets a user-agent request header which Chromium-based browsers may keep and then list in Access-Control-Request-Headers (not verified)."
+      },
+      "request": {
+        "method": "OPTIONS",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Origin": "https://web.chatboxai.app",
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "authorization,content-type,user-agent"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "cors.allow_origin_echo",
+        "cors.allow_headers_cover_request"
+      ],
+      "notes": "Best practice: echo back whatever Access-Control-Request-Headers asks for. The streamed response must also carry Access-Control-Allow-Origin."
+    }
+  ]
+}

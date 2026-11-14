@@ -1,0 +1,576 @@
+{
+  "client": "zed",
+  "label": "Zed",
+  "version": "zed-industries/zed main@f0fa51bb510f (2026-11-14); no release tag read (rolling main; Zed releases are not pinned in this research)",
+  "retrieved": "2026-11-14",
+  "overall": "verified",
+  "sources": [
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/open_ai.rs#L746-L774",
+      "note": "open_ai::Request struct and serde skip rules (stream_options, max_completion_tokens, max_tokens, stop, temperature, tool_choice, parallel_tool_calls, tools, prompt_cache_key, reasoning_effort, service_tier)."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/open_ai.rs#L816-L914",
+      "note": "RequestMessage (assistant content Option -> null), MessageContent plain/multipart, ImageUrl, ToolCall shapes."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/open_ai.rs#L1076-L1147",
+      "note": "stream_chat_completion: reads lines, accepts 'data: ' or 'data:' prefixes, [DONE] terminator, EOF also ends the stream."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/open_ai.rs#L1216-L1241",
+      "note": "URL = {api_url}/chat/completions; headers Content-Type + Authorization Bearer + custom headers."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/completion.rs#L65-L262",
+      "note": "into_open_ai: LanguageModelRequest -> chat completions body (temperature default 1.0, max token parameter choice, tools, tool_choice, reasoning_effort)."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/completion.rs#L714-L752",
+      "note": "add_message_content_part: how text/image parts are merged into string or array content."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/language_models/src/provider/open_ai_compatible.rs#L295-L364",
+      "note": "OpenAI-compatible provider: chat_completions vs Responses API switch, service_tier cleared."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/language_models/src/provider/open_ai_compatible.rs#L367-L429",
+      "note": "Reasoning effort selection and max_tokens vs max_completion_tokens parameter."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/settings_content/src/language_model.rs#L440-L488",
+      "note": "available_models schema and capability defaults (tools true, images false, parallel_tool_calls false, prompt_cache_key false, chat_completions true, max_tokens_parameter false)."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/language_model_core/src/chat_completion.rs#L21-L99",
+      "note": "Stream chunk decoding rules (needs choices or usage key; error envelope handling)."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/language_model_core/src/chat_completion.rs#L499-L662",
+      "note": "Chunk -> events mapping, finish_reason handling."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/language_models/src/provider/api_compatible.rs#L28-L48",
+      "note": "API key env var name <PROVIDER_ID>_API_KEY (upper snake case)."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/agent/src/thread.rs#L5329-L5341",
+      "note": "Title request: history + SUMMARIZE_THREAD_PROMPT, no tools."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/zed/src/main.rs#L512-L522",
+      "note": "User-Agent 'Zed/<version> (<os>; <arch>)'."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/docs/src/ai/use-api-access.md#L469-L560",
+      "note": "Official docs: language_models.openai_compatible settings, api_url with /v1, capabilities, reasoning_effort."
+    },
+    {
+      "url": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/docs/src/ai/edit-prediction.md#L342-L421",
+      "note": "Official docs: open_ai_compatible_api edit prediction provider and its /v1/completions body."
+    }
+  ],
+  "setup": {
+    "baseUrl": "settings.json language_models.openai_compatible.<provider-name>.api_url: include /v1, e.g. http://localhost:8787/v1 (Zed appends /chat/completions, so omitting /v1 gives /chat/completions). No trailing slash (a trailing slash would produce //chat/completions).",
+    "model": "language_models.openai_compatible.<provider-name>.available_models[]: {name: 'agent/sample', display_name, max_tokens: <context window>, max_output_tokens?, max_completion_tokens?, reasoning_effort?, capabilities:{tools, images, parallel_tool_calls, prompt_cache_key, chat_completions, interleaved_reasoning, max_tokens_parameter}}. Models are listed manually: Zed never calls GET /models for this provider.",
+    "apiKey": "Agent Settings > Add Provider (stored in the OS keychain) or env var <PROVIDER_NAME>_API_KEY (upper snake case, e.g. MY_PROVIDER_API_KEY). A key is mandatory in Zed (it errors with NoApiKey otherwise); sent as `Authorization: Bearer <key>`.",
+    "notes": "JSON: {\"language_models\":{\"openai_compatible\":{\"oaa\":{\"api_url\":\"http://localhost:8787/v1\",\"available_models\":[{\"name\":\"agent/sample\",\"max_tokens\":128000}]}}}}. Requests are issued directly from the Zed process (reqwest), so a localhost gateway is reachable. Set capabilities.chat_completions:false only for Responses-API-only models. An optional `custom_headers` map adds headers."
+  },
+  "cases": [
+    {
+      "id": "chat-stream-text-only",
+      "title": "Zed: streaming chat without tools (text threads, thread summaries, git commit message, inline-assistant style requests)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/completion.rs#L65-L262 ; https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/open_ai.rs#L746-L774 ; https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/language_models/src/provider/open_ai_compatible.rs#L295-L336",
+        "note": "Body keys verified from into_open_ai + the serde skip rules on open_ai::Request: stream is always present, stream_options {include_usage:true} when streaming, temperature is ALWAYS sent (request.temperature or 1.0), while max_completion_tokens/max_tokens, stop, tools, tool_choice, parallel_tool_calls, prompt_cache_key, reasoning_effort and service_tier are omitted unless set. A message with a single text part serializes as a plain string."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "Zed/0.x.y (macos; aarch64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a highly capable coding assistant. (illustrative; Zed's real system prompt is long)"
+            },
+            {
+              "role": "user",
+              "content": "Explain what this function does."
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk"
+      ],
+      "notes": "Headers (chat_completion_request, open_ai.rs L1216-L1241): Content-Type: application/json, Authorization: Bearer <key trimmed>, plus the user's `custom_headers`; the shared reqwest client adds User-Agent 'Zed/<version> (<os>; <arch>)' (main.rs L512-L522). No Accept header, no x-stainless-*, no HTTP-Referer/X-Title. Stream parsing (language_model_core chat_completion.rs): each `data:` line must be JSON with a `choices` or `usage` key (else 'unrecognized chat completion stream chunk' error); `choices` may be missing/null/empty; delta.role is not read; delta.content may be a string or an array of parts; finish_reason is read ('stop'->EndTurn, 'tool_calls' flushes accumulated tool calls, 'length'->MaxTokens, 'content_filter'->refusal, unknown values logged and treated as EndTurn); `usage` is read when both prompt_tokens and completion_tokens are present. A non-null top-level `error` object fails the stream. `data: [DONE]` ends the stream, but EOF without [DONE] is also accepted. The system role is sent as role 'system' (never 'developer'). Whitespace-only user text parts are dropped. Special cases in into_open_ai: an agent name starting with 'o1-' is sent with stream:false and no stream_options; temperature is dropped for a few gpt-6 model ids (completion.rs L45-L57). Zed requires an API key to be configured (placeholder key if the gateway does not need one) - otherwise it fails with NoApiKey before sending anything."
+    },
+    {
+      "id": "chat-stream-agent-tools",
+      "title": "Zed: Agent panel turn with tools (tool_choice and parallel_tool_calls omitted by default)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/completion.rs#L226-L261 ; https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/language_models/src/provider/open_ai_compatible.rs#L89-L118 ; https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/open_ai.rs#L802-L814",
+        "note": "Tools default to supported (capabilities.tools=true). parallel_tool_calls is only sent when capabilities.parallel_tool_calls=true AND tools exist (default false -> omitted). tool_choice is only sent when the request carries one (not determined for the default Agent loop, so it is omitted here)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "Zed/0.x.y (macos; aarch64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a highly capable coding assistant. (illustrative; Zed's real system prompt is long)"
+            },
+            {
+              "role": "user",
+              "content": "Open README.md and summarize it."
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Reads the content of the given file in the project.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "The relative path of the file to read."
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "Tool name/description/schema are illustrative. Wrapper verified: {type:'function', function:{name, description, parameters}} - no `strict` field exists in Zed's FunctionDefinition. Tool-call deltas are accumulated by `index`; tool arguments are JSON-parsed on finish_reason 'tool_calls' (a parse failure becomes a ToolUseJsonParseError, not a crash). A tool_call delta with index -1/null or function null is tolerated (unit tests in chat_completion.rs L757-L810)."
+    },
+    {
+      "id": "chat-stream-all-settings",
+      "title": "Zed: streaming with every optional per-model setting enabled (max_output_tokens, parallel_tool_calls, prompt_cache_key, reasoning_effort, tool_choice)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/completion.rs#L203-L261 ; https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/settings_content/src/language_model.rs#L440-L488 ; https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/docs/src/ai/use-api-access.md#L469-L560",
+        "note": "Each extra key appears only when its available_models[] option is set: max_output_tokens -> `max_completion_tokens` (default parameter name; capabilities.max_tokens_parameter:true switches it to `max_tokens`), capabilities.parallel_tool_calls -> parallel_tool_calls:true (only with tools), capabilities.prompt_cache_key -> prompt_cache_key (request.prompt_cache_key or thread id), reasoning_effort -> reasoning_effort. tool_choice maps Auto/Any/None to 'auto'/'required'/'none' when the calling feature sets it."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "Zed/0.x.y (macos; aarch64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a highly capable coding assistant. (illustrative; Zed's real system prompt is long)"
+            },
+            {
+              "role": "user",
+              "content": "Open README.md and summarize it."
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "max_completion_tokens": 4096,
+          "temperature": 1.0,
+          "tool_choice": "auto",
+          "parallel_tool_calls": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Reads the content of the given file in the project.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "The relative path of the file to read."
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            }
+          ],
+          "prompt_cache_key": "7a3f6c1e-0f2b-4a53-9d0e-5b1c2d3e4f50",
+          "reasoning_effort": "high"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk"
+      ],
+      "notes": "`stop` is only set by features that pass stop sequences (omitted here). service_tier is never sent to OpenAI-compatible providers (the provider clears request.speed, open_ai_compatible.rs L308-L310). A model with capabilities.chat_completions:false is called on POST /v1/responses instead (Responses API), which is a different protocol and is not covered by these cases."
+    },
+    {
+      "id": "title-generation",
+      "title": "Zed: thread title generation (full history + a final user message with the summarize prompt, no tools)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/agent/src/thread.rs#L5329-L5341 ; https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/agent/src/thread.rs#L4209-L4240",
+        "note": "build_thread_title_request copies the thread messages and appends one user message containing SUMMARIZE_THREAD_PROMPT; tools are empty so `tools` is omitted; the request is streamed (stream_thread_title). Prompt text in the body below is a placeholder - the constant's exact text was not read."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "Zed/0.x.y (macos; aarch64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Explain what this function does."
+            },
+            {
+              "role": "assistant",
+              "content": "This function adds two numbers."
+            },
+            {
+              "role": "user",
+              "content": "<SUMMARIZE_THREAD_PROMPT: instruction to produce a short conversation title>"
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "Uses the thread's summarization model (OpenAI-compatible providers define no separate default fast model, open_ai_compatible.rs L252-L254; which model is chosen as summarization model was not traced). temperature comes from AgentSettings::temperature_for_model, otherwise 1.0."
+    },
+    {
+      "id": "chat-multimodal-array-text-only",
+      "title": "Zed: user message with several text parts becomes a content ARRAY of text parts",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/open_ai.rs#L841-L876 ; https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/completion.rs#L714-L752",
+        "note": "MessageContent::push_part converts a Plain string into Multipart([Text, new]) when a second part is added, and From<Vec<MessagePart>> collapses a single text part back to a string. That real Agent user turns contain several consecutive text parts (e.g. mentions/context blocks followed by the prompt) is inferred, not observed."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "Zed/0.x.y (macos; aarch64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a highly capable coding assistant. (illustrative; Zed's real system prompt is long)"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<context>\nfile: src/main.rs\n</context>"
+                },
+                {
+                  "type": "text",
+                  "text": "Explain this file."
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "Zed can also serialize `content: []` (an empty Multipart) for a message that ended up with no parts, since MessageContent::empty() is Multipart(vec![]); not expected in normal flows."
+    },
+    {
+      "id": "assistant-tool-calls-history",
+      "title": "Zed: follow-up turn after a tool call (assistant content null + tool_calls, then tool message)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/completion.rs#L140-L198 ; https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/open_ai.rs#L816-L914",
+        "note": "A ToolUse content item creates {role:'assistant', content: None, tool_calls:[...]} -> serialized as `\"content\": null` (the field has no skip_serializing_if). If the same assistant turn also had text, the tool calls are appended to that message and content is the text. Tool results serialize as {role:'tool', content, tool_call_id}; content is a plain string for one text part and an array of parts if several (or an image)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "Zed/0.x.y (macos; aarch64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a highly capable coding assistant. (illustrative; Zed's real system prompt is long)"
+            },
+            {
+              "role": "user",
+              "content": "Open README.md and summarize it."
+            },
+            {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_abc123",
+                  "type": "function",
+                  "function": {
+                    "name": "read_file",
+                    "arguments": "{\"path\":\"README.md\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "content": "# Open Agent API\nSelf-hosted gateway that publishes agents as APIs.",
+              "tool_call_id": "call_abc123"
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Reads the content of the given file in the project.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "The relative path of the file to read."
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "tool_call.function carries `thought_signature` and the assistant message carries `reasoning_content`/`reasoning_details` ONLY when capabilities.interleaved_reasoning is true (default false). No `name` field on tool messages."
+    },
+    {
+      "id": "reasoning-effort",
+      "title": "Zed: model configured with reasoning_effort (sent as OpenAI-style reasoning_effort)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/language_models/src/provider/open_ai_compatible.rs#L367-L429 ; https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/docs/src/ai/use-api-access.md#L506-L540",
+        "note": "reasoning_effort values: none, minimal, low, medium, high, xhigh, max. With the setting unset the key is omitted; with `none` it is sent as 'none'; when thinking is toggled off in the UI and the model defines an effort, 'none' is sent."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "Zed/0.x.y (macos; aarch64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a highly capable coding assistant. (illustrative; Zed's real system prompt is long)"
+            },
+            {
+              "role": "user",
+              "content": "Plan a refactor of the payments module."
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0,
+          "reasoning_effort": "high"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "Streamed reasoning is read from delta.reasoning_content or delta.reasoning (strings), and delta.content as an array may contain {type:'thinking'} parts. The gateway must tolerate an unknown reasoning_effort value such as 'xhigh'/'max'."
+    },
+    {
+      "id": "image-part",
+      "title": "Zed: user message with an inline image (only when capabilities.images is true)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/completion.rs#L127-L139 ; https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/open_ai/src/open_ai.rs#L878-L892",
+        "note": "Image becomes {type:'image_url', image_url:{url:'data:<mime>;base64,...'}} with `detail` omitted. Images are attached only when the model's capabilities.images is true (default false), otherwise Zed does not offer image input for that model."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "Zed/0.x.y (macos; aarch64)"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg=="
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "What is in this image?"
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0
+        }
+      },
+      "expect": {
+        "status": 400,
+        "code": "unsupported_content"
+      },
+      "consumes": [
+        "stream.content_deltas_present"
+      ],
+      "notes": "Part order follows the message's content order (image before text shown here is illustrative). Tool results containing images are also emitted as image_url parts inside the tool message content array."
+    },
+    {
+      "id": "edit-prediction-completions",
+      "title": "Zed: Edit Prediction with provider open_ai_compatible_api (legacy /v1/completions, documented body)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/docs/src/ai/edit-prediction.md#L342-L421",
+        "note": "Body and endpoint come from Zed's own docs (example request), not from the Rust source; headers, stream flag and exact stop list were not read in code. prompt_format 'infer' picks a FIM format from the model name, so `prompt` varies."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "prompt": "<fim_prefix>fn add(a: i32, b: i32) -> i32 {\n    <fim_suffix>\n}<fim_middle>",
+          "max_tokens": 256,
+          "temperature": 0.2,
+          "stop": [
+            "<|endoftext|>"
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present"
+      ],
+      "notes": "OUT OF SCOPE for a chat-completions-only gateway: needs POST /v1/completions. Skip if not served. Unlike language_models.openai_compatible.api_url (which excludes /chat/completions), edit_predictions.open_ai_compatible_api.api_url must be the FULL URL including /v1/completions. This is configured separately from the Agent model, so it only runs if the user enables that edit-prediction provider."
+    }
+  ]
+}

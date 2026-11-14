@@ -4,12 +4,13 @@
  * - SDK 默认 `apiVersion` 是 `v1`，所以 `/v1/models/{agent}:{method}` 与 `/v1beta/...` 同等对待。
  * - `models.list()` / `models.get()`：`GET {version}/models[/{id}]` 返回 Google 的 Model 形状
  *   （https://ai.google.dev/api/models）。`/v1/models` 只在带 `x-goog-api-client`（SDK 每次都发）
- *   时用这个形状，其余客户端仍是 OpenAI 列表；`/v1/models/{id}` 同理，否则保持 404。
+ *   时用这个形状，其余客户端仍是 OpenAI 列表；`/v1/models/{id}` 同理（带 `anthropic-version` 是 Claude 的 ModelInfo，否则是 OpenAI 的 Model 对象）。
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Auth } from './auth.js';
 import type { Principal } from '../core/contracts.js';
 import { Fault, noAgent } from '../core/util.js';
+import { claudeModelInfo, openaiModel } from './compat-models.js';
 
 const notFound = (req: FastifyRequest) =>
   new Fault(
@@ -22,6 +23,50 @@ const notFound = (req: FastifyRequest) =>
 export function isGeminiPath(url: string): boolean {
   const path = url.split('?')[0]!;
   return path.startsWith('/v1beta/') || path === '/v1beta' || /^\/v1\/models\/.+:\w+$/.test(path);
+}
+
+/**
+ * Google's REST accepts proto-JSON, so every field may be written in snake_case or camelCase: the
+ * REST reference examples use `system_instruction`, and google-genai 3.3.0 sends the tool schema as
+ * `parameters_json_schema`. The parsers read camelCase; this renames the known snake_case keys.
+ * Subtrees that hold the caller's own data or JSON Schemas (`args`, `response`, schemas) are left alone.
+ */
+const SNAKE_TO_CAMEL: Record<string, string> = {
+  system_instruction: 'systemInstruction',
+  generation_config: 'generationConfig',
+  max_output_tokens: 'maxOutputTokens',
+  function_declarations: 'functionDeclarations',
+  parameters_json_schema: 'parametersJsonSchema',
+  response_json_schema: 'responseJsonSchema',
+  function_call: 'functionCall',
+  function_response: 'functionResponse',
+  inline_data: 'inlineData',
+  file_data: 'fileData',
+  tool_config: 'toolConfig',
+  safety_settings: 'safetySettings',
+  cached_content: 'cachedContent',
+  code_execution: 'codeExecution',
+  google_search: 'googleSearch',
+  mime_type: 'mimeType',
+  file_uri: 'fileUri',
+};
+const OPAQUE = new Set([
+  'args',
+  'response',
+  'parameters',
+  'parametersJsonSchema',
+  'responseJsonSchema',
+]);
+
+export function camelizeGeminiBody(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(camelizeGeminiBody);
+  if (!value || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    const name = SNAKE_TO_CAMEL[key] ?? key;
+    out[name] = OPAQUE.has(name) ? child : camelizeGeminiBody(child);
+  }
+  return out;
 }
 
 /** 请求来自 Google 的 SDK（`x-goog-api-client` 头）。 */
@@ -67,20 +112,24 @@ export function registerGeminiModelRoutes(
   auth: Auth,
   agents: (p: Principal) => readonly { id: string }[],
 ): void {
-  const get = (req: FastifyRequest) => {
+  const find = (req: FastifyRequest) => {
     auth.require(req.principal, 'read');
     const id = decodeURIComponent(String((req.params as { '*': string })['*'] ?? ''));
     const found = agents(req.principal).find((a) => a.id === id);
     if (!found) throw noAgent();
-    return geminiModel(found);
+    return found;
   };
   app.get('/v1beta/models', async (req) => {
     auth.require(req.principal, 'read');
     return geminiModelList(agents(req.principal));
   });
-  app.get('/v1beta/models/*', async (req) => get(req));
+  app.get('/v1beta/models/*', async (req) => geminiModel(find(req)));
+  // `GET /v1/models/{id}` is shared by three SDKs (agent ids contain a slash, which SDKs send
+  // percent-encoded): Google's by the `x-goog-api-client` header, Anthropic's by `anthropic-version`,
+  // otherwise the OpenAI Model object.
   app.get('/v1/models/*', async (req) => {
-    if (!fromGoogleClient(req)) throw notFound(req);
-    return get(req);
+    const found = find(req);
+    if (fromGoogleClient(req)) return geminiModel(found);
+    return req.headers['anthropic-version'] ? claudeModelInfo(found) : openaiModel(found);
   });
 }

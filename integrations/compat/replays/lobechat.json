@@ -1,0 +1,781 @@
+{
+  "client": "lobechat",
+  "label": "LobeChat (lobehub/lobehub, formerly lobe-chat)",
+  "version": "lobehub/lobehub release v2.3.3 = commit 69f8dcdfae1c59a5ffb703b3a0187223987bcd56 (default branch is 'canary', pushed 2026-11-14; lobehub/lobe-chat redirects to lobehub/lobehub). HTTP layer: openai-node ^6.49.0 (v6.49.0 source read for headers).",
+  "retrieved": "2026-11-14",
+  "overall": "partial",
+  "sources": [
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/providers/openai/index.ts#L30-L94",
+      "note": "OpenAI-protocol runtime (also used for custom providers with SDK type 'openai'): default baseURL https://api.openai.com/v1; handlePayload default branch = {...rest, model, stream: payload.stream ?? true}; Responses API is chosen for certain model ids or when enabledSearch is set; reasoning-style model ids go through pruneReasoningPayload; models() = client.models.list() -> processMultiProviderModelList."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/openaiCompatible/index.ts#L118-L143",
+      "note": "Constructor: new OpenAICompatibleClient({apiKey, baseURL, ...}) (extends openai-node OpenAI); baseURL used verbatim, the SDK appends '/chat/completions' and '/models'. Missing apiKey throws invalidAPIKey."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/protocols/openaiChatCompletions/chat.ts#L53-L167",
+      "note": "Chat Completions request assembly: apiMode/preserveThinking stripped, messages converted, 'user' = options.user, prompt_cache_key only for gpt-*/o<digit> model ids, stream_options {include_usage:true} whenever stream is true, openai SDK call with headers {Accept: '*/*'}."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/protocols/openaiChatCompletions/messages.ts#L87-L162",
+      "note": "Message conversion: content string kept, parts arrays filtered; name / tool_calls / tool_call_id / function_call / reasoning_content preserved when present; tool messages with images are flattened to text + a following user message."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/contextBuilders/openai.ts#L114-L123",
+      "note": "filterOutgoingContentParts: an assistant turn whose content parts all vanish becomes content null when it has tool_calls, else ''."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/contextBuilders/openai.ts#L171-L206",
+      "note": "pruneReasoningPayload (only for OpenAI reasoning-style model ids): system->developer, frequency/presence_penalty forced 0, stream_options/logprobs removed, temperature/top_p dropped unless reasoning effort is none."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/protocols/openaiChatCompletions/stream.ts#L179-L190",
+      "note": "Stream consumer: tolerates chunks with empty/missing choices (usage-only chunks), reads choices[0].delta (content, reasoning_content, tool_calls), finish_reason, usage; does not require delta.role or [DONE]."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/protocols/openaiChatCompletions/nonStreamToStream.ts#L6-L90",
+      "note": "Non-stream completions are replayed as synthetic stream chunks: reads choices[].message.content/role/tool_calls/finish_reason, data.usage, id, created, model."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/openaiCompatible/models.ts#L26-L90",
+      "note": "Model list for custom (sdk 'openai') providers: GET /models, list.data.filter() dropping ids that CONTAIN any of embedding, davinci, curie, moderation, ada, babbage, tts, whisper, dall-e (case-insensitive); reads item.id (string) and optional item.created (number seconds/ms, or date string)."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/utils/modelParse.ts#L736-L760",
+      "note": "processMultiProviderModelList (built-in OpenAI provider list): input type Array<{id: string}>; abilities (function calling, vision, reasoning ...) are guessed from keywords in the model id."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/const/src/settings/agent.ts#L42-L56",
+      "note": "DEFAULT_AGENT_CONFIG.params = {frequency_penalty: 0, presence_penalty: 0, temperature: 1, top_p: 1}; enableStreaming defaults true (L25-L40)."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/src/services/chat/index.ts#L313-L471",
+      "note": "Browser-side getChatCompletion: merges {model, stream, ...DEFAULT params} with agent params + apiMode ('responses' if the provider's Responses API switch is on, else 'chatCompletion'); nulls removed; posts to /webapi/chat/<provider> (server mode) or, with 'Use Client Request Mode', runs the model runtime in the browser (fetchOnClient)."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/src/services/chat/index.ts#L535-L561",
+      "note": "fetchOnClient: requires a signed-in user, then initializeWithClientStore -> ModelRuntime with dangerouslyAllowBrowser: true (clientModelRuntime.ts L32-L45) -> openai-node running in the browser."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/src/app/(backend)/webapi/chat/%5Bprovider%5D/route.ts#L47-L56",
+      "note": "Server route: modelRuntime.chat(data, {user: userId, ...}) so the upstream request carries user = the LobeChat user id; awaitFirstResponseChunk() turns an empty completion into a structured error."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/src/features/Settings/provider/features/ProviderConfig/Checker.tsx#L121-L171",
+      "note": "Provider 'Connectivity Check' button: chatService.fetchPresetTaskResult with messages [{content:'hello', role:'user'}] and the selected check model, normal streaming path; passes only if some text comes back."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/protocols/openaiChatCompletions/generateObject.ts#L83-L188",
+      "note": "Structured output (non-stream): response_format {json_schema, type:'json_schema'} + user; if the upstream error text matches /(response_format|json_schema)...(unavailable|not support)/ it retries once with a forced tool call (tools [{function:{description,name,parameters},type:'function'}], tool_choice {function:{name},type:'function'})."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/prompts/src/chains/summaryTitle.ts#L1-L48",
+      "note": "Topic-title prompt and TOPIC_TITLE_JSON_SCHEMA {name:'topic_title', strict:true, schema:{type:'object', properties:{title:{type:'string'}}, required:['title'], additionalProperties:false}}."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/business/const/src/llm.ts#L7-L10",
+      "note": "System-agent defaults used for utility tasks (topic auto-summary etc.): DEFAULT_MODEL deepseek-v4-flash/provider deepseek, DEFAULT_MINI_MODEL gpt-5.6-luna/provider openai - i.e. utility calls do NOT automatically use the user's chat model unless the 'System Agent' settings are pointed at the gateway."
+    },
+    {
+      "url": "https://github.com/openai/openai-node/blob/v6.49.0/src/client.ts#L1164-L1181",
+      "note": "Default request headers of openai-node: Accept application/json, User-Agent, X-Stainless-Retry-Count, (X-Stainless-Timeout when a per-request timeout is set), platform headers, OpenAI-Organization/OpenAI-Project when set, Authorization: Bearer <apiKey>."
+    },
+    {
+      "url": "https://github.com/openai/openai-node/blob/v6.49.0/src/internal/detect-platform.ts#L84-L116",
+      "note": "Platform headers: X-Stainless-Lang js, -Package-Version, -OS, -Arch, -Runtime (node | browser:<name>), -Runtime-Version (browser: OS 'Unknown', Arch 'unknown')."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/context-engine/src/processors/ToolCall.ts#L123-L197",
+      "note": "Tool history conversion: assistant gets tool_calls [{function:{arguments,name}, id, type:'function'}]; tool messages get name = generated tool name + original tool_call_id. Tools are only used when the model has function-calling ability (isCanUseFC)."
+    },
+    {
+      "url": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/locales/en-US/modelProvider.json#L178-L186",
+      "note": "UI labels: 'API Proxy URL' (placeholder https://your-proxy-url.com/v1), 'Connectivity Check' / 'Check', 'Use Client Request Mode' ('will initiate session requests directly from the browser')."
+    }
+  ],
+  "setup": {
+    "baseUrl": "http://<gateway-host>:8787/v1  (WITH /v1: LobeChat passes the value as the openai-node baseURL, the SDK appends '/chat/completions' and '/models'). Settings > AI Service Provider > OpenAI (or '+ Add Custom Provider' with request format 'OpenAI') > field 'API Proxy URL' (custom provider: 'Proxy URL').",
+    "model": "Models are added in the provider's model list: either 'Fetch models' (calls GET /v1/models) or add a custom model id by hand, e.g. agent/sample, then select it in the chat header. For the 'Check' button choose that model in the dropdown next to it.",
+    "apiKey": "'API Key' field of the provider (required: LobeChat refuses to build the client without a non-empty key).",
+    "notes": "Two modes. DEFAULT = server-side request: browser -> LobeChat server /webapi/chat/<provider> -> gateway, request made by openai-node in Node (headers Accept: */*, User-Agent: OpenAI/JS <ver>, X-Stainless-* = js/<ver>/<os>/<arch>/node/<node-version>, Authorization), body also carries user = LobeChat user id. In Docker use host.docker.internal for the gateway. 'Use Client Request Mode' (per-provider switch, requires being signed in) = the browser runs openai-node itself and calls the gateway DIRECTLY: needs CORS and sends X-Stainless-* browser headers (X-Stainless-Runtime: browser:<name>), no 'user' field. Hazards: (a) the per-provider 'Responses API' switch (and enabledSearch for OpenAI-type providers) makes LobeChat call POST /v1/responses instead of chat/completions - keep it off; (b) model abilities (function calling, vision, reasoning) are guessed from keywords in the model id or set manually, so for a plain agent id LobeChat will usually NOT send tools or images unless the user ticks those abilities; (c) the model list for custom providers hides ids that contain 'embedding','davinci','curie','moderation','ada','babbage','tts','whisper','dall-e' as a substring (e.g. 'agent/adapter' or 'agent/canada'); (d) topic title / summary / translation helpers run on separately configured 'System Agent' models (defaults deepseek-v4-flash@deepseek and gpt-5.6-luna@openai) so they never reach the gateway unless the user points them at it; (e) chat requests are re-sent through the agent runtime which may add extra system context messages, so exact message lists below are representative, not exhaustive."
+  },
+  "cases": [
+    {
+      "id": "models-list",
+      "title": "Provider 'Fetch models': GET /v1/models via openai-node (server side)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/openaiCompatible/models.ts#L26-L90",
+        "note": "client.models.list() (openai-node GET <baseURL>/models, no query). Headers are the SDK defaults (L1164-L1181 of openai-node client.ts); X-Stainless-OS/Arch/Runtime-Version values are examples of the Node host. Whether the model-list call is made server-side or in the browser under Client Request Mode was not verified."
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/models",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Accept": "application/json",
+          "User-Agent": "OpenAI/JS 6.49.0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "models.object_list",
+        "models.id_string"
+      ],
+      "notes": "list.data must be an array (the code does list.data.filter / modelsPage.data.map - a missing 'data' throws); each item's id must be a string (item.id.toLowerCase()). 'created' is optional and may be a number (seconds or 13-digit ms) or a date string. 'object' and 'owned_by' are never read. An empty list is accepted (no models appear). On any non-2xx the UI shows 'Failed to fetch models: <message>' and the user can still add models by hand. Ids containing embedding/davinci/curie/moderation/ada/babbage/tts/whisper/dall-e are dropped for custom providers."
+    },
+    {
+      "id": "connectivity-test",
+      "title": "Provider 'Check' button: streaming 'hello' with default params (server side, user field present)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/src/features/Settings/provider/features/ProviderConfig/Checker.tsx#L155-L164",
+        "note": "Browser payload = merge({model, stream:true, ...DEFAULT_AGENT_CONFIG.params}, {messages:[{content:'hello',role:'user'}], model, apiMode:'chatCompletion'}) (services/chat/index.ts L349-L363); server adds user (route.ts L47-L49), runtime strips apiMode and adds stream_options (chat.ts L136-L147). Key order in JSON follows the object spreads and is not significant."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "OpenAI/JS 6.49.0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "content": "hello",
+              "role": "user"
+            }
+          ],
+          "stream": true,
+          "frequency_penalty": 0,
+          "presence_penalty": 0,
+          "temperature": 1,
+          "top_p": 1,
+          "user": "user_abc123",
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "Check passes only if non-empty text arrives; an empty completion or a stream with zero chunks becomes an error (awaitFirstResponseChunk). The stream parser tolerates a final usage-only chunk with choices: [], does not require delta.role on the first chunk, does not require [DONE] (openai-node ends at EOF or [DONE]) and ignores unknown fields; a chunk with a top-level 'error' object makes openai-node throw. An agent whose id looks like an OpenAI reasoning model (o1/o3/gpt-5...) takes a different path: pruneReasoningPayload then drops stream_options, temperature and top_p, forces penalties to 0 and rewrites role 'system' to 'developer' (this case is not replayed here because it depends on the id pattern, see openai/modelId.ts)."
+    },
+    {
+      "id": "chat-stream",
+      "title": "Normal streaming chat message (default agent params, server side)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/src/services/chat/index.ts#L160-L276",
+        "note": "Parameter keys/values verified (same as the connectivity check). The exact messages list is built by the context-engine pipeline (system role from the agent, history, optional injected context blocks) and was not fully traced; plain text user/assistant turns are plain strings (MessageContent.ts L268, L524), system content is a string."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "OpenAI/JS 6.49.0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "content": "You are a helpful assistant.",
+              "role": "system"
+            },
+            {
+              "content": "Hello",
+              "role": "user"
+            }
+          ],
+          "stream": true,
+          "frequency_penalty": 0,
+          "presence_penalty": 0,
+          "temperature": 1,
+          "top_p": 1,
+          "user": "user_abc123",
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "temperature 1 and top_p 1 are sent TOGETHER (no Claude-style conflict handling for non-Claude model ids). 'name' is passed through if a message has one (multi-agent group chats). No max_tokens by default."
+    },
+    {
+      "id": "chat-stream-all-settings",
+      "title": "Streaming chat with agent sampling settings maxed out (temperature, top_p, penalties, max_tokens)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/types/chat.ts#L91-L210",
+        "note": "ChatStreamPayload declares max_tokens, temperature, top_p, presence_penalty, frequency_penalty, n, logprobs, top_logprobs, response_format, tool_choice, ...; getChatCompletion merges the agent's saved params over the defaults. That the agent settings UI actually fills max_tokens (and with this key name) was not traced to the UI; the rest is verified."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "OpenAI/JS 6.49.0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "content": "Hello",
+              "role": "user"
+            }
+          ],
+          "stream": true,
+          "frequency_penalty": 1,
+          "presence_penalty": 1,
+          "temperature": 1.5,
+          "top_p": 0.9,
+          "max_tokens": 2048,
+          "user": "user_abc123",
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "LobeChat does not expose n/seed/stop/logit_bias in the normal chat UI."
+    },
+    {
+      "id": "chat-basic-nonstream",
+      "title": "Streaming disabled in the agent's chat settings: stream:false, no stream_options",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/protocols/openaiChatCompletions/chat.ts#L76-L78",
+        "note": "includeUsageRequested = Boolean(stream && ...), so stream_options is undefined (dropped) when stream is false; the stream flag comes from chatConfig.enableStreaming !== false (services/chat/index.ts L352). Response is replayed as a synthetic stream (nonStreamToStream.ts)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "OpenAI/JS 6.49.0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "content": "Hello",
+              "role": "user"
+            }
+          ],
+          "stream": false,
+          "frequency_penalty": 0,
+          "presence_penalty": 0,
+          "temperature": 1,
+          "top_p": 1,
+          "user": "user_abc123"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.id_string",
+        "chat.created_number",
+        "chat.model_string",
+        "chat.choices_nonempty",
+        "chat.message_role_assistant",
+        "chat.message_content_string",
+        "chat.finish_reason_string",
+        "chat.usage_numbers"
+      ],
+      "notes": "Opt-in (chat setting 'streaming' off). id/created/model are copied into the synthetic chunks; message.role is copied into delta.role; tool_calls and reasoning_content are optional extras; usage is optional (only used if present). Not enabled by default."
+    },
+    {
+      "id": "tools-and-tool-choice",
+      "title": "Agent with plugins/skills on a function-calling-capable model: tools array, no tool_choice",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/context-engine/src/processors/ToolCall.ts#L50-L66",
+        "note": "Tools are produced by the ToolsEngine and passed as params.tools (services/chat/index.ts L271); gated by the model's functionCall ability. The tool object shape {type:'function', function:{description,name,parameters}} follows ChatCompletionTool; tool_choice / parallel_tool_calls are never set by the normal chat path (ChatStreamPayload.tool_choice exists but no default) - absence not exhaustively verified. Tool names/parameters below are illustrative; real LobeChat tool names are generated as '<identifier><separator><apiName>'."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "OpenAI/JS 6.49.0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "content": "What is the weather in Paris?",
+              "role": "user"
+            }
+          ],
+          "stream": true,
+          "frequency_penalty": 0,
+          "presence_penalty": 0,
+          "temperature": 1,
+          "top_p": 1,
+          "tools": [
+            {
+              "function": {
+                "description": "Get the current weather for a city",
+                "name": "weather____getWeather",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              },
+              "type": "function"
+            }
+          ],
+          "user": "user_abc123",
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "The tool-name separator in the example is a guess ('____'); function names are otherwise opaque strings. Streamed tool_calls deltas (index, id, function.name/arguments) are consumed; an assistant tool call whose function is null throws 'Invalid tool call: function is null'."
+    },
+    {
+      "id": "assistant-tool-calls-history",
+      "title": "Next turn after a tool call: assistant with tool_calls and empty content, then role:tool message with name",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/protocols/openaiChatCompletions/messages.ts#L105-L131",
+        "note": "convertOpenAIMessages output shape verified (content, role, name, tool_calls, tool_call_id); assistant content is '' (string passes through) or null (when all content parts vanish and tool_calls exist, contextBuilders/openai.ts L114-L123). tool message 'name' comes from ToolCall.ts L181-L196. Tool name format in the example is illustrative."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "OpenAI/JS 6.49.0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "content": "What is the weather in Paris?",
+              "role": "user"
+            },
+            {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"city\":\"Paris\"}",
+                    "name": "weather____getWeather"
+                  },
+                  "id": "call_abc123",
+                  "type": "function"
+                }
+              ]
+            },
+            {
+              "content": "{\"temp\":18}",
+              "name": "weather____getWeather",
+              "role": "tool",
+              "tool_call_id": "call_abc123"
+            }
+          ],
+          "stream": true,
+          "frequency_penalty": 0,
+          "presence_penalty": 0,
+          "temperature": 1,
+          "top_p": 1,
+          "tools": [
+            {
+              "function": {
+                "description": "Get the current weather for a city",
+                "name": "weather____getWeather",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              },
+              "type": "function"
+            }
+          ],
+          "user": "user_abc123",
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "Gateway should accept assistant content '' or null alongside tool_calls, and role:tool messages carrying a 'name' key. For model ids containing deepseek/glm/kimi LobeChat may also echo 'reasoning_content' on assistant tool-call turns."
+    },
+    {
+      "id": "reasoning-effort",
+      "title": "Model setting 'reasoning effort' enabled: reasoning_effort key added (non-reasoning model id)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/src/services/chat/index.ts#L262-L274",
+        "note": "params spreads modelParams.resolvedExtendParams (decided by @lobechat/mecha from the model card's extendParams and the agent's chatConfig); ChatStreamPayload.reasoning_effort is typed (none|minimal|low|medium|high|xhigh|max). That a custom model's extendParams 'reasoningEffort' maps to the key 'reasoning_effort' (and not to 'reasoning'/'effort'/'thinking' variants, which also exist in the type) was not verified. Off by default for ids without that extend param."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "OpenAI/JS 6.49.0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "content": "Hello",
+              "role": "user"
+            }
+          ],
+          "stream": true,
+          "frequency_penalty": 0,
+          "presence_penalty": 0,
+          "temperature": 1,
+          "top_p": 1,
+          "reasoning_effort": "medium",
+          "user": "user_abc123",
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "Other extend-param keys LobeChat can add for some model families (not for plain ids): enabledContextCaching, thinking {type,budget_tokens}, thinkingBudget, thinkingLevel, effort, text.verbosity, imageAspectRatio, ... Unknown top-level keys are forwarded verbatim by the OpenAI runtime."
+    },
+    {
+      "id": "title-generation",
+      "title": "Structured output (topic title / helpers): non-stream, response_format json_schema strict + user",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/model-runtime/src/core/protocols/openaiChatCompletions/generateObject.ts#L141-L168",
+        "note": "Request shape verified from generateObjectViaJsonSchema (messages, model, response_format {json_schema, type:'json_schema'}, user; reasoning_effort only when given); headers are the SDK defaults (no Accept override: options.headers is undefined). That the topic-title feature uses this call, with TOPIC_TITLE_JSON_SCHEMA (summaryTitle.ts L5-L16), and which model it runs on (the 'System Agent' setting, default deepseek-v4-flash@deepseek) was not traced end to end."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "OpenAI/JS 6.49.0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "messages": [
+            {
+              "content": "You are a professional conversation summarizer. Generate a concise title that captures the essence of the conversation.\n\nRules:\n- Return one JSON object with a single \"title\" string matching the supplied schema\n- No explanations or additional fields\n- Maximum 15 words\n- Maximum 80 characters\n- No punctuation marks\n- Use the language specified by the locale code: zh-CN\n- The title should accurately reflect the main topic of the conversation\n- Keep it short and to the point",
+              "role": "system"
+            },
+            {
+              "content": "<task>\nGenerate a concise title that captures the essence of the conversation.\n</task>\n\n<conversation>\n<user>\nHello\n</user>\n<assistant>\nHi, how can I help?\n</assistant>\n</conversation>",
+              "role": "user"
+            }
+          ],
+          "model": "{{AGENT}}",
+          "response_format": {
+            "json_schema": {
+              "name": "topic_title",
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "description": "A concise topic title",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "type": "object"
+              },
+              "strict": true
+            },
+            "type": "json_schema"
+          },
+          "user": "user_abc123"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string",
+        "chat.usage_numbers"
+      ],
+      "notes": "Response: choices[0].message.content must be a JSON string matching the schema (parseStructuredOutputText); usage optional. No stream key and no stream_options in this request. If the gateway answers a 400/422 whose message matches /(response_format|json_schema).*(unavailable|not +support)/i, LobeChat retries once with tools [{function:{description,name:'topic_title',parameters:<schema>},type:'function'}] and tool_choice {function:{name:'topic_title'},type:'function'} (non-stream) and then reads choices[0].message.tool_calls[*].function.arguments."
+    },
+    {
+      "id": "image-part",
+      "title": "Vision-capable model with an attached image: user content array [text, image_url]",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/packages/context-engine/src/processors/MessageContent.ts#L495-L513",
+        "note": "Array shape verified (text part first, then image_url parts built from imageList / stored image_url parts; detail 'auto' appears in some builders, MessageContent.ts L653); if the model lacks the vision ability images are replaced by a placeholder text and NO image part is sent. By default the URL is the stored file URL (https or a presigned URL); with env LLM_VISION_IMAGE_USE_BASE64=1 LobeChat inlines a base64 data URI (contextBuilders/openai.ts L131-L145). The data URI below is the inlined variant."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "OpenAI/JS 6.49.0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "content": [
+                {
+                  "text": "What is in this picture?",
+                  "type": "text"
+                },
+                {
+                  "image_url": {
+                    "detail": "auto",
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAfbLI3wAAAABJRU5ErkJggg=="
+                  },
+                  "type": "image_url"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "stream": true,
+          "frequency_penalty": 0,
+          "presence_penalty": 0,
+          "temperature": 1,
+          "top_p": 1,
+          "user": "user_abc123",
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 400,
+        "code": "unsupported_content"
+      },
+      "consumes": [],
+      "notes": "Audio input (audio_url parts) is converted to input_audio {data, format: 'wav'|'mp3'} for this runtime; video to video_url parts."
+    },
+    {
+      "id": "chat-stream-client-request-mode",
+      "title": "'Use Client Request Mode' on: the browser itself calls the gateway (openai-node in browser, no user field)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/lobehub/lobehub/blob/69f8dcdfae1c59a5ffb703b3a0187223987bcd56/src/services/chat/mecha/clientModelRuntime.ts#L32-L45",
+        "note": "ModelRuntime created in the browser with dangerouslyAllowBrowser: true; same chatViaChatCompletions code path (options.user is undefined -> no 'user'); headers from openai-node browser build: X-Stainless-OS 'Unknown', Arch 'unknown', Runtime 'browser:<chrome|firefox|safari|edge|ie>', Runtime-Version '<major>.<minor>.<patch>' (detect-platform.ts L95-L105), no Node User-Agent override. Whether the browser also transmits a User-Agent header (set by the SDK, browser-dependent) was not verified."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "Authorization": "Bearer {{KEY}}",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "6.49.0",
+          "X-Stainless-OS": "Unknown",
+          "X-Stainless-Arch": "unknown",
+          "X-Stainless-Runtime": "browser:chrome",
+          "X-Stainless-Runtime-Version": "130.0.0",
+          "X-Stainless-Retry-Count": "0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "content": "Hello",
+              "role": "user"
+            }
+          ],
+          "stream": true,
+          "frequency_penalty": 0,
+          "presence_penalty": 0,
+          "temperature": 1,
+          "top_p": 1,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "cors.allow_origin_echo"
+      ],
+      "notes": "Browser-direct: the response needs Access-Control-Allow-Origin (the preflight case below). Requires the user to be signed in to LobeChat for this mode to run at all."
+    },
+    {
+      "id": "cors-preflight-client-request-mode",
+      "title": "CORS preflight for the browser-direct (Client Request Mode) chat request",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/openai/openai-node/blob/v6.49.0/src/client.ts#L1164-L1181",
+        "note": "Non-safelisted request headers set by openai-node in a browser: authorization, content-type, x-stainless-arch, x-stainless-lang, x-stainless-os, x-stainless-package-version, x-stainless-retry-count, x-stainless-runtime, x-stainless-runtime-version (Accept is safelisted). openai-node also assigns 'User-Agent' and, when a per-request timeout is set, 'X-Stainless-Timeout'; whether a given browser lists 'user-agent' (and x-stainless-timeout) in Access-Control-Request-Headers was not verified, so a robust gateway should allow those two as well."
+      },
+      "request": {
+        "method": "OPTIONS",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Origin": "http://localhost:3210",
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "authorization,content-type,x-stainless-arch,x-stainless-lang,x-stainless-os,x-stainless-package-version,x-stainless-retry-count,x-stainless-runtime,x-stainless-runtime-version"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "cors.allow_origin_echo",
+        "cors.allow_headers_cover_request"
+      ],
+      "notes": "Only relevant when 'Use Client Request Mode' is on. Also applies to GET /v1/models if the browser performs model fetching itself (not verified). 204 is the more common preflight status; 200 listed per the test-lab convention."
+    }
+  ]
+}

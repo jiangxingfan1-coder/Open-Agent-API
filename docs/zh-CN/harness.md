@@ -111,7 +111,7 @@ Responses（`/v1/compat/responses`）与 Gemini（`tools[].functionDeclarations`
 | 严格接口（不带 `X-OAA-Compat` 的 `/v1/chat/completions`、`/v1/responses`） | — | — | — |
 | UAP/1（`/v1/uap`） | — | — | — |
 
-严格接口与 UAP/1 的请求结构不接受 `tools` 字段，不受模式影响：严格接口报 `unsupported_parameter`（`error.param: "tools"`，0.6.0 起；以前是 `invalid_request`），UAP/1 按未知字段报 `invalid_request`。
+严格接口与 UAP/1 不受模式影响。严格接口拒绝非空的 `tools`（也包括 `functions`、工具结果消息与 assistant 的 `tool_calls`），报 `unsupported_parameter`（`error.param` 是 `"tools"` 或 `messages.N`；说明里指向 Base URL `<origin>/v1/compat` 与 `X-OAA-Client-Tools: bridge`），空的 `tools: []` 按没有工具接受。UAP/1 按未知字段报 `invalid_request`。
 
 ## 与人工审批的区别
 

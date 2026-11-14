@@ -12,7 +12,7 @@ default, what you must do before exposing a gateway to the internet, and where t
 | **Owner / admin** | API key with `admin` scope (`sk-oaa-…`, legacy `oaa_…`, or a key from the config file) | Everything of its owner: publishing agents (including engines, model routes, MCP servers, HTTP/A2A adapter URLs, `approvals: auto`), creating keys, enrolling nodes, platform settings. An admin is equivalent to the operator of the machine. |
 | **Agent-limited admin** | `admin` key whose `agents` is not `*` | Admin actions limited to its agents. It cannot manage node lifecycle, read the audit trail, or revoke / re-quota keys outside its agents or its own key. When it has a quota, keys it creates or changes must set every limit of that quota no higher than its own (`quota_exceeds_own`). Each such key has its own counters, so several keys together can still use more than one key's quota. |
 | **Caller** | Non-admin API key | Calling the agents its key grants, with the scopes it holds (`invoke`, `read`, `files`, `approve`, `billing`). Sees only its own runs, files, artifacts, memories and idempotency keys (its *subject*), unless the key has `data_scope: owner`. |
-| **Portal user** | Portal session `oas_…` (developer platform) | Its own account, keys, balance, usage and runs. Account keys get `invoke/read/files` on listed agents only, at the platform's execution level (`workspace` or `sandbox`). |
+| **Portal user** | Portal session `oas_…` (developer platform) | Its own account, keys, balance, usage and runs. Account keys get `invoke/read/files` on listed agents only, at the platform's execution level (`workspace` or `sandbox`). Exception, per listing: when the owner turns on a listing's `host_execution`, account keys may run **that agent** at `host`, i.e. as the gateway's OS user (each delegate, hand-off or fallback target needs its own listing switch). Its permission requests are decided by the owner only; account keys have no `approve` scope. Switch changes are audited (`platform_listing_host_execution`). See [platform.md](platform.md#offering-external-agents). |
 | **Execution node** | Node token `oan_…` over `/v1/nodes/connect` | Running the work the gateway assigns for the agents it was enrolled for. See "Execution nodes" below. |
 | **Agent** (model or external CLI agent) | — | Nothing by itself. Its output is untrusted data. An external agent at execution level `host` runs as the gateway's OS user with that user's files and (inherited) environment. |
 
@@ -24,6 +24,12 @@ Gemini, native `/v1/runs`, files, timeline, event streams):
   (`visibleSubject` in `src/core/contracts.ts`); another caller's IDs return `404` without
   revealing existence. Cancel, resume, approve and reconcile use the same filter.
 - **Key → agents**: `authorize()` checks the agent grant for every read and action on a run.
+- **Key → execution level**: a key below `host` cannot start an agent that needs `host`
+  (external agents, host tools), checked along the delegation chain and fallback chain before
+  any work (`isolation_required`). The only widening is the developer platform's per-listing
+  `host_execution` switch, which opens `host` for that one agent and never for the agents it
+  delegates to; an owner who turns it on accepts that platform accounts can make that agent act
+  as the gateway's OS user, bounded by its `approvals` policy and working directory.
 - **Revocation / expiry / account disabled** take effect on the next request; open event
   streams re-validate their key and close when it stops being valid (measured: a
   `/v1/catalog/events` stream ended within milliseconds of `DELETE /v1/keys/:id`).

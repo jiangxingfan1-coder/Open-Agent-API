@@ -151,9 +151,18 @@ export const zhPlatform = {
   'dlg.listing.saved': '已保存上架信息',
   'dlg.listing.listed': '已上架 {id}',
   'dlg.listing.token_note':
-    '外部智能体不一定会报告 token 用量；没有报告时只有「每个任务」的价格生效。',
+    '不上报 token 用量的智能体（多数外部智能体）只能按次定价，「每千 token」须为 0，否则保存会被拒绝。',
+  'dlg.listing.host': '允许平台账号在本机运行这个智能体',
+  'dlg.listing.host_why':
+    '这个智能体以本机权限运行（外部智能体或带本机工具）。不打开时，平台账号调用它会被拒绝（isolation_required），门户目录里也不会显示它。',
+  'dlg.listing.host_risk':
+    '打开后，平台账号的调用会让它以运行网关的这个系统用户的权限执行：能读写这个用户能读写的文件，能做这个用户能做的事。它实际能做什么，取决于审批策略（approvals）与工作目录；审批只由你（所有者）处理，账号用户不能自己批准。建议保持审批，并用专用系统用户或沙箱运行网关。只对这一个智能体生效；它委派的智能体要各自上架并各自打开。',
+  'dlg.listing.host_auto':
+    '注意：这个智能体的审批策略是 auto，它的操作请求会被自动批准，不会等你处理。',
+  'dlg.listing.host_doc_before': '详见 ',
+  'dlg.listing.host_doc_after': ' 的信任边界一节。',
   'dlg.listing.per_run': '每个任务（点）',
-  'dlg.listing.per_run_hint': '任务一结束就按次收取；0 表示不按次收费',
+  'dlg.listing.per_run_hint': '任务开始时预扣，完成才收取，未完成退回；0 表示不按次收费',
   'dlg.listing.per_1k': '每千 token（点）',
   'dlg.listing.per_1k_hint': '按实际用量折算；0 表示不按量收费',
   'dlg.listing.agent': '智能体',

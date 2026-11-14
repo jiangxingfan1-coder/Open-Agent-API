@@ -1,0 +1,632 @@
+{
+  "client": "open-webui",
+  "label": "Open WebUI",
+  "version": "v0.13.3 (release tag, published 2026-11-08; default branch main)",
+  "retrieved": "2026-11-14",
+  "overall": "verified",
+  "sources": [
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/routers/openai.py#L85-L127",
+      "note": "Model list fetch: GET {url}/models via aiohttp, response parsed with response.json() without checking the HTTP status."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/routers/openai.py#L709-L775",
+      "note": "get_all_models: reads response['data'] (or a bare list); model id = item.id or item.name; items without both are skipped; owned_by is overwritten with 'openai'."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/routers/openai.py#L979-L1063",
+      "note": "Connection test (Admin > Connections > verify button): GET {url}/models, non-200 is passed through as an error."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/routers/openai.py#L1405-L1578",
+      "note": "generate_chat_completion: URL = {url}/chat/completions, max_completion_tokens is renamed to max_tokens for non-api.openai.com hosts, reasoning-model handler only for o<N>/gpt-N>=5 ids, stream_options is dropped when stream is false."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/utils/headers.py#L175-L231",
+      "note": "Headers: Content-Type: application/json + Authorization: Bearer <key>; HTTP-Referer/X-Title only for openrouter.ai; X-OpenWebUI-* user headers only when ENABLE_FORWARD_USER_INFO_HEADERS is on."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/utils/payload.py#L105-L153",
+      "note": "apply_params_to_form_data: every non-null key of the user's Advanced Params is copied to the top level of the request body as-is (including Ollama-only keys like top_k, min_p, repeat_penalty, num_ctx, think, format) for non-Ollama connections."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/main.py#L1236-L1237",
+      "note": "stream_options {include_usage: true} is added only when stream is true AND the model has the 'usage' capability switched on."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/src/lib/components/chat/Chat.svelte#L4610-L4622",
+      "note": "Frontend body: stream, model, messages, params (flattened server-side). stream defaults to true."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/utils/middleware.py#L1857-L2016",
+      "note": "Message replay: only id/role/content/output/... kept, then id/output/model/usage/meta stripped; messages sent upstream are {role, content}."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/utils/misc.py#L433-L575",
+      "note": "Assistant tool-call history: {role: assistant, content: '' (empty string, not null), tool_calls: [{id, type: function, function}]} followed by {role: tool, tool_call_id, content: string}."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/utils/middleware.py#L2909-L2915",
+      "note": "Native function calling: form_data['tools'] = [{type: function, function: spec}]; tool_choice is not set (only the internal 'none' for a final-answer round), parallel_tool_calls is never set."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/utils/middleware.py#L4935-L5150",
+      "note": "Stream parsing: lines must start with 'data:'; empty/missing choices is tolerated (usage still read); finish_reason read from choices[0]; delta.role is not required; per-chunk exceptions are swallowed."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/routers/tasks.py#L141-L215",
+      "note": "Title generation: non-streaming request {model: <task model, defaults to the chat model>, messages: [single user message], stream: false, max_tokens: 1000}."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/config.py#L2304-L2325",
+      "note": "Default title prompt: asks the model to answer with a raw JSON object { \"title\": ... }."
+    },
+    {
+      "url": "https://github.com/open-webui/open-webui/blob/v0.13.3/src/lib/components/chat/Settings/Advanced/AdvancedParams.svelte",
+      "note": "User-facing parameter keys (stream_response, seed, stop, temperature, reasoning_effort, logit_bias, max_tokens, top_k, top_p, min_p, frequency_penalty, presence_penalty, mirostat*, repeat_*, tfs_z, think, format, keep_alive, num_*). Read via a summarising fetch, no line numbers."
+    }
+  ],
+  "setup": {
+    "baseUrl": "http://<gateway-host>:8787/v1  (WITH /v1: the client appends /models and /chat/completions itself)",
+    "model": "Nothing to type if GET /v1/models works; otherwise add the agent name (e.g. agent/sample) under 'Model IDs (Filter)' of the connection, which skips the list call entirely",
+    "apiKey": "Admin Panel > Settings > Connections > OpenAI API > '+' Add Connection > fields URL and Key (Bearer token)",
+    "notes": "All gateway calls are made by the Open WebUI backend (Python aiohttp), not by the browser, so no CORS is involved. When Open WebUI runs in Docker and the gateway on the host, use http://host.docker.internal:8787/v1. Open WebUI also fires background tasks against the same model by default (title, tags, follow-up questions), each is an extra non-streaming completion on the agent."
+  },
+  "cases": [
+    {
+      "id": "models-list",
+      "title": "Model list fetch (also used by the connection verify button)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/routers/openai.py#L85-L127",
+        "note": "Content-Type is sent on GET because get_headers_and_cookies is used for connections with a config. Accept and User-Agent come from aiohttp defaults (inferred, not set in Open WebUI code)."
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/models",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "models.object_list",
+        "models.nonempty",
+        "models.id_string"
+      ],
+      "notes": "Reads response.data (must be a list) or a bare list; per item only id (fallback name) is required, name optional. object/created/owned_by are not read. If the request fails or data is missing the connection silently yields zero models (error only in server log). A JSON body is parsed even on non-200 statuses in the list path; the verify button passes non-200 through as an error."
+    },
+    {
+      "id": "chat-stream",
+      "title": "Streaming chat, default settings (no stream_options)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/routers/openai.py#L1405-L1578",
+        "note": "Body keys: model, messages, stream. Nothing else unless the user sets Advanced Params or enables the model 'usage' capability."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "The proxy branches on the response Content-Type containing text/event-stream; any other type is parsed as one JSON document. Lines must start with 'data:'. [DONE] is tolerated but the loop also ends at body EOF. delta.role is not required. A system message appears only when the user configured a system prompt (role system)."
+    },
+    {
+      "id": "chat-stream-usage-capability",
+      "title": "Streaming chat with the model 'usage' capability enabled (adds stream_options)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/main.py#L1236-L1237",
+        "note": "Only when form_data.stream is true and model capabilities.usage is truthy; the default is unset (off)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk"
+      ],
+      "notes": "A chunk with usage and an empty or absent choices array is handled (usage merged, then continue). Usage is read from any chunk's top-level usage object."
+    },
+    {
+      "id": "chat-basic-nonstream",
+      "title": "Non-streaming chat (user turned 'Stream Chat Response' off)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/src/lib/components/chat/Chat.svelte#L4509-L4514",
+        "note": "stream = params.stream_response ?? settings ?? true; stream_options is removed server-side when stream is false."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": false
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string",
+        "chat.finish_reason_string",
+        "chat.usage_numbers"
+      ],
+      "notes": "Reads choices[0].message.content and choices[0].finish_reason; usage is read if present (usage object missing is fine). Content-Type of the reply must not contain text/event-stream."
+    },
+    {
+      "id": "chat-stream-all-settings",
+      "title": "Streaming chat with Advanced Params maxed out (every optional key the UI can set)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/utils/payload.py#L105-L153",
+        "note": "Pass-through mechanism verified in code; which keys appear depends on what the user filled in. n, user, response_format, tools are never produced by the stock UI. stop is sent as an array of strings, logit_bias as an object."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 0.7,
+          "top_p": 0.9,
+          "top_k": 40,
+          "min_p": 0.05,
+          "max_tokens": 512,
+          "frequency_penalty": 0.1,
+          "presence_penalty": 0.1,
+          "seed": 42,
+          "stop": [
+            "END"
+          ],
+          "logit_bias": {
+            "50256": -100
+          },
+          "reasoning_effort": "medium",
+          "repeat_penalty": 1.1,
+          "repeat_last_n": 64,
+          "tfs_z": 1,
+          "mirostat": 1,
+          "mirostat_eta": 0.1,
+          "mirostat_tau": 5,
+          "num_ctx": 4096,
+          "num_batch": 512,
+          "num_keep": 24,
+          "think": true,
+          "format": "json",
+          "keep_alive": "5m"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk"
+      ],
+      "notes": "Risky for strict servers: Ollama-flavoured keys (top_k, min_p, repeat_penalty, repeat_last_n, tfs_z, mirostat*, num_*, think, format, keep_alive) are forwarded at the TOP level to ANY OpenAI-compatible connection (they only go into 'options' for Ollama connections). The gateway must ignore unknown fields. Admin-only extras (use_mmap, use_mlock, num_thread, num_gpu) behave the same. max_tokens stays max_tokens (renamed from max_completion_tokens) for non-OpenAI hosts."
+    },
+    {
+      "id": "title-generation",
+      "title": "Automatic chat title generation (background task, non-streaming)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/routers/tasks.py#L141-L215",
+        "note": "payload = {model, messages:[user], stream:false} + apply_task_model_params adds max_tokens (model param, default 1000). metadata is popped before the upstream call. Tags generation and follow-up generation use the same shape."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "### Task:\nGenerate a concise title summarizing the chat history.\n### Guidelines:\n- The title should clearly represent the main theme or subject of the conversation.\n- Keep it short: 2-4 words is best.\n- Do not use emojis, quotation marks, or special formatting.\n- Write the title in the chat's primary language; default to English if multilingual.\n- Prioritize accuracy over creativity.\n- Your entire response must consist solely of the JSON object, without any introductory or concluding text.\n- The output must be a single, raw JSON object, without any markdown code fences or other encapsulating text.\n- Ensure no conversational text, affirmations, or explanations precede or follow the raw JSON output, as this will cause direct parsing failure.\n### Output:\nJSON format: { \"title\": \"your concise title here\" }\n### Examples:\n- { \"title\": \"Stock Trends\" },\n- { \"title\": \"Chocolate Chip Cookies\" },\n- { \"title\": \"Music Streaming\" },\n- { \"title\": \"Remote Work\" }\n### Chat History:\n<chat_history>\nUSER: Hello\nASSISTANT: Hi there\n</chat_history>"
+            }
+          ],
+          "stream": false,
+          "max_tokens": 1000
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string"
+      ],
+      "notes": "Task model defaults to the chat model itself, so every first message triggers a SECOND full run of the agent (plus tags and follow-ups, all enabled by default). The response content is expected to be raw JSON text {\"title\": ...}; a plain-text agent answer just fails title parsing in Open WebUI and the chat stays untitled."
+    },
+    {
+      "id": "developer-or-system-role",
+      "title": "System prompt configured (role system; developer only for o<N>/gpt-5+ model ids)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/routers/openai.py#L1107-L1118",
+        "note": "openai_reasoning_model_handler rewrites messages[0].role from system to developer only when the model id matches ^o\\d+ or gpt-N with N>=5; ids like agent/sample keep role system. The frontend puts a system message first when the user has a system prompt (Chat.svelte#L4515-L4520)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present"
+      ],
+      "notes": "Content is always a plain string for text-only turns (never an array of text parts). Messages carry no name field."
+    },
+    {
+      "id": "chat-multimodal-image-part",
+      "title": "User message with an attached image (content-part array with image_url data URL)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/src/lib/components/chat/Chat.svelte#L4551-L4565",
+        "note": "Shape {type:'text', text} + {type:'image_url', image_url:{url}} (frontend, temporary chats) and the same shape injected server-side for saved chats (middleware.py#L2116-L2136); url is a data: URL for uploaded images."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "What is in this picture?"
+                },
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 400,
+        "code": "unsupported_content"
+      },
+      "consumes": [],
+      "notes": "Error body should be an OpenAI-style {error:{message,type,code}}; Open WebUI surfaces error.message (or detail) in the chat bubble."
+    },
+    {
+      "id": "assistant-tool-calls-history",
+      "title": "Follow-up turn after a native tool call (assistant tool_calls with empty-string content, then tool message)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/utils/misc.py#L433-L575",
+        "note": "Assistant message content is '' (empty string) when no text accompanied the call; tool message content is a string; tool_call_id mirrors the call id. The tools list is sent again with the follow-up request."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_abc123",
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"city\":\"Paris\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_abc123",
+              "content": "{\"temp_c\":18}"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "Unpaired tool messages are dropped client-side (sanitize_tool_pairs). Assistant messages replayed from reasoning models may additionally carry reasoning_content or reasoning_details; not for plain text models."
+    },
+    {
+      "id": "tools-and-tool-choice",
+      "title": "First request of a tool-enabled chat (tools list; no tool_choice, no parallel_tool_calls)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/utils/middleware.py#L2909-L2915",
+        "note": "tools entries are {type:function, function:<tool spec>}. tool_choice only appears as the internal value 'none' when forcing a final answer after the tool-call limit (middleware.py#L5807); parallel_tool_calls is not produced anywhere in this version."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk"
+      ],
+      "notes": "Only sent when the user enabled a tool/server in the chat; default chats send no tools key. Open WebUI also injects its own builtin tools (memory, web search, knowledge) when those features are on."
+    },
+    {
+      "id": "reasoning-effort",
+      "title": "reasoning_effort set in Advanced Params",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/utils/payload.py#L105-L153",
+        "note": "reasoning_effort is a plain pass-through key (string) from Advanced Params; for non-reasoning model ids nothing else is rewritten."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true,
+          "reasoning_effort": "high"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present"
+      ],
+      "notes": "The value is whatever string the user typed (low/medium/high are the suggestions)."
+    },
+    {
+      "id": "response-format-json",
+      "title": "response_format via custom parameter (not exposed as a first-class UI field)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/open-webui/open-webui/blob/v0.13.3/backend/open_webui/utils/payload.py#L186-L217",
+        "note": "A key named response_format set through the admin-only 'custom parameters' (custom_params) or in a workspace model's params is passed through as a dict. The stock chat UI does not set it by default."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+          "User-Agent": "Python/3.11 aiohttp/3.x"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Reply with JSON"
+            }
+          ],
+          "stream": true,
+          "response_format": {
+            "type": "json_object"
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present"
+      ],
+      "notes": "Only relevant if an operator configures it; keep as a low-priority compatibility case."
+    }
+  ]
+}

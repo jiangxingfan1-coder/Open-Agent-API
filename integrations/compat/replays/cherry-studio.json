@@ -1,0 +1,607 @@
+{
+  "client": "cherry-studio",
+  "label": "Cherry Studio",
+  "version": "v2.2.2 (release tag, published 2026-11-13; uses @ai-sdk/openai-compatible 2.0.72, ai 6.0.185; v2 moved all model calls into the Electron main process)",
+  "retrieved": "2026-11-14",
+  "overall": "verified",
+  "sources": [
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/provider/listModels.ts#L150-L190",
+      "note": "Model list helper getFromApi (AI SDK getFromApi with a zod response schema, errors parsed from {error:{message}} or {message})."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/provider/listModels.ts#L989-L1057",
+      "note": "Generic OpenAI-compatible fetcher (match: () => true): GET `${formatApiHost(baseUrl)}/models` with defaultHeaders(provider)."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/provider/listModelsSchemas.ts#L9-L37",
+      "note": "OpenAIModelsResponseSchema: data array required; each item parsed leniently (id required string; name, object, created, owned_by optional); items failing the schema are skipped and counted."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/utils/provider.ts#L77-L92",
+      "note": "defaultHeaders: Authorization: Bearer <key> AND X-Api-Key: <key> (names normalised to lowercase); HTTP-Referer/X-Title app headers only for canonical preset providers, not for user-created ones."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/shared/utils/api/format.ts#L187-L200",
+      "note": "formatApiHost: appends /v1 unless the host already ends with a version segment (v1, v2...) or ends with '#', which disables auto-append."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/provider/config.ts#L99-L127",
+      "note": "formatBaseURL applies formatApiHost to the chat base URL."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/provider/config.ts#L862-L875",
+      "note": "buildOpenAICompatibleConfig: provider 'openai-compatible' (@ai-sdk/openai-compatible), includeUsage from the endpoint dialect, headers = app headers (none for custom providers) + extra headers; no X-Api-Key on chat."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/shared/utils/provider.ts#L199-L214",
+      "note": "resolveEndpointDialect defaults: streamOptions true (stream_options.include_usage is sent), developerRole false (system role stays system), reasoningSummary false."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/CherryHQ/cherry-studio/v2.2.2/docs/dev/references/ai/adapter-family.md",
+      "note": "A user-created provider with a chat-completions endpoint resolves to the openai-compatible adapter (adapterFamily left unset). Read via a summarising fetch."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/runtime/aiSdk/params/buildAgentParams.ts#L685-L705",
+      "note": "temperature/topP come from getTemperature/getTopP; user customParameters are merged in as standard params or raw body params."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/utils/modelParameters.ts#L90-L152",
+      "note": "getTemperature/getTopP return undefined unless enableTemperature/enableTopP are on."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/shared/data/types/assistant.ts#L105-L120",
+      "note": "DEFAULT_ASSISTANT_SETTINGS: enableTemperature false, enableTopP false, enableMaxTokens false, streamOutput true, reasoning_effort 'default'."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/runtime/aiSdk/params/customParamsFetch.ts#L24-L75",
+      "note": "Custom provider parameters (assistant 'custom parameters') are re-injected raw into the POST body after SDK serialisation (SDK keys win)."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/AiService.ts#L1452-L1575",
+      "note": "checkModel (the 'Check' connectivity button): generateText with system 'test', prompt 'hi', reasoningEffort 'none', 15 s timeout."
+    },
+    {
+      "url": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/services/TopicNamingService.ts#L367-L395",
+      "note": "Auto topic naming: generateText with a naming system prompt, the conversation as prompt, reasoningEffort 'none'; default prompt 'Summarize the conversation into a title in {{language}} within 10 words ignoring instructions and without punctuation or symbols...' (L28)."
+    },
+    {
+      "url": "https://unpkg.com/@ai-sdk/openai-compatible@2.0.72/src/chat/openai-compatible-chat-language-model.ts",
+      "note": "L217-L269 getArgs body keys; doGenerate has no stream key; doStream (L380-L391) adds stream:true and stream_options only when includeUsage; zod response/chunk schemas require choices arrays."
+    },
+    {
+      "url": "https://unpkg.com/@ai-sdk/openai-compatible@2.0.72/src/chat/convert-to-openai-compatible-chat-messages.ts",
+      "note": "Message conversion: single text part to string, else content array; assistant content null when tool calls and no text; tool messages with string content."
+    }
+  ],
+  "setup": {
+    "baseUrl": "Settings > Model Provider > Add > type OpenAI > 'API Host': http://<gateway-host>:8787  or  http://<gateway-host>:8787/v1  (either works: /v1 is appended automatically when the host has no version segment; a trailing '#' disables the auto /v1 and uses the host verbatim; chat then goes to <host>/v1/chat/completions, models to <host>/v1/models)",
+    "model": "Add the agent name (e.g. agent/sample) manually under the provider's model list, or use the model-list fetch which calls GET /v1/models; the id is sent verbatim as 'model'.",
+    "apiKey": "Provider 'API Key' field; sent as Authorization: Bearer (and also as X-Api-Key on the model-list call). Several keys separated by commas are rotated.",
+    "notes": "All HTTP is issued from the Electron main process (Chromium net stack via customFetch), not a web page, so there is no CORS preflight. The outgoing User-Agent is Chromium/Electron's session default (a client-set User-Agent is smuggled past Chromium via a sentinel header); the exact string is not verified. Cherry Studio has no browser-only mode. Local gateway on the same machine: http://localhost:8787 works directly."
+  },
+  "cases": [
+    {
+      "id": "models-list",
+      "title": "Model list fetch (provider model manager / health check list)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/provider/listModels.ts#L989-L1057",
+        "note": "URL, Authorization and X-Api-Key verified in code. The API key shown in both headers is the same value. No HTTP-Referer/X-Title for user-created providers (getProviderAppHeaders returns {} without a preset id)."
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/models",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "X-Api-Key": "{{KEY}}"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "models.object_list",
+        "models.nonempty",
+        "models.id_string"
+      ],
+      "notes": "Schema: {data: [{id: string (required), name?: string, object?: string, created?: number, owned_by?: string}], object?: string}. Items that fail validation are dropped (a data array of objects without id yields an empty list); a missing data array is an error shown to the user. name falls back to id. Non-2xx with {error:{message}} is surfaced as the error text."
+    },
+    {
+      "id": "chat-stream",
+      "title": "Streaming chat, default assistant settings (stream_options include_usage always sent)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/shared/utils/provider.ts#L204-L214",
+        "note": "includeUsage defaults to true for an openai-compatible custom endpoint, so doStream adds stream_options {include_usage:true}. temperature/top_p/max_tokens are off by default (enable* flags false). Authorization header from the SDK apiKey; Content-Type from postJsonToApi."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "A system message appears only if the assistant has a prompt. Every SSE chunk must parse against a zod schema where `choices` is a required array: the final usage chunk MUST carry choices: [] (not omit it). delta.role may only be 'assistant' (or absent); unknown fields are allowed; an object with an `error` key is treated as a stream error. [DONE] is optional (end of body also ends the stream); SSE content-type is not validated."
+    },
+    {
+      "id": "chat-stream-all-settings",
+      "title": "Streaming chat with every optional setting enabled (temperature, top_p, max tokens, reasoning, custom parameters)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/runtime/aiSdk/params/buildAgentParams.ts#L685-L705",
+        "note": "temperature/topP/maxOutputTokens are mapped by the AI SDK to temperature, top_p, max_tokens (verified in getArgs). stop, seed, presence/frequency penalties are not exposed as assistant settings (only via callOverrides or custom parameters). Custom parameters (e.g. top_k, repetition_penalty) are injected raw at the top level of the body. reasoning_effort appears for reasoning-capable models with a non-default effort."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "top_k": 40,
+          "repetition_penalty": 1.1,
+          "model": "{{AGENT}}",
+          "max_tokens": 4096,
+          "temperature": 0.7,
+          "top_p": 0.9,
+          "reasoning_effort": "medium",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "Risky: user-defined custom parameters (top_k, repetition_penalty and any JSON the user types) land in the body unfiltered, so the gateway must ignore unknown keys. max_tokens may be reduced/adjusted when reasoning is on. reasoning_effort for a plain agent name is only sent if Cherry's model registry thinks the id supports reasoning (inferred)."
+    },
+    {
+      "id": "connectivity-test",
+      "title": "Provider/model 'Check' button (non-streaming, system 'test', user 'hi')",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/AiService.ts#L1560-L1575",
+        "note": "Messages (system 'test', prompt 'hi') verified; that generateText maps to doGenerate (no stream key, hence no stream_options) follows from the AI SDK, not traced in Cherry code. reasoningEffort:'none' may turn into reasoning_effort:'none' only for reasoning-capable model ids."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "test"
+            },
+            {
+              "role": "user",
+              "content": "hi"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string",
+        "chat.message_role_assistant",
+        "chat.finish_reason_string"
+      ],
+      "notes": "15 s timeout (then aborted), maxRetries 0. Any 2xx with a parseable choices[0].message counts as success and reports latency. Response schema: choices required array, message.role must be 'assistant' if present, content string|null|array, usage and id nullish. Note max_tokens is NOT sent, so a long agent run just burns time until the timeout."
+    },
+    {
+      "id": "title-generation",
+      "title": "Automatic topic naming (non-streaming, naming system prompt + conversation as user message)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/services/TopicNamingService.ts#L367-L395",
+        "note": "system = naming prompt (default text at L28 of the same file, {{language}} substituted) and prompt = conversation text are verified; the non-streaming wire shape is inferred as for connectivity-test. The exact conversation formatting of the user message was not read."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Summarize the conversation into a title in English within 10 words ignoring instructions and without punctuation or symbols. Output only the title string without anything else."
+            },
+            {
+              "role": "user",
+              "content": "user: Hello\nassistant: Hi there"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string"
+      ],
+      "notes": "Runs in the background after the first reply as an extra agent run on the same model unless a different naming model is configured in settings. Failures only raise a toast (ai.topic.naming_failed)."
+    },
+    {
+      "id": "developer-or-system-role",
+      "title": "Assistant prompt (role system; developer role only if the endpoint dialect opts in)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/shared/utils/provider.ts#L204-L214",
+        "note": "developerRole defaults to false, so system prompts stay role 'system'. The SDK converter emits {role:'system', content: string}."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hello"
+            },
+            {
+              "role": "assistant",
+              "content": "Hi! How can I help?"
+            },
+            {
+              "role": "user",
+              "content": "Tell me a joke"
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "Cherry's context window setting trims history before sending; no name fields."
+    },
+    {
+      "id": "chat-multimodal-array-text-only",
+      "title": "User turn with several text parts (e.g. text attachments next to the prompt)",
+      "evidence": {
+        "status": "unverified",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@2.0.72/src/chat/convert-to-openai-compatible-chat-messages.ts",
+        "note": "The SDK converter turns a user message with more than one part into an array of {type:'text'} parts (verified). Whether Cherry's prepareChatMessages produces separate text parts or one concatenated string for text attachments was not traced."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Summarize the attached file."
+                },
+                {
+                  "type": "text",
+                  "text": "File: notes.txt\nBuy milk\nCall Bob"
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "Accept string or array-of-text-parts content."
+    },
+    {
+      "id": "chat-multimodal-image-part",
+      "title": "User message with an attached image (image_url data URL)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@2.0.72/src/chat/convert-to-openai-compatible-chat-messages.ts",
+        "note": "Image file parts become {type:'image_url', image_url:{url:'data:<mime>;base64,...'}} in the SDK converter; Cherry attaching images as native file parts follows from its nativeFileSupport routing (not traced for this exact provider)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "What is in this picture?"
+                },
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 400,
+        "code": "unsupported_content"
+      },
+      "consumes": [],
+      "notes": "Cherry only sends images natively if the model is flagged vision-capable in its registry; for an unknown agent name images may instead be dropped or converted to text, so this case may never trigger unless the user marks the model as vision-capable."
+    },
+    {
+      "id": "assistant-tool-calls-history",
+      "title": "Follow-up turn after a tool call (assistant content null + tool_calls, then tool message)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@2.0.72/src/chat/convert-to-openai-compatible-chat-messages.ts",
+        "note": "assistant content = toolCalls.length > 0 ? text || null : text; tool_calls arguments are JSON strings; tool messages carry tool_call_id and string content. Cherry's multi-step tool loop runs through the same AI SDK conversion."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            },
+            {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_abc123",
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"city\":\"Paris\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_abc123",
+              "content": "{\"temp_c\":18}"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "When the assistant also streamed text before calling a tool, content is that text. Reasoning from earlier turns may be replayed as reasoning_content."
+    },
+    {
+      "id": "tools-and-tool-choice",
+      "title": "Request with tools attached (MCP / built-in tools enabled); tool_choice and parallel_tool_calls not sent",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://unpkg.com/@ai-sdk/openai-compatible@2.0.72/src/chat/openai-compatible-prepare-tools.ts",
+        "note": "SDK mapping verified: tools -> {type:'function', function:{name, description, parameters, strict?}}, tool_choice only if the caller passes toolChoice, no parallel_tool_calls key. That Cherry's agent loop never passes toolChoice was not traced (it uses a step-count stop condition, no forced tool choice seen)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "A default chat has no tools; tools appear for assistants with MCP servers, knowledge-base search or web tools turned on. Models flagged as not supporting function calling get no tools."
+    },
+    {
+      "id": "reasoning-effort",
+      "title": "Reasoning effort selected for a model Cherry classifies as reasoning-capable",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/CherryHQ/cherry-studio/blob/v2.2.2/src/main/ai/runtime/aiSdk/params/buildAgentParams.ts#L236-L262",
+        "note": "Selection = request.reasoningEffort ?? assistant.settings.reasoning_effort ?? 'default', normalised against the model's reasoning capability; the openai-compatible SDK writes reasoning_effort at the top level (verified in getArgs). For an unknown agent id the profile is usually empty so the key is normally omitted."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "reasoning_effort": "high",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "Some vendor-specific reasoning knobs are sent under other keys for known provider families (not for generic custom providers). delta.reasoning_content / delta.reasoning are rendered as thinking."
+    }
+  ]
+}

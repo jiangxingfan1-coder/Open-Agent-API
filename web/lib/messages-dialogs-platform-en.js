@@ -160,9 +160,19 @@ export const enPlatform = {
   'dlg.listing.saved': 'Listing saved',
   'dlg.listing.listed': 'Listed {id}',
   'dlg.listing.token_note':
-    'External agents do not always report token usage. When none is reported, only the per-task price applies.',
+    'Agents that do not report token usage (most external agents) can only be priced per task: per 1k tokens must be 0, or saving is refused.',
+  'dlg.listing.host': 'Let platform accounts run this agent on this machine',
+  'dlg.listing.host_why':
+    'This agent runs with host authority (an external agent, or one with host tools). While this is off, platform accounts are refused when they call it (isolation_required), and the portal catalog does not show it.',
+  'dlg.listing.host_risk':
+    'When on, calls from platform accounts run it with the authority of the system user that runs the gateway: it can read and write the files that user can, and do what that user can. What it actually does depends on its approval policy (approvals) and working directory; approvals are decided only by you (the owner), never by the account user. Keep approvals on, and run the gateway as a dedicated system user or in a sandbox. This applies to this agent only; agents it delegates to need their own listing with this switch on.',
+  'dlg.listing.host_auto':
+    'Note: this agent’s approval policy is auto, so its requests are approved automatically without waiting for you.',
+  'dlg.listing.host_doc_before': 'See the trust boundaries section of ',
+  'dlg.listing.host_doc_after': '.',
   'dlg.listing.per_run': 'Per task (credits)',
-  'dlg.listing.per_run_hint': 'Charged when a task ends; 0 means no per-task charge',
+  'dlg.listing.per_run_hint':
+    'Held when a task starts, charged only if it completes, otherwise released; 0 means no per-task charge',
   'dlg.listing.per_1k': 'Per 1k tokens (credits)',
   'dlg.listing.per_1k_hint': 'Based on actual usage; 0 means no usage charge',
   'dlg.listing.agent': 'Agent',

@@ -1,0 +1,96 @@
+{
+  "client": "cursor",
+  "label": "Cursor",
+  "version": "closed source; official docs page https://cursor.com/docs/settings/api-keys and forum staff (deanrie) posts dated 2025-11-28 .. 2026-09-15",
+  "retrieved": "2026-11-14",
+  "overall": "unverified",
+  "sources": [
+    {
+      "url": "https://cursor.com/docs/settings/api-keys",
+      "note": "Official docs: own OpenAI key under Settings > Models; 'all requests are routed through Cursor's servers for final prompt building'; custom keys only for chat models; Tab uses Cursor's own models. The page does not mention the base URL override or the wire format."
+    },
+    {
+      "url": "https://forum.cursor.com/t/how-can-i-use-a-local-llm-on-my-desktop-ai-computer/152419",
+      "note": "Staff (deanrie, 2026-02-22 / 05-22 / 05-25): no direct localhost connections; Override OpenAI Base URL needs a publicly accessible HTTPS endpoint because requests go through Cursor's servers; routing is decided by API key (OpenAI-family models go to the custom endpoint), not by model name."
+    },
+    {
+      "url": "https://forum.cursor.com/t/cursor-managed-models-are-routed-through-override-openai-base-url/169088",
+      "note": "Staff (deanrie, 2026-08-21 / 09-15): with the override on, built-in OpenAI-family models are also routed to the custom endpoint (global toggle, no per-model routing yet)."
+    },
+    {
+      "url": "https://forum.cursor.com/t/requests-are-sent-to-incorrect-endpoint-when-using-base-url-override/144894",
+      "note": "Staff (deanrie, 2025-12-01 .. 2026-06-25): BYOK only supports /v1/chat/completions; a bug sends a Responses-API-shaped payload to that path (user reports: body has `input`, no `messages`); suggested fix is a proxy that converts the payload."
+    },
+    {
+      "url": "https://forum.cursor.com/t/cursor-is-sending-response-api-requests-to-chat-completion-api/144471",
+      "note": "Staff (deanrie, 2025-11-28): GPT-5/5.1 Codex models need /v1/responses while BYOK 'currently only supports /v1/chat/completions'."
+    }
+  ],
+  "setup": {
+    "baseUrl": "Cursor Settings > Models > API Keys: enable the OpenAI API Key, then enable 'Override OpenAI Base URL'. Whether to include /v1 is not documented by Cursor (staff ask users whether their URL includes /v1; community guides use .../v1) - assume WITH /v1. Must be a public HTTPS URL.",
+    "model": "Add the agent name as a custom model manually (e.g. agent/sample); do not reuse a built-in model name (Cursor rejects it as 'already available').",
+    "apiKey": "OpenAI API Key field; forwarded by Cursor's backend (staff: key is not persisted after the request completes).",
+    "notes": "Cursor sends requests from ITS OWN SERVERS, not from the desktop app, so http://localhost URLs are unreachable (use a tunnel such as ngrok/Cloudflare Tunnel). The override is global for OpenAI-family models, Tab/autocomplete never uses it, and Anthropic/Gemini models use separate settings. Wire format details (headers, stream_options, tools, tool_choice, parallel_tool_calls, content shape) are NOT documented anywhere official; do not build compatibility assumptions beyond the endpoint path. Known risk: Agent-mode / GPT-5-family requests may be sent as a Responses-API payload to /v1/chat/completions (staff-acknowledged bug as of 2026-06-25)."
+  },
+  "cases": [
+    {
+      "id": "chat-stream-skeleton",
+      "title": "Cursor: protocol-level skeleton of a streamed Chat Completions request (body NOT sourced from Cursor)",
+      "evidence": {
+        "status": "unverified",
+        "source": "https://forum.cursor.com/t/requests-are-sent-to-incorrect-endpoint-when-using-base-url-override/144894",
+        "note": "Only the endpoint is sourced: a Cursor staff member (deanrie, Dec 2025) states BYOK 'only supports /v1/chat/completions'. The body below is just the minimal protocol skeleton and NOT evidence of what Cursor sends; real Cursor bodies (tools, stream_options, extra params, headers) are not documented. Forum reports (staff-acknowledged bug) say Agent mode / GPT-5-family requests can arrive as a Responses-API payload ('input' instead of 'messages') on this same path."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present"
+      ],
+      "notes": "Requests are issued from Cursor's servers (staff, Feb/May 2026), so the gateway URL must be publicly reachable over HTTPS; localhost is NOT reachable without a tunnel. Headers other than Content-Type/Authorization are unknown (the real proxy User-Agent is not documented). Treat this case as a smoke test only."
+    },
+    {
+      "id": "models-list",
+      "title": "Cursor: GET /models (not known to be called)",
+      "evidence": {
+        "status": "unverified",
+        "source": "https://forum.cursor.com/t/how-to-use-a-custom-openai-compatible-api-in-cursor-setup-limits-and-tips/171497",
+        "note": "No official source says Cursor fetches {base}/models. A community post (not staff) advises that the model name you add manually must match the endpoint's identifier, which suggests manual entry only."
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/models",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "models.object_list",
+        "models.id_string"
+      ],
+      "notes": "Included only as a cheap safety check that the gateway's /v1/models is well-formed; do not assume Cursor calls it."
+    }
+  ]
+}

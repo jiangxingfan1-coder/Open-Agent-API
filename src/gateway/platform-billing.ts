@@ -142,26 +142,40 @@ export class PlatformBilling {
         402,
       );
   }
-  /** Registers the run's single ledger row with the prices in force now (idempotent). */
+  /**
+   * Registers the run's single ledger row with the prices in force now (idempotent) and holds the
+   * per-run price at once, so a run admitted next sees the reduced balance in checkRun: runs
+   * admitted concurrently cannot overdraw the balance. Settlement releases the hold when the run
+   * does not complete.
+   */
   beginRun(accountId: string, runId: string, agent: string, price: PriceMicro): void {
-    const balance = this.balance(accountId);
-    prepared(
-      this.db,
-      'INSERT OR IGNORE INTO platform_ledger(owner,account_id,kind,amount,balance_after,run_id,agent,tokens,status,note,payload,created_at) VALUES(?,?,?,0,?,?,?,0,?,?,?,?)',
-    ).run(
-      this.owner,
-      accountId,
-      'run',
-      balance,
-      runId,
-      agent,
-      'in_progress',
-      '',
-      JSON.stringify(price),
-      Date.now(),
-    );
+    transaction(this.db, () => {
+      const balance = this.balance(accountId);
+      const hold = Math.min(price.perRun, Math.max(0, balance));
+      const inserted = prepared(
+        this.db,
+        'INSERT OR IGNORE INTO platform_ledger(owner,account_id,kind,amount,balance_after,run_id,agent,tokens,status,note,payload,created_at) VALUES(?,?,?,?,?,?,?,0,?,?,?,?)',
+      ).run(
+        this.owner,
+        accountId,
+        'run',
+        -hold,
+        balance - hold,
+        runId,
+        agent,
+        'in_progress',
+        '',
+        JSON.stringify(price),
+        Date.now(),
+      );
+      if (inserted.changes && hold) this.addBalance(accountId, -hold);
+    });
   }
-  /** Settles a run: charges the difference between what is owed now and what was charged. */
+  /**
+   * Settles a run: charges the difference between what is owed now and what was charged. Token
+   * charges never take the balance below 0 (what the balance cannot cover is not charged), and a
+   * balance already below 0 (rows written before holds existed) is never pushed further down.
+   */
   settleRun(runId: string, status: RunStatus, tokens: number): void {
     transaction(this.db, () => {
       const row = prepared(this.db, 'SELECT * FROM platform_ledger WHERE run_id=? AND owner=?').get(
@@ -171,9 +185,12 @@ export class PlatformBilling {
       if (!row) return;
       const prior = this.parse(row);
       const price = JSON.parse(String(row.payload)) as PriceMicro;
-      const amount = -runCharge(price, status, tokens);
+      const accountId = String(row.account_id);
+      const charged = -prior.amount;
+      const ceiling = Math.max(charged, charged + this.balance(accountId));
+      const amount = -Math.min(runCharge(price, status, tokens), ceiling);
       const delta = amount - prior.amount;
-      const after = delta ? this.addBalance(String(row.account_id), delta) : prior.balanceAfter;
+      const after = delta ? this.addBalance(accountId, delta) : prior.balanceAfter;
       prepared(
         this.db,
         'UPDATE platform_ledger SET amount=?,balance_after=?,tokens=?,status=? WHERE id=?',
@@ -181,14 +198,29 @@ export class PlatformBilling {
     });
   }
   /**
-   * A run settled as `interrupted` is running again (resumed): its row shows `in_progress` and
-   * keeps the amount already charged; the run's next settlement charges only the difference.
+   * A run settled as `interrupted` is running again (resumed): its row shows `in_progress` and the
+   * per-run hold is taken again (up to the balance); the next settlement charges the difference.
    */
   reopenRun(runId: string): void {
-    prepared(
-      this.db,
-      "UPDATE platform_ledger SET status='in_progress' WHERE run_id=? AND owner=? AND kind='run' AND status='interrupted'",
-    ).run(runId, this.owner);
+    transaction(this.db, () => {
+      const row = prepared(
+        this.db,
+        "SELECT * FROM platform_ledger WHERE run_id=? AND owner=? AND kind='run' AND status='interrupted'",
+      ).get(runId, this.owner);
+      if (!row) return;
+      const prior = this.parse(row);
+      const accountId = String(row.account_id);
+      const price = JSON.parse(String(row.payload)) as PriceMicro;
+      const extra = Math.min(
+        Math.max(0, price.perRun + prior.amount),
+        Math.max(0, this.balance(accountId)),
+      );
+      const after = extra ? this.addBalance(accountId, -extra) : prior.balanceAfter;
+      prepared(
+        this.db,
+        "UPDATE platform_ledger SET status='in_progress',amount=?,balance_after=? WHERE id=?",
+      ).run(prior.amount - extra, after, prior.id);
+    });
   }
   /** Newest first; `cursor` is the last entry ID of the previous page. */
   ledger(

@@ -44,6 +44,7 @@
     "test": "npm run build && node scripts/test-offline.mjs --all",
     "test:offline": "npm run build && node scripts/test-offline.mjs",
     "verify": "npm run check && npm run format:check && npm test",
+    "compat": "npm run build && node integrations/compat/run.mjs",
     "start": "node dist/src/cli.js serve",
     "oaa": "node dist/src/cli.js",
     "demo": "npm run build && node dist/examples/demo.js",

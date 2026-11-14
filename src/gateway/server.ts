@@ -63,6 +63,7 @@ import { registerConsoleAssets } from './console-assets.js';
 import { streamEvents, type StreamMode } from './compat-stream.js';
 import { streamSlots } from './stream-slots.js';
 import { geminiQueryKey, sendError, sseRequested, zodFault } from './compat-errors.js';
+import * as http from './compat-http.js';
 import { ignoredParamsHeader, paramFamily } from './compat-params.js';
 import { bridgeDialect, bridgedObject, resumeBridged, waitParkedOrTerminal } from './bridge.js';
 import { flattenClientResults } from './client-tools.js';
@@ -194,6 +195,8 @@ export async function createGateway(
     };
     const app = Fastify({
       logger: false,
+      // A Base URL typed with a trailing slash makes clients call `/v1//chat/completions`.
+      rewriteUrl: (req) => http.rewriteApiUrl(req.url),
       bodyLimit: 24 * 1024 * 1024,
       requestTimeout: config.security.requestTimeoutMs ?? 0,
       forceCloseConnections: true,
@@ -358,16 +361,9 @@ export async function createGateway(
       }
       sendError(req, reply, status >= 400 && status <= 599 ? status : 500, fault);
     });
-    app.setNotFoundHandler((req, reply) => {
-      const path = req.url.split('?')[0]!.slice(0, 200);
-      sendError(
-        req,
-        reply,
-        404,
-        new Fault('route_not_found', `No route matches ${req.method} ${path}.`, 404),
-      );
-    });
+    app.setNotFoundHandler(http.notFound);
     app.addHook('onRequest', async (req, reply) => {
+      http.tolerateEmptyJsonBody(req);
       reply
         .header('X-Content-Type-Options', 'nosniff')
         .header('Referrer-Policy', 'no-referrer')
@@ -390,7 +386,7 @@ export async function createGateway(
         reply
           .header(
             'Access-Control-Allow-Headers',
-            'Authorization, Content-Type, Idempotency-Key, Last-Event-ID, X-OAA-Provider-Key, x-api-key, x-goog-api-key, anthropic-version, x-oaa-model, x-model, x-target-model, x-oaa-agent-version, x-routing-strategy, x-oaa-strategy, x-oaa-compat, x-oaa-protocol',
+            http.corsAllowHeaders(req.headers['access-control-request-headers']),
           )
           .header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
           .code(204)
@@ -1359,8 +1355,10 @@ export async function createGateway(
     });
 
     registerGeminiModelRoutes(app, auth, cachedAgents);
-    for (const prefix of ['/v1beta', '/v1'])
-      app.post(`${prefix}/models/*`, async (req, reply) => {
+    // `/v1beta/{agent}:generateContent` without `models/`: the AI SDK Google provider treats any id
+    // that contains a slash (every agent id does) as a full resource name and does not add it.
+    for (const route of ['/v1beta/models/*', '/v1/models/*', '/v1beta/*'])
+      app.post(route, async (req, reply) => {
         const { rawTarget, isStream } = geminiMethod(req);
         const headers = req.headers as Record<string, unknown>;
         const invocation = parseGeminiGenerateContent(req.body, rawTarget, isStream, headers);

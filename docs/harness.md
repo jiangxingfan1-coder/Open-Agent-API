@@ -111,7 +111,7 @@ External protocol × mode:
 | Strict endpoints (`/v1/chat/completions` and `/v1/responses` without `X-OAA-Compat`) | — | — | — |
 | UAP/1 (`/v1/uap`) | — | — | — |
 
-The request schemas of the strict endpoints and UAP/1 do not accept a `tools` field, so modes do not affect them: the strict endpoints return `unsupported_parameter` (`error.param: "tools"`, since 0.6.0; it used to be `invalid_request`), and UAP/1 returns `invalid_request` for an unknown field.
+Modes do not affect the strict endpoints and UAP/1. A strict endpoint refuses a non-empty `tools` (also `functions`, tool-result messages and assistant `tool_calls`) with `unsupported_parameter` (`error.param: "tools"`, or `messages.N`; the message points to the Base URL `<origin>/v1/compat` and to `X-OAA-Client-Tools: bridge`), and accepts an empty `tools: []` as no tools. UAP/1 returns `invalid_request` for the unknown field.
 
 ## How this differs from human approval
 

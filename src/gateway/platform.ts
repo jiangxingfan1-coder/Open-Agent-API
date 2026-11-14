@@ -8,7 +8,6 @@
 import type { WorkerConfig } from '../config/config.js';
 import { isOwnerWide, type Principal, type RunStatus } from '../core/contracts.js';
 import { Fault } from '../core/util.js';
-import { conversionProfile } from '../engines/conformance.js';
 import type { Store } from '../store/store.js';
 import type { AccountKeyPolicy, Auth } from './auth.js';
 import {
@@ -30,7 +29,9 @@ import {
   transaction,
   type PlatformConfig,
 } from './platform-db.js';
-import { PlatformListings, type ListingRecord } from './platform-listings.js';
+import { PlatformListings } from './platform-listings.js';
+import { assertUsagePricing } from './platform-access.js';
+import { ListingCatalog } from './platform-catalog.js';
 import { PlatformResets } from './platform-resets.js';
 import { PlatformRuns } from './platform-runs.js';
 import type {
@@ -46,7 +47,6 @@ import type {
   Page,
   PlatformSummary,
   PortalKeyView,
-  Price,
   ReconcileResult,
   ResetCodeView,
   RunDetailView,
@@ -80,6 +80,7 @@ export class Platform {
   readonly owner: string;
   private readonly accounts: PlatformAccounts;
   private readonly listings: PlatformListings;
+  private readonly catalog: ListingCatalog;
   private readonly codes: PlatformCodes;
   private readonly billing: PlatformBilling;
   private readonly signupLimit = new RateLimiter(SIGNUP_PER_IP, 3_600_000);
@@ -101,6 +102,13 @@ export class Platform {
     this.accounts = new PlatformAccounts(store.db, this.owner, config.sessionTtlHours * 3_600_000);
     this.listings = new PlatformListings(store.db, this.owner, () =>
       store.authorizationChanged(this.owner),
+    );
+    this.catalog = new ListingCatalog(
+      store,
+      this.owner,
+      this.listings,
+      config.keyExecution,
+      localWorker,
     );
     this.codes = new PlatformCodes(store.db, this.owner);
     this.billing = new PlatformBilling(store.db, this.owner);
@@ -130,6 +138,7 @@ export class Platform {
   private keyPolicy(): AccountKeyPolicy {
     return {
       agents: () => this.listings.enabledIds(),
+      hostAgents: () => this.listings.hostIds(),
       execution: this.config.keyExecution,
       quota: this.config.keyQuota,
       assertActive: (accountId) => {
@@ -138,7 +147,10 @@ export class Platform {
         if (account.status !== 'active')
           throw new Fault('account_disabled', 'This account has been disabled.', 403);
       },
-      checkRun: (accountId, agent) => this.billing.checkRun(accountId, this.priceMicro(agent)),
+      checkRun: (accountId, agent) => {
+        this.catalog.assertHostAllowed(agent);
+        this.billing.checkRun(accountId, this.priceMicro(agent));
+      },
       beginRun: (accountId, runId, agent) => {
         this.billing.beginRun(accountId, runId, agent, this.priceMicro(agent));
         this.accounts.touch(accountId);
@@ -165,56 +177,12 @@ export class Platform {
       createdAt: a.createdAt,
     };
   }
-  private price(l: ListingRecord): Price {
-    return { perRun: toPoints(l.perRun), per1kTokens: toPoints(l.per1kTokens) };
-  }
   private entryView(e: LedgerRecord): LedgerEntryView {
     return { ...e, amount: toPoints(e.amount), balanceAfter: toPoints(e.balanceAfter) };
   }
   private codeView(c: CodeRecord): CodeView {
     return { ...c, credits: toPoints(c.credits) };
   }
-  private agentExists(agentId: string): boolean {
-    try {
-      this.store.bundle(this.owner, agentId);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  private listingView(l: ListingRecord): ListingView {
-    return {
-      agentId: l.agentId,
-      title: l.title,
-      summary: l.summary,
-      tags: l.tags,
-      price: this.price(l),
-      enabled: l.enabled,
-      updatedAt: l.updatedAt,
-      agentExists: this.agentExists(l.agentId),
-    };
-  }
-  private listedView(l: ListingRecord): ListedAgentView | undefined {
-    let agent;
-    try {
-      agent = this.store.bundle(this.owner, l.agentId).agent;
-    } catch {
-      return undefined;
-    }
-    return {
-      id: l.agentId,
-      title: l.title,
-      summary: l.summary,
-      tags: l.tags,
-      description: agent.description,
-      kind: agent.engine === 'kernel' ? 'kernel' : 'external',
-      models: ['auto', ...agent.routes.map((r) => r.id)],
-      price: this.price(l),
-      updatedAt: l.updatedAt,
-      conversion: conversionProfile(agent.engine, this.localWorker),
-    };
-  }
-
   // ---- public ------------------------------------------------------------------------------
   site(): { siteName: string; registration: PlatformConfig['registration'] } {
     return { siteName: this.config.siteName, registration: this.config.registration };
@@ -223,13 +191,14 @@ export class Platform {
   listedAgents(): ListedAgentView[] {
     return this.listings
       .list()
-      .filter((l) => l.enabled)
-      .map((l) => this.listedView(l))
+      .filter((l) => this.catalog.callable(l))
+      .map((l) => this.catalog.listed(l))
       .filter((v): v is ListedAgentView => v !== undefined);
   }
   listedAgent(agentId: string): ListedAgentView {
     const listing = this.listings.find(agentId);
-    const view = listing?.enabled ? this.listedView(listing) : undefined;
+    const view =
+      listing && this.catalog.callable(listing) ? this.catalog.listed(listing) : undefined;
     if (!view) throw new Fault('agent_not_found', 'Agent or version not found.', 404);
     return view;
   }
@@ -517,13 +486,16 @@ export class Platform {
     return toPoints(this.billing.ledgerSum(accountId));
   }
   allListings(): ListingView[] {
-    return this.listings.list().map((l) => this.listingView(l));
+    return this.listings.list().map((l) => this.catalog.view(l));
   }
   /** Create or update; the agent must be published by the platform owner. */
   putListing(input: ListingInput): ListingView {
-    if (typeof input.agentId !== 'string' || !this.agentExists(input.agentId))
+    if (typeof input.agentId !== 'string' || !this.catalog.agentExists(input.agentId))
       throw new Fault('agent_not_found', 'Agent or version not found.', 404);
+    const per1k = input.price?.per1kTokens;
+    if (per1k !== undefined) assertUsagePricing(this.catalog.access(input.agentId, false), per1k);
     const listing = this.listings.upsert(input.agentId, {
+      ...(input.hostExecution !== undefined ? { hostExecution: input.hostExecution } : {}),
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
       ...(input.tags !== undefined ? { tags: input.tags } : {}),
@@ -535,7 +507,7 @@ export class Platform {
         ? { per1kTokens: toMicro(input.price.per1kTokens, 'price.per_1k_tokens') }
         : {}),
     });
-    return this.listingView(listing);
+    return this.catalog.view(listing);
   }
   deleteListing(agentId: string): void {
     this.listings.remove(agentId);

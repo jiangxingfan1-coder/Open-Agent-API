@@ -66,7 +66,7 @@ const placeholders = (text: string) =>
 test('i18n: every group has a zh and an en dictionary with the same keys and placeholders', () => {
   assert.deepEqual(
     groups.map((g) => g.name),
-    ['core', 'dialogs', 'views'],
+    ['core', 'dialogs', 'platform', 'views'],
   );
   for (const g of groups) {
     const zhKeys = Object.keys(g.zh).sort();

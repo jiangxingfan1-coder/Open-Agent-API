@@ -349,6 +349,7 @@ const ROWS: Row[] = [
   ['insufficient_balance', 402, 'platform', _, '余额不足', '兑换点数后再提交'],
   ['key_limit_reached', 409, 'platform', _, '账号的密钥数量已到上限', '先吊销不用的密钥'],
   ['listing_not_found', 404, 'platform', _, '该智能体没有上架记录'],
+  ['usage_pricing_unsupported', 400, 'platform', _, '这个智能体不上报 token 用量，不能按用量定价', '改为按次定价（per_1k_tokens 设为 0）'],
   ['code_not_found', 404, 'platform', _, '兑换码不存在'],
   ['reference_conflict', 409, 'platform', _, '这个外部单号已经用于另一笔金额不同的入账', '换一个单号，或核对金额'],
   ['platform_managed_by_config', 409, 'platform', _, '配置文件里已有 platform 段，开发者平台由配置文件管理，控制台里不能修改', '改配置文件里的 platform 段后重启；或删掉该段，改在控制台里启用'],

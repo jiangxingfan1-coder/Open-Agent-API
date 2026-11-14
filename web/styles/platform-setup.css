@@ -161,3 +161,13 @@ button.danger-text:hover:not(:disabled) {
     align-items: flex-start;
   }
 }
+/* The listing dialog's host-execution note: the switch, then what it means in a quiet callout. */
+.listing-host .callout {
+  margin-top: var(--s-2);
+}
+.listing-host .callout p {
+  margin: 0;
+}
+.listing-host .callout p + p {
+  margin-top: var(--s-2);
+}

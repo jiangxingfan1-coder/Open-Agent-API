@@ -1,5 +1,6 @@
 /** 一次执行的主流程：把模型轮次、工具阶段、外部智能体回合串起来，并处理挂起、失败与换用备选智能体。 */
 import type { AgentBundle, AgentDefinition, Principal, Run, WorkEvent } from '../core/contracts.js';
+import { executionFor } from '../core/contracts.js';
 import type { Store } from '../store/store.js';
 import { permits } from '../fabric/network.js';
 import { responseObject } from './response-object.js';
@@ -308,6 +309,7 @@ export function fallBackToNextAgent(rt: KernelRuntime, run: Run, fault: Fault): 
     agents: granted,
     scopes: [],
     execution: run.checkpoint.execution ?? 'host',
+    ...(run.checkpoint.hostAgents ? { hostAgents: run.checkpoint.hostAgents } : {}),
     ...(run.checkpoint.keyId ? { keyId: run.checkpoint.keyId } : {}),
   };
   let files: ReturnType<Store['file']>[];
@@ -326,7 +328,7 @@ export function fallBackToNextAgent(rt: KernelRuntime, run: Run, fault: Fault): 
       checkExecution(rt, principal, bundle.agent);
       const inspect = routeInspector(rt.hub, run.owner, bundle, files, {
         byok: false,
-        sandbox: principal.execution === 'sandbox',
+        sandbox: executionFor(principal, candidate) === 'sandbox',
         providerState: false,
         clientTools: !!run.checkpoint.bridge,
       });

@@ -1,0 +1,1157 @@
+{
+  "client": "cline-roo-code",
+  "label": "Cline / Roo Code",
+  "version": "cline/cline main@72b3d7140553 (2026-11-12; latest release v4.1.26, 2026-10-26; apps/vscode package.json 4.1.26; OpenAI-Compatible path = @ai-sdk/openai-compatible ^3.0.67 read at vercel/ai@50203a81 'ai' ^7.0.135) ; RooCodeInc/Roo-Code b867ec914575 (2026-05-15, repository ARCHIVED and extension shut down on 2026-05-15; last release v3.54.0; openai npm ^5.12.2, read at openai-node v5.23.2)",
+  "retrieved": "2026-11-14",
+  "overall": "verified",
+  "sources": [
+    {
+      "url": "https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/apps/vscode/src/sdk/model-catalog/sdk-provider-id.ts#L1-L24",
+      "note": "Cline stores the 'OpenAI Compatible' provider as id `openai` and maps it to the SDK provider `openai-compatible` (chat-completions client)."
+    },
+    {
+      "url": "https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/sdk/packages/llms/src/providers/vendors/openai-compatible.ts#L140-L167",
+      "note": "max_tokens -> max_completion_tokens rename only for OpenAI reasoning-era model ids."
+    },
+    {
+      "url": "https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/sdk/packages/llms/src/providers/vendors/openai-compatible.ts#L226-L305",
+      "note": "createOpenAICompatible({baseURL, apiKey, headers, includeUsage:true, transformRequestBody}) plus split-tool-images middleware."
+    },
+    {
+      "url": "https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/sdk/packages/llms/src/providers/builtins.ts#L812-L822",
+      "note": "Built-in `openai-compatible` provider spec (defaults baseUrl https://api.openai.com/v1, apiKeyOptional)."
+    },
+    {
+      "url": "https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/sdk/packages/llms/src/providers/ai-sdk.ts#L338-L349",
+      "note": "Call settings forwarded to streamText: maxOutputTokens, temperature, reasoning."
+    },
+    {
+      "url": "https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/sdk/packages/llms/src/providers/ai-sdk.ts#L2417-L2455",
+      "note": "streamText invocation (no topP/penalties/stop/toolChoice set by Cline)."
+    },
+    {
+      "url": "https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/sdk/packages/llms/src/providers/gateway.ts#L193-L262",
+      "note": "Synthesized max_tokens default (32000 floor, clamped by context window)."
+    },
+    {
+      "url": "https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/apps/vscode/src/core/controller/models/refreshOpenAiModels.ts#L16-L50",
+      "note": "Model list: axios GET {baseUrl}/models, reads data[].id."
+    },
+    {
+      "url": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/openai-compatible/src/chat/openai-compatible-chat-language-model.ts#L277-L338",
+      "note": "Request body construction (model, max_tokens, temperature, top_p, penalties, response_format, stop, seed, reasoning_effort, messages, tools, tool_choice)."
+    },
+    {
+      "url": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/openai-compatible/src/chat/openai-compatible-chat-language-model.ts#L448-L484",
+      "note": "Streaming request: stream:true and stream_options only because Cline sets includeUsage."
+    },
+    {
+      "url": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/openai-compatible/src/chat/openai-compatible-chat-language-model.ts#L583-L784",
+      "note": "Stream transform: finish_reason required at flush, usage chunk handling, tool-call buffering."
+    },
+    {
+      "url": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/openai-compatible/src/chat/openai-compatible-chat-language-model.ts#L863-L945",
+      "note": "zod response and chunk schemas (choices required; delta.role enum ['assistant','']; function object required in tool_call deltas)."
+    },
+    {
+      "url": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/openai-compatible/src/chat/convert-to-openai-compatible-chat-messages.ts#L190-L326",
+      "note": "Message conversion: system string, user string-or-parts, assistant null content with tool_calls, tool string content."
+    },
+    {
+      "url": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/ai/src/prompt/prepare-tool-choice.ts#L1-L15",
+      "note": "`ai` always supplies toolChoice {type:'auto'} -> tool_choice:'auto' when tools exist."
+    },
+    {
+      "url": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/provider-utils/src/post-to-api.ts#L95-L105",
+      "note": "User-Agent suffixing (ai-sdk-provider-utils/<ver> <runtime>)."
+    },
+    {
+      "url": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L82-L270",
+      "note": "Roo OpenAiHandler.createMessage: exact streaming and non-streaming request bodies."
+    },
+    {
+      "url": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L295-L327",
+      "note": "Roo completePrompt (single completion)."
+    },
+    {
+      "url": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L329-L428",
+      "note": "Roo o1/o3/o4 substring path (developer role)."
+    },
+    {
+      "url": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L522-L570",
+      "note": "addMaxTokensIfNeeded (max_completion_tokens) and getOpenAiModels."
+    },
+    {
+      "url": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/constants.ts#L1-L6",
+      "note": "Roo DEFAULT_HEADERS (HTTP-Referer, X-Title, User-Agent)."
+    },
+    {
+      "url": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/base-provider.ts#L27-L106",
+      "note": "Tool schema rewriting (strict:true, all-required, additionalProperties:false)."
+    },
+    {
+      "url": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/transform/openai-format.ts#L276-L509",
+      "note": "Roo message conversion (assistant content '' + tool_calls, tool placeholder '(empty)', image_url data URLs)."
+    },
+    {
+      "url": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/core/task/Task.ts#L4140-L4160",
+      "note": "Main-loop metadata: tool_choice 'auto', parallelToolCalls true."
+    },
+    {
+      "url": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/transform/model-params.ts#L76-L165",
+      "note": "Default temperature 0, reasoning effort handling."
+    },
+    {
+      "url": "https://github.com/openai/openai-node/blob/v5.23.2/src/client.ts#L890-L925",
+      "note": "openai-node v5.23.2 default headers used by Roo."
+    },
+    {
+      "url": "https://github.com/openai/openai-node/blob/v5.23.2/src/core/streaming.ts#L40-L90",
+      "note": "openai-node v5.23.2 SSE parsing used by Roo."
+    },
+    {
+      "url": "https://github.com/RooCodeInc/Roo-Code",
+      "note": "Repo page: archived by owner on 2026-05-15, 'Roo Code Extension was shut down'."
+    }
+  ],
+  "setup": {
+    "baseUrl": "Type the base URL WITH /v1 (e.g. http://localhost:8787/v1) in both. Cline: AI SDK strips trailing slashes then appends /chat/completions; Roo Code: the openai SDK appends /chat/completions to the base URL as typed. Model list uses `{baseUrl}/models` in both.",
+    "model": "Cline: Settings > API Provider 'OpenAI Compatible' > Model ID (free text, also offered from /models). Roo Code: API Provider 'OpenAI Compatible' > Model (free text/dropdown). Use the agent name, e.g. agent/sample.",
+    "apiKey": "API Key field; sent as `Authorization: Bearer <key>`. Cline omits the header if empty; Roo sends 'Bearer not-provided' if empty.",
+    "notes": "Evidence is for two different request stacks: CLINE (VS Code extension 4.1.x, CLI and SDK) now routes OpenAI-Compatible through the Vercel AI SDK `@ai-sdk/openai-compatible` (strict zod stream parsing, no X-Stainless-*), whereas ROO CODE (archived 2026-05-15, last release 3.54.0) still uses the `openai` npm SDK. Case ids are prefixed cline-/roo-. Requests are made from the local extension host, so localhost gateways are reachable. Roo Code is discontinued; keep its cases as legacy regression coverage."
+  },
+  "cases": [
+    {
+      "id": "cline-models-list",
+      "title": "Cline: GET {baseUrl}/models (settings panel model dropdown refresh)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/apps/vscode/src/core/controller/models/refreshOpenAiModels.ts#L16-L50",
+        "note": "Sent by the extension host with axios (not the AI SDK). Base URL has trailing slashes stripped first. Any error, non-JSON or missing `data` array silently yields an empty list (the user can still type a model id by hand)."
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/models",
+        "headers": {
+          "Authorization": "Bearer {{KEY}}",
+          "Accept": "application/json, text/plain, */*",
+          "User-Agent": "axios/1.x"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "models.object_list",
+        "models.id_string"
+      ],
+      "notes": "Reads `response.data?.data?.map(m => m.id)` and de-duplicates; no other field is read. Authorization is omitted when the API key is empty. Custom headers from provider settings are added. axios default Accept/User-Agent shown are assumptions about axios defaults (version not pinned)."
+    },
+    {
+      "id": "cline-chat-stream",
+      "title": "Cline: agent turn, streaming (always carries tools; tool_choice 'auto'; stream_options always)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/openai-compatible/src/chat/openai-compatible-chat-language-model.ts#L277-L338 ; https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/openai-compatible/src/chat/openai-compatible-chat-language-model.ts#L448-L484 ; https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/ai/src/prompt/prepare-tool-choice.ts#L1-L15 ; https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/sdk/packages/llms/src/providers/vendors/openai-compatible.ts#L226-L251 ; https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/sdk/packages/llms/src/providers/gateway.ts#L193-L262",
+        "note": "Request keys verified from @ai-sdk/openai-compatible 3.0.67 getArgs/doStream with Cline's createOpenAICompatible({includeUsage:true, transformRequestBody}). tool_choice 'auto' is injected by the `ai` package whenever tools exist (prepareToolChoice default). max_tokens is synthesized by Cline's gateway: min(max(32000, 0.3*model.maxOutputTokens), model.contextWindow(128000 fallback) - estimatedInputTokens - 1024), so it varies per request."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "ai-sdk-openai-compatible/3.0.67 ai-sdk-provider-utils/5.0.58 node.js/v22.0.0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "max_tokens": 32000,
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Cline, a highly skilled software engineer... (illustrative; the real system prompt is long)"
+            },
+            {
+              "role": "user",
+              "content": "<task>\nList the files in this project\n</task>"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_files",
+                "description": "Read the contents of one or more files.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "paths"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "Headers come from @ai-sdk/openai-compatible (Vercel AI SDK), NOT the openai npm SDK: Content-Type, Authorization (only if an API key is set), and a User-Agent built as 'ai-sdk-openai-compatible/<ver> ai-sdk-provider-utils/<ver> <runtime>'. No Accept, no X-Stainless-*, no HTTP-Referer/X-Title (those Cline identity headers are only added for the first-party `cline` providers, request-headers.ts L45-L102). User-defined custom headers (Cline setting `openAiHeaders`) are merged in. Exact version numbers vary with the installed packages; whether the `ai` package also appends an 'ai/<ver>' UA suffix was not found in stream-language-model-call.ts. Tool name/description/schema are illustrative (Cline's real tool set was not enumerated). Wrapper keys are verified from prepareTools: {type:'function', function:{name, description, parameters}} and `strict` only if the tool sets it. STRICT stream parsing (zod): every chunk must have a `choices` array (empty [] is fine for the usage chunk); delta.role, if present, must be 'assistant' or ''; tool_call deltas must have a `function` object; at least one chunk must carry a non-null finish_reason or the stream is reported as an error ('Response stream ended without a finish reason'). [DONE] is optional. A chunk with a top-level `error` is treated as an error part. Unknown extra fields are allowed (looseObject). temperature is sent only if Cline sets one (default not traced) and is omitted here; no top_p/penalties/seed/stop are ever set by Cline."
+    },
+    {
+      "id": "cline-chat-stream-all-settings",
+      "title": "Cline: streaming with every user-adjustable knob set (temperature + reasoning effort)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/openai-compatible/src/chat/openai-compatible-chat-language-model.ts#L277-L326 ; https://github.com/cline/cline/blob/72b3d7140553a733242126e51a7c2e87efe75c64/sdk/packages/llms/src/providers/ai-sdk.ts#L338-L349",
+        "note": "Code path verified: temperature -> `temperature`, request.reasoning (effort string) -> `reasoning_effort` (isCustomReasoning). Whether Cline's OpenAI-Compatible settings can turn reasoning effort on for a custom model, and the default temperature, were not traced, hence 'inferred'."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "ai-sdk-openai-compatible/3.0.67 ai-sdk-provider-utils/5.0.58 node.js/v22.0.0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "max_tokens": 8192,
+          "temperature": 0.7,
+          "reasoning_effort": "high",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Cline... (illustrative)"
+            },
+            {
+              "role": "user",
+              "content": "<task>\nRefactor utils.ts\n</task>"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_files",
+                "description": "Read the contents of one or more files.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "paths"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "AI SDK never sends top_p/frequency_penalty/presence_penalty/seed/stop/response_format from Cline (not set in streamText call, ai-sdk.ts L2417-L2455). For model ids that look like OpenAI reasoning-era names (isOpenAIReasoningEraModelId) `max_tokens` is renamed to `max_completion_tokens` (openai-compatible.ts L140-L167); other ids keep `max_tokens`. Extra provider options (e.g. cache_control for Claude-like model ids, thinking) can be spliced into the body by Cline routing (routing/generic-compatible.ts, anthropic-compatible.ts); not traced for an arbitrary agent name."
+    },
+    {
+      "id": "cline-chat-multi-text-parts",
+      "title": "Cline: user message with several text parts becomes a content ARRAY",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/openai-compatible/src/chat/convert-to-openai-compatible-chat-messages.ts#L198-L215",
+        "note": "Converter verified: a user message with exactly one text part collapses to a plain string; two or more parts become [{type:'text',text}] (no `detail`/extra keys). That Cline's real user turns contain multiple text parts (e.g. task + environment details) was not confirmed."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "ai-sdk-openai-compatible/3.0.67 ai-sdk-provider-utils/5.0.58 node.js/v22.0.0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "max_tokens": 32000,
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Cline... (illustrative)"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task>\nFix the failing test\n</task>"
+                },
+                {
+                  "type": "text",
+                  "text": "<environment_details>\n# Current Working Directory\n/home/user/project\n</environment_details>"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_files",
+                "description": "Read the contents of one or more files.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "paths"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "System prompt is passed to the AI SDK as `system` and becomes `{role:'system', content:<string>}`; there is no developer role for this provider."
+    },
+    {
+      "id": "cline-assistant-tool-calls-history",
+      "title": "Cline: assistant tool_calls with content null + tool result message",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/openai-compatible/src/chat/convert-to-openai-compatible-chat-messages.ts#L217-L319",
+        "note": "Assistant message: content = text || null when tool calls exist (null, not ''), tool_calls[].{id,type:'function',function:{name, arguments: JSON.stringify(input)}}, optional reasoning_content when the history carries reasoning. tool message: {role:'tool', tool_call_id, content:<string>}; json/error outputs are JSON.stringify'd; execution-denied becomes a text reason."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "ai-sdk-openai-compatible/3.0.67 ai-sdk-provider-utils/5.0.58 node.js/v22.0.0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "max_tokens": 32000,
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Cline... (illustrative)"
+            },
+            {
+              "role": "user",
+              "content": "<task>\nShow package.json name\n</task>"
+            },
+            {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_1",
+                  "type": "function",
+                  "function": {
+                    "name": "read_files",
+                    "arguments": "{\"paths\":[\"package.json\"]}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_1",
+              "content": "{\"name\":\"demo\",\"version\":\"1.0.0\"}"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_files",
+                "description": "Read the contents of one or more files.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "paths"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.every_chunk_has_choices_array"
+      ],
+      "notes": "Tool results that carry images are split by Cline's splitToolImagesMiddleware into a text placeholder in the tool message plus a following synthetic user message holding the image parts (openai-compatible.ts L279-L305). Streamed tool-call deltas: Cline buffers deltas until function.name is known and accepts a missing `index` (Gemini-style)."
+    },
+    {
+      "id": "cline-image-part",
+      "title": "Cline: user message containing an inline image (image_url data URL, no detail key)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/vercel/ai/blob/50203a81019c2117c413b959398443ec7f84f325/packages/openai-compatible/src/chat/convert-to-openai-compatible-chat-messages.ts#L61-L74",
+        "note": "Shape verified: {type:'image_url', image_url:{url:'data:<mime>;base64,...'}} with no `detail`. Cline's fallback model info for custom OpenAI-compatible models advertises the 'images' capability (builtins.ts L560-L571), so images are attached by default; exact message layout around the image was not traced."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "ai-sdk-openai-compatible/3.0.67 ai-sdk-provider-utils/5.0.58 node.js/v22.0.0"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "max_tokens": 32000,
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Cline... (illustrative)"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task>\nWhat is in this screenshot?\n</task>"
+                },
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg=="
+                  }
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_files",
+                "description": "Read the contents of one or more files.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "paths"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
+        }
+      },
+      "expect": {
+        "status": 400,
+        "code": "unsupported_content"
+      },
+      "consumes": [
+        "stream.content_deltas_present"
+      ],
+      "notes": "Audio would be {type:'input_audio'}, PDFs {type:'file'}, video {type:'video_url'} (converter L76-L136) - same 400 expectation applies."
+    },
+    {
+      "id": "roo-models-list",
+      "title": "Roo Code: GET {baseUrl}/models (settings refresh)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L537-L570 ; https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/constants.ts#L1-L6",
+        "note": "axios call from the extension host; failure or missing data array returns [] silently. Unlike Cline, trailing slashes are NOT stripped (a base URL ending in '/' yields '//models')."
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/models",
+        "headers": {
+          "HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+          "X-Title": "Roo Code",
+          "User-Agent": "RooCode/3.54.0",
+          "Authorization": "Bearer {{KEY}}",
+          "Accept": "application/json, text/plain, */*"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "models.object_list",
+        "models.id_string"
+      ],
+      "notes": "Reads `response.data?.data?.map(m => m.id)` only. Authorization is added only when an API key is set. axios default Accept is an assumption (axios version not pinned)."
+    },
+    {
+      "id": "roo-chat-stream",
+      "title": "Roo Code: agent turn, streaming (temperature 0, tools strict, parallel_tool_calls true)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L99-L178 ; https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/core/task/Task.ts#L4140-L4160 ; https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/transform/model-params.ts#L76-L165 ; https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/transform/openai-format.ts#L276-L509",
+        "note": "Body keys verified from OpenAiHandler.createMessage. tool_choice 'auto' and parallelToolCalls true are set in Task.ts for the main loop; temperature defaults to 0 for this provider (getModel defaultTemperature 0); max_tokens/max_completion_tokens are NOT sent unless 'Include max output tokens' is on. User content arrays (several text blocks) are an inference from Roo storing Anthropic-style content blocks; convertToOpenAiMessages passes string content through and arrays through as parts."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "RooCode/3.54.0",
+          "HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+          "X-Title": "Roo Code",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "temperature": 0,
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Roo, a highly skilled software engineer... (illustrative; the real system prompt is very long)"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task>\nList the files in this project\n</task>"
+                },
+                {
+                  "type": "text",
+                  "text": "<environment_details>\n# VSCode Visible Files\n(none)\n</environment_details>"
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read the contents of a file.",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "Path of the file to read"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "parallel_tool_calls": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.usage_chunk"
+      ],
+      "notes": "Headers: `openai` npm SDK (package.json requires ^5.12.2; header builder read at v5.23.2) plus Roo DEFAULT_HEADERS (HTTP-Referer, X-Title, and a User-Agent 'RooCode/<ext version>' that overrides the SDK's 'OpenAI/JS'), plus any user-defined custom headers. Authorization is 'Bearer not-provided' when no API key is entered. X-Stainless-* values vary per machine. Roo post-processes every non-MCP tool schema: function.strict=true, all properties forced into `required`, additionalProperties:false, nullable types flattened (base-provider.ts L27-L106). MCP tools (names with the 'mcp--' prefix) keep their own schema with strict:false. Tool names/descriptions here are illustrative. Stream parsing is the openai SDK: [DONE] optional, delta.role not read, finish_reason only compared with 'tool_calls' to close tool calls (tool_call_end), usage read from any chunk that has `usage` (a final chunk with choices:[] is fine), `choices?.[0]` tolerant of an empty array. `<think>...</think>` tags inside delta.content are split into reasoning, and delta.reasoning_content is surfaced as reasoning. stream_options is dropped only when the base URL host contains 'x.ai'."
+    },
+    {
+      "id": "roo-chat-stream-all-settings",
+      "title": "Roo Code: streaming with every user setting on (include max output tokens, temperature, reasoning effort)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L155-L168 ; https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L517-L534 ; https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/transform/reasoning.ts#L114-L126",
+        "note": "'Include max output tokens' (includeMaxTokens) sends `max_completion_tokens` (NOT max_tokens) = modelMaxTokens || model.maxTokens; modelTemperature overrides 0. reasoning_effort is added only when the custom model has reasoning-effort support enabled (shouldUseReasoningEffort, not fully traced) - that single key is therefore 'inferred'."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "RooCode/3.54.0",
+          "HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+          "X-Title": "Roo Code",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "temperature": 0.7,
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Roo, a highly skilled software engineer... (illustrative; the real system prompt is very long)"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task>\nList the files in this project\n</task>"
+                },
+                {
+                  "type": "text",
+                  "text": "<environment_details>\n# VSCode Visible Files\n(none)\n</environment_details>"
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "reasoning_effort": "high",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read the contents of a file.",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "Path of the file to read"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "parallel_tool_calls": true,
+          "max_completion_tokens": 8192
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.usage_chunk"
+      ],
+      "notes": "Roo never sends top_p, penalties, seed, stop, response_format or n. A custom-model `supportsPromptCache` toggle ('Prompt caching') additionally rewrites the system message into [{type:'text', text, cache_control:{type:'ephemeral'}}] and adds cache_control:{type:'ephemeral'} to the last text part of the last two user messages (openai.ts L110-L150) - these `cache_control` keys appear inside content parts. Not part of the body above because it is off by default."
+    },
+    {
+      "id": "roo-chat-nonstream",
+      "title": "Roo Code: streaming disabled in settings (no `stream`, no temperature, no stream_options)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L223-L270",
+        "note": "When openAiStreamingEnabled is false Roo sends only model, messages, tools, tool_choice, parallel_tool_calls (+ max_completion_tokens if enabled). `temperature` and `stream` are not sent at all in this branch."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "RooCode/3.54.0",
+          "HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+          "X-Title": "Roo Code",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Roo, a highly skilled software engineer... (illustrative; the real system prompt is very long)"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task>\nList the files in this project\n</task>"
+                },
+                {
+                  "type": "text",
+                  "text": "<environment_details>\n# VSCode Visible Files\n(none)\n</environment_details>"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read the contents of a file.",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "Path of the file to read"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "parallel_tool_calls": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string",
+        "chat.usage_numbers"
+      ],
+      "notes": "Headers: `openai` npm SDK (package.json requires ^5.12.2; header builder read at v5.23.2) plus Roo DEFAULT_HEADERS (HTTP-Referer, X-Title, and a User-Agent 'RooCode/<ext version>' that overrides the SDK's 'OpenAI/JS'), plus any user-defined custom headers. Authorization is 'Bearer not-provided' when no API key is entered. X-Stainless-* values vary per machine. Response is read as choices?.[0]?.message: tool_calls[] (type 'function') and `content || ''`; usage?.prompt_tokens/completion_tokens default to 0 when absent."
+    },
+    {
+      "id": "roo-assistant-tool-calls-history",
+      "title": "Roo Code: assistant tool_calls with content '' + tool result message",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/transform/openai-format.ts#L332-L374 ; https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/transform/openai-format.ts#L435-L503",
+        "note": "Assistant message content is '' (empty string, never null) when only tool_use blocks exist; tool_calls[].function.arguments = JSON.stringify(input). Tool results become {role:'tool', tool_call_id, content:<string>}; empty content becomes the placeholder '(empty)'; image blocks inside a tool result are replaced by '(see following user message for image)' and the image itself is dropped (the follow-up user message is commented out)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "RooCode/3.54.0",
+          "HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+          "X-Title": "Roo Code",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "temperature": 0,
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Roo, a highly skilled software engineer... (illustrative; the real system prompt is very long)"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task>\nList the files in this project\n</task>"
+                },
+                {
+                  "type": "text",
+                  "text": "<environment_details>\n# VSCode Visible Files\n(none)\n</environment_details>"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_1",
+                  "type": "function",
+                  "function": {
+                    "name": "read_file",
+                    "arguments": "{\"path\":\"package.json\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_1",
+              "content": "{\"name\":\"demo\"}"
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read the contents of a file.",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "Path of the file to read"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "parallel_tool_calls": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.usage_chunk"
+      ],
+      "notes": "A user message that follows tool results is emitted as a separate role:'user' message with array content (or merged into the last tool message only for DeepSeek-R1/thinking providers, mergeToolResultText, not this provider). Assistant `reasoning_details` is passed through only if the history carries it."
+    },
+    {
+      "id": "roo-image-part",
+      "title": "Roo Code: user message with an inline image (image_url data URL)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/transform/openai-format.ts#L420-L433 ; https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/packages/types/src/providers/openai.ts#L593-L600",
+        "note": "Image blocks become {type:'image_url', image_url:{url:'data:<media_type>;base64,<data>'}} (no detail). The OpenAI-compatible custom model defaults to supportsImages:true (openAiModelInfoSaneDefaults), so images are sent unless the user unticks 'Image support'."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "RooCode/3.54.0",
+          "HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+          "X-Title": "Roo Code",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "temperature": 0,
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Roo, a highly skilled software engineer... (illustrative; the real system prompt is very long)"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task>\nWhat is in this image?\n</task>"
+                },
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg=="
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read the contents of a file.",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "Path of the file to read"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "parallel_tool_calls": true
+        }
+      },
+      "expect": {
+        "status": 400,
+        "code": "unsupported_content"
+      },
+      "consumes": [
+        "stream.content_deltas_present"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "roo-developer-role-o-family-name",
+      "title": "Roo Code: agent id containing the substring o1 / o3 / o4 (developer role, 'Formatting re-enabled')",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L94-L97 ; https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L329-L363",
+        "note": "Trigger is `modelId.includes('o1'|'o3'|'o4')` - a plain substring test, so ids like `demo1`, `agent/repo3`, `foo-o4` also match. The system prompt becomes {role:'developer', content:'Formatting re-enabled\\n<system prompt>'}; `temperature` is explicitly undefined (omitted); reasoning_effort comes from custom model info (omitted when unset)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "RooCode/3.54.0",
+          "HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+          "X-Title": "Roo Code",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "developer",
+              "content": "Formatting re-enabled\nYou are Roo, a highly skilled software engineer... (illustrative)"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task>\nList the files in this project\n</task>"
+                },
+                {
+                  "type": "text",
+                  "text": "<environment_details>\n# VSCode Visible Files\n(none)\n</environment_details>"
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read the contents of a file.",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "Path of the file to read"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "parallel_tool_calls": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.usage_chunk"
+      ],
+      "notes": "ONLY applies when the agent name contains one of those substrings (e.g. agent/to4). Gateway must accept role 'developer' on /v1/chat/completions. Streaming usage here is read from handleStreamResponse (chunk.usage.prompt_tokens/completion_tokens)."
+    },
+    {
+      "id": "roo-single-completion",
+      "title": "Roo Code: one-shot completion helper (completePrompt): single user message, non-streaming",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/api/providers/openai.ts#L295-L327",
+        "note": "completePrompt() sends exactly {model, messages:[{role:'user', content:<prompt>}]} (+ max_completion_tokens if 'Include max output tokens' is on): no stream, temperature, tools or stream_options. Which UI features call completePrompt was not enumerated (likely prompt enhancement and similar helpers; unverified)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "RooCode/3.54.0",
+          "HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+          "X-Title": "Roo Code",
+          "X-Stainless-Retry-Count": "0",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Package-Version": "5.23.2",
+          "X-Stainless-OS": "MacOS",
+          "X-Stainless-Arch": "arm64",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.0.0",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Generate an enhanced version of this prompt (reply with only the enhanced prompt - no conversation, explanations, lead-in, bullet points, placeholders, or surrounding quotes):\n\nfix the bug"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string"
+      ],
+      "notes": "Reads `response.choices?.[0]?.message.content || ''`. Prompt text above is illustrative."
+    }
+  ]
+}

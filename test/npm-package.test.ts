@@ -106,4 +106,23 @@ test('npm pack --dry-run lists what the tarball carries', (t) => {
     ),
     [],
   );
+  // The compatibility lab (third-party clients, replays, its own node_modules) stays in the repository.
+  assert.deepEqual(
+    listed.filter((p) => p.startsWith('integrations/')),
+    [],
+  );
+});
+
+test('package.json: the compatibility lab is a script, not a packed file or a dependency', () => {
+  assert.match(pkg.scripts.compat ?? '', /integrations\/compat\/run\.mjs/);
+  assert.ok(
+    !pkg.files.some((f) => f.startsWith('integrations')),
+    'files must not list integrations',
+  );
+  for (const lab of ['ai', 'litellm', '@ai-sdk/openai', '@google/genai'])
+    assert.equal(
+      pkg.dependencies[lab] ?? pkg.devDependencies[lab],
+      undefined,
+      `${lab} belongs to the lab`,
+    );
 });

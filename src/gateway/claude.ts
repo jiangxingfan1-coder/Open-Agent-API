@@ -2,6 +2,7 @@
  * Anthropic Claude Messages API（`/v1/messages`、`/v1/compat/messages`）的请求转译与响应对象。
  * 字段依据：https://platform.claude.com/docs/en/api/messages 。
  */
+import { claudeModelInfo } from './compat-models.js';
 import { z } from 'zod';
 import type { Run } from '../core/contracts.js';
 import { extractInlineDirective, resolveModelSelector } from '../kernel/routing.js';
@@ -227,19 +228,7 @@ export function claudeMessageObject(run: Run): Record<string, unknown> {
  */
 export function claudeModelList(agents: readonly { id: string }[]): Record<string, unknown> {
   return {
-    data: agents.map((a) => ({
-      type: 'model',
-      id: a.id,
-      display_name: a.id,
-      created_at: '1970-01-01T00:00:00Z',
-      capabilities: null,
-      deprecated_at: null,
-      lifecycle: 'active',
-      line: null,
-      max_input_tokens: null,
-      max_tokens: null,
-      retires_at: null,
-    })),
+    data: agents.map(claudeModelInfo),
     has_more: false,
     first_id: agents[0]?.id ?? null,
     last_id: agents.at(-1)?.id ?? null,

@@ -1,0 +1,740 @@
+{
+  "client": "dify",
+  "label": "Dify (OpenAI-API-compatible model provider plugin)",
+  "version": "langgenius/dify-official-plugins main@60804e30f6fa41fbe890c02c9849b0bdbe28d13a (models/openai_api_compatible, plugin manifest version 0.0.83) + dify_plugin SDK v0.10.2 (langgenius/dify-plugin-sdks@3345471536c6a438884ac4942a2425b6627567f9, pinned in the plugin's uv.lock) + langgenius/dify 1.19.0 (8e689e868b63b6dd2b449d0eb568ca5cc7127759) for conversation-name generation",
+  "retrieved": "2026-11-14",
+  "overall": "verified",
+  "sources": [
+    {
+      "url": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L480-L640",
+      "note": "_generate(): the actual chat request. Headers Content-Type + Accept-Charset: utf-8 (+ extra_headers) + Authorization Bearer if api_key; URL = endpoint_url.rstrip('/') + '/chat/completions'; body = {model: endpoint_model_name or model, stream, **model_parameters, messages, [tools/tool_choice | functions], [stop], [user]}; posted with python-requests, status != 200 -> InvokeError."
+    },
+    {
+      "url": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/common.py#L16-L17",
+      "note": "_join_endpoint_url: urljoin(endpoint_url.rstrip('/') + '/', 'chat/completions'). The plugin does NOT append /v1: the user must type the /v1 themselves."
+    },
+    {
+      "url": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L681-L853",
+      "note": "Stream parser: lines split on the credential 'stream_mode_delimiter' (default '\\n\\n'); ':' comment events skipped; 'data:' prefix stripped; '[DONE]' skipped; non-JSON event ends the stream with finish_reason 'Non-JSON encountered.'; chunk with 'error' and no 'choices' raises; usage taken from any chunk; chunk_json['choices'] is indexed directly (KeyError if the key is missing); empty choices skipped; finish_reason = last non-empty choice's finish_reason."
+    },
+    {
+      "url": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L855-L935",
+      "note": "Non-stream parser: choices[0]; message['content'] indexed directly (KeyError if absent); usage optional but if present needs prompt_tokens AND completion_tokens; id/model optional."
+    },
+    {
+      "url": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L937-L1025",
+      "note": "Message conversion: user str -> {role,content:str}; user list -> parts text/image_url(+detail)/video_url; assistant -> {role,content} (+tool_calls when function_calling_type == tool_call); system -> {role:'system'}; tool -> {role:'tool',content,tool_call_id}; 'name' added when set (not for tool). Dify never emits the 'developer' role."
+    },
+    {
+      "url": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L224-L279",
+      "note": "Credential validation request: POST chat/completions {model, max_tokens: validate_credentials_max_tokens or 5, messages:[{role:user,content:'ping'}]} (no 'stream' key) or, with stream_mode_auth='use', max_tokens 10 + stream:true."
+    },
+    {
+      "url": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L122-L160",
+      "note": "_validate_credentials_response: status must be 200; for non-stream the body must be JSON whose 'object' is 'chat.completion' (empty/missing 'object' is tolerated and filled in)."
+    },
+    {
+      "url": "https://github.com/langgenius/dify-official-plugins/blob/60804e30f6fa41fbe890c02c9849b0bdbe28d13a/models/openai_api_compatible/models/llm/llm.py#L610-L809",
+      "note": "Plugin _invoke(): adds stream_options {include_usage:true} when stream and credential stream_include_usage != disabled (L773-L783); forwards reasoning_effort when set (L704-L717); maps max_tokens -> max_completion_tokens for endpoint model names matching ^(?:[\\w-]+\\.)*(o1|o3|gpt-5|gpt-6) when token_param_name=auto (L750-L765, L52-L54); drops 'user' when user_identity_support=no_support (L767-L771); structured output legacy path (L638-L660); non-standard thinking keys only in 'extended' compatibility mode (L677-L698)."
+    },
+    {
+      "url": "https://github.com/langgenius/dify-official-plugins/blob/60804e30f6fa41fbe890c02c9849b0bdbe28d13a/models/openai_api_compatible/models/llm/llm.py#L115-L216",
+      "note": "validate_credentials(): for names matching o1/o3/gpt-5/gpt-6 validates through the openai python SDK (max_completion_tokens 16); otherwise falls back to the SDK base validation above."
+    },
+    {
+      "url": "https://github.com/langgenius/dify-official-plugins/blob/60804e30f6fa41fbe890c02c9849b0bdbe28d13a/models/openai_api_compatible/provider/openai_api_compatible.yaml#L17-L120",
+      "note": "UI fields: 'Model Name' (placeholder 'Enter full model name'), 'API Key', 'API Base URL' (placeholder 'Base URL, e.g. https://api.openai.com/v1'), 'model name for API endpoint', 'Completion mode' (default chat), 'Model context size' (default 4096). Defaults further down: Function Call Type=no_call (L470-L479), Vision=no_support, Include Usage in Stream=enabled (L434-L443), User Identity Support=support (L406-L415), stream_mode_delimiter '\\n\\n' (L650-L657), api_type=chat_completions (L358-L367), compatibility_mode=strict (L336-L345)."
+    },
+    {
+      "url": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L320-L475",
+      "note": "Customizable model schema: sampling parameter rules exposed in the UI = temperature, top_p, frequency_penalty, presence_penalty, max_tokens (default 512, max = 'Upper bound for max tokens', default 4096). Only parameters the app/workflow actually has enabled are forwarded."
+    },
+    {
+      "url": "https://github.com/langgenius/dify/blob/8e689e868b63b6dd2b449d0eb568ca5cc7127759/api/core/llm_generator/llm_generator.py#L182-L251",
+      "note": "Auto conversation name: invoke_llm(prompt_messages=[UserPromptMessage(CONVERSATION_TITLE_PROMPT + query)], model_parameters={'max_tokens': 500, 'temperature': 1}, stream=False); answer parsed as JSON with key 'Your Output' (json_repair fallback), empty -> falls back to the query."
+    },
+    {
+      "url": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/core/plugin_executor.py#L308-L324",
+      "note": "invoke_llm passes data.user_id (from the Dify core dispatch payload) as the 'user' argument of _invoke, which becomes the top-level 'user' request field when truthy."
+    }
+  ],
+  "setup": {
+    "baseUrl": "http://host.docker.internal:8787/v1  (WITH /v1; the plugin only appends '/chat/completions'). Dify > Settings > Model Provider > install 'OpenAI-API-compatible' > Add Model > field 'API Base URL'. A Dify self-hosted stack runs plugin code inside the plugin_daemon container, so 'localhost' means that container: use host.docker.internal (or the host LAN IP) and make sure the gateway listens on it.",
+    "model": "'Model Name' = agent name exactly as the gateway expects (e.g. agent/sample). Optional 'model name for API endpoint' overrides the name sent on the wire. Model Type LLM, 'Completion mode' = Chat. Dify never calls GET /v1/models: models are added by hand.",
+    "apiKey": "'API Key' (optional field; if empty NO Authorization header is sent). Sent as 'Authorization: Bearer <key>'.",
+    "notes": "Request transport is python-requests, server-side (no CORS). Adding a model runs a credential check (POST chat/completions 'ping', max_tokens 5) and the model is rejected if it is not HTTP 200 with a JSON body whose object is 'chat.completion' (or empty). Streaming parse is very literal: events MUST be separated by a blank line made of '\\n\\n' (a CRLF-only 'data: ...\\r\\n\\r\\n' stream is not split by the default delimiter and fails with 'Non-JSON encountered'), each event must be a single 'data: {...}' line (an 'event:' line before it breaks JSON parsing), and every JSON chunk must contain a 'choices' key (usage-only chunks must send choices: []). Dify's default 'Function Call Type' is 'Not Support' so tools are NOT sent unless the operator selects 'Tool Call'. Defaults to non-vision: image parts are only sent if 'Vision Support' is enabled. Which sampling parameters appear in the body depends on the app's/workflow node's model parameter toggles (UI defaults not verified)."
+  },
+  "cases": [
+    {
+      "id": "connectivity-test",
+      "title": "Add-model credential validation: tiny non-stream 'ping' with max_tokens 5",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L224-L279",
+        "note": "Exact data dict: {'model': endpoint_model_name or model, 'max_tokens': validate_credentials_max_tokens or 5, 'messages': [{'role':'user','content':'ping'}]}. Headers: Content-Type + Authorization only (no Accept-Charset here); python-requests adds User-Agent, Accept, Accept-Encoding, Connection."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "max_tokens": 5,
+          "messages": [
+            {
+              "role": "user",
+              "content": "ping"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.object_chat_completion"
+      ],
+      "notes": "Must be HTTP 200 and JSON. If 'object' is present it MUST equal 'chat.completion', otherwise validation fails; a missing/empty 'object' is tolerated. Nothing else in the body is checked. If this fails with 'budget_tokens'/'thinking' in the error text the plugin retries once with an extra 'thinking': {'type':'disabled'} key (only on that error path). If max_tokens is rejected with 'Invalid max_output_tokens'/'integer_below_min_value' it retries through the openai SDK with max_tokens 16."
+    },
+    {
+      "id": "connectivity-test-stream-mode",
+      "title": "Credential validation with 'stream_mode_auth = use': streaming ping, max_tokens 10",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L257-L271",
+        "note": "Only when the credential stream_mode_auth is 'use' (default 'not_use'): data['max_tokens'] = validate_credentials_max_tokens or 10, data['stream'] = True; response is not parsed beyond HTTP 200."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "max_tokens": 10,
+          "messages": [
+            {
+              "role": "user",
+              "content": "ping"
+            }
+          ],
+          "stream": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.data_only_lf_frames"
+      ],
+      "notes": "In stream-validation mode only the status code is checked; no stream_options key is sent here."
+    },
+    {
+      "id": "chat-stream",
+      "title": "Normal streaming chat: system + user messages, stream_options.include_usage (default)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langgenius/dify-official-plugins/blob/60804e30f6fa41fbe890c02c9849b0bdbe28d13a/models/openai_api_compatible/models/llm/llm.py#L773-L783",
+        "note": "stream_options {'include_usage': True} is injected whenever stream is true and the credential 'Include Usage in Stream' is not Disabled (default enabled). Body order = model, stream, model_parameters (here only stream_options), messages. No 'user', tools, max_tokens unless configured."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept-Charset": "utf-8",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array",
+        "stream.data_only_lf_frames"
+      ],
+      "notes": "Parser details: (1) events split on '\\n\\n'; (2) each event must be exactly 'data: <json>' (after stripping 'data:'); '[DONE]' is skipped, not required; (3) EVERY JSON chunk is read via chunk_json['choices'] -> a chunk without a 'choices' key raises KeyError (the final usage chunk must carry choices: []); (4) usage is taken from whichever chunk has a truthy 'usage' (falls back to a local token estimate over messages[0] only if absent); (5) finish_reason is whatever the LAST chunk that has a non-empty choices[] carried (a late chunk with finish_reason null would overwrite it); (6) delta.role / chunk id / object are never read; (7) a non-JSON event silently terminates the stream. The Content-Type of the response is NOT checked. Content is read from delta.content, plus delta.reasoning_content / delta.reasoning which Dify wraps into <think>...</think>."
+    },
+    {
+      "id": "chat-stream-with-user",
+      "title": "Streaming chat including the top-level 'user' field (User Identity Support = Support, default)",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L601-L602",
+        "note": "The code adds data['user'] = user whenever 'user' is truthy and the plugin keeps it unless user_identity_support == 'no_support' (L767-L771). The value is data.user_id from the Dify dispatch payload (plugin_executor.py L308-L324); that it is a Dify account/end-user UUID and present for app runs is inferred (api/core/plugin/impl/model_runtime.py binds user_id=self.user_id)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept-Charset": "utf-8",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "user": "8f1c0d5e-3b2a-4c7e-9d41-6a5b7c8d9e0f"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array",
+        "stream.data_only_lf_frames"
+      ],
+      "notes": "'user' is a UUID-like string in Dify. Some gateways reject unknown optional fields; Dify has a per-model switch for exactly that reason."
+    },
+    {
+      "id": "chat-stream-all-settings",
+      "title": "Streaming chat with every UI sampling parameter enabled + stop (settings maxed out)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L361-L456",
+        "note": "Parameter rule names: temperature, top_p, frequency_penalty, presence_penalty, max_tokens (these are the only sampling keys the plugin declares). They are spread into the body right after 'stream' (L555-L559); 'stop' is appended after messages (L598-L599). Values are examples within the declared ranges."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept-Charset": "utf-8",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": true,
+          "temperature": 0.7,
+          "top_p": 0.9,
+          "frequency_penalty": 0.5,
+          "presence_penalty": 0.5,
+          "max_tokens": 512,
+          "stream_options": {
+            "include_usage": true
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hi"
+            },
+            {
+              "role": "assistant",
+              "content": "Hello! How can I help?"
+            },
+            {
+              "role": "user",
+              "content": "Tell me a joke"
+            }
+          ],
+          "stop": [
+            "\nObservation:"
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array",
+        "stream.data_only_lf_frames"
+      ],
+      "notes": "No top_k, seed, n, logit_bias, response_format (unless structured output is on), tool keys here. Dify has no per-model 'n' or 'seed'."
+    },
+    {
+      "id": "title-generation",
+      "title": "Automatic conversation name: non-stream, single user message, max_tokens 500 / temperature 1",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langgenius/dify/blob/8e689e868b63b6dd2b449d0eb568ca5cc7127759/api/core/llm_generator/llm_generator.py#L213-L219",
+        "note": "model_parameters={'max_tokens': 500, 'temperature': 1}, stream=False, prompt_messages=[UserPromptMessage(content=CONVERSATION_TITLE_PROMPT + query)]. It is run with the app's model (or the tenant default LLM when none is resolved). The prompt text itself is a long instruction defined in core.llm_generator.prompts (not reproduced here)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept-Charset": "utf-8",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": false,
+          "max_tokens": 500,
+          "temperature": 1,
+          "messages": [
+            {
+              "role": "user",
+              "content": "<CONVERSATION_TITLE_PROMPT: instructions to answer with a JSON object {\"Your Output\": \"<short title>\"}>\nTell me a joke\n"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string",
+        "chat.usage_numbers"
+      ],
+      "notes": "Non-stream parser: choices[0] must exist; choices[0].message.content is indexed directly (KeyError if missing; content null would break the later title step); 'usage' is optional but when present MUST contain numeric prompt_tokens and completion_tokens; 'id' and 'model' optional. The title step then JSON-parses the content for key 'Your Output' (json_repair tolerant) and falls back to the user's query text when the content is empty. 'stream_options' is NOT sent for non-stream calls."
+    },
+    {
+      "id": "chat-multimodal-array-text-only",
+      "title": "User message whose content is an array containing only text parts",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L946-L981",
+        "note": "The conversion code turns any list content into [{'type':'text','text':...}, ...]. Whether Dify's workflow LLM node produces a text-only list (e.g. text + an empty/filtered file variable) rather than a plain string is inferred; plain-text chats use a string."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept-Charset": "utf-8",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Hello"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array",
+        "stream.data_only_lf_frames"
+      ],
+      "notes": "The gateway should accept content as either a string or an array of {type:'text'} parts."
+    },
+    {
+      "id": "image-part",
+      "title": "Vision-enabled model with an image file: text part + image_url part with detail",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langgenius/dify-official-plugins/blob/60804e30f6fa41fbe890c02c9849b0bdbe28d13a/models/openai_api_compatible/models/llm/llm.py#L515-L561",
+        "note": "Shape verified: {'type':'image_url','image_url':{'url': data, 'detail': 'high'|'low'}}. 'data' is a base64 data URI by default or a signed remote URL depending on Dify's file-sending setting (multimodal send format) - inferred. Only sent when the model has 'Vision Support' enabled (default off). Audio parts are also encoded as image_url with a data URI; video as video_url; documents as {'type':'file','file':{'file_data','filename'}} when those supports are enabled."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept-Charset": "utf-8",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "What is in this picture?"
+                },
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAfbLI3wAAAABJRU5ErkJggg==",
+                    "detail": "high"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 400,
+        "code": "unsupported_content"
+      },
+      "consumes": [],
+      "notes": "A non-200 response raises InvokeError with the status code and response text; Dify shows it to the user as a model error."
+    },
+    {
+      "id": "tools-and-tool-choice",
+      "title": "Function Call Type = Tool Call: tools array + tool_choice 'auto' (no parallel_tool_calls)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L576-L596",
+        "note": "tool_call mode: data['tool_choice'] = 'auto'; data['tools'] = [PromptMessageFunction(function=tool).model_dump()] = {'type':'function','function':{name, description, parameters}}. In 'function_call' mode the legacy 'functions' array is sent instead (no tool_choice). Default mode is 'Not Support' (nothing sent). Tool objects below are an example."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept-Charset": "utf-8",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            }
+          ],
+          "tool_choice": "auto",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the current weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string",
+                      "description": "City name"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array",
+        "stream.data_only_lf_frames"
+      ],
+      "notes": "Tool-call deltas are merged by tool_call id: a delta with a function name but no id gets a generated id; a delta with no id appends to the LAST tool call; arguments are concatenated; the result is emitted as one final chunk. Tool calls in the non-stream parser are read from message.tool_calls only in tool_call mode."
+    },
+    {
+      "id": "assistant-tool-calls-history",
+      "title": "Agent round 2: assistant message with tool_calls (content empty) followed by a role:tool message",
+      "evidence": {
+        "status": "inferred",
+        "source": "https://github.com/langgenius/dify-plugin-sdks/blob/3345471536c6a438884ac4942a2425b6627567f9/src/dify_plugin/interfaces/model/openai_compatible/llm.py#L982-L1017",
+        "note": "Conversion verified: assistant -> {'role':'assistant','content': message.content, 'tool_calls':[tool_call.dict()]} with tool_call.dict() = {id, type:'function', function:{name, arguments}}; tool -> {'role':'tool','content', 'tool_call_id'}. The assistant content is whatever Dify stored for that turn: '' is the common value but null is possible (AssistantPromptMessage.content is optional) - inferred."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept-Charset": "utf-8",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_abc123",
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"city\":\"Paris\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "content": "{\"temp\":18}",
+              "tool_call_id": "call_abc123"
+            }
+          ],
+          "tool_choice": "auto",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get the current weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string",
+                      "description": "City name"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array",
+        "stream.data_only_lf_frames"
+      ],
+      "notes": "Gateway should tolerate assistant content '' or null together with tool_calls, and tool messages without a 'name'."
+    },
+    {
+      "id": "reasoning-effort",
+      "title": "Thinking Mode Support enabled + Reasoning effort set: standard reasoning_effort key forwarded",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langgenius/dify-official-plugins/blob/60804e30f6fa41fbe890c02c9849b0bdbe28d13a/models/openai_api_compatible/models/llm/llm.py#L704-L717",
+        "note": "reasoning_effort (none|minimal|low|medium|high|xhigh) is only offered when 'Thinking Mode Support' is 'supported' or 'only_thinking_supported' (rules at L328-L358); it is forwarded as a top-level body key regardless of the strict/extended compatibility mode. In 'extended' mode ADDITIONAL non-standard keys (chat_template_kwargs, thinking, enable_thinking, reasoning_format) are sent - not in this case."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept-Charset": "utf-8",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": true,
+          "reasoning_effort": "medium",
+          "stream_options": {
+            "include_usage": true
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array",
+        "stream.data_only_lf_frames"
+      ],
+      "notes": "Off by default. Reasoning text coming back in delta.reasoning_content or delta.reasoning is rendered inside <think> tags; when thinking is configured 'not supported' Dify filters <think> blocks out of the reply."
+    },
+    {
+      "id": "response-format-json",
+      "title": "Structured output = 'supported' (legacy): response_format json_object + schema injected into the system prompt",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langgenius/dify-official-plugins/blob/60804e30f6fa41fbe890c02c9849b0bdbe28d13a/models/openai_api_compatible/models/llm/llm.py#L638-L660",
+        "note": "With structured_output_support='supported' and response_format=json_schema the plugin prepends 'Your response must be a JSON object that validates against the following JSON schema, and nothing else.\\nJSON Schema: ```json\\n<schema>\\n```' to the (first) system message and sends response_format {'type':'json_object'}. With structured_output_support='native' it instead sends response_format {'type':'json_schema','json_schema': <parsed schema object>} (SDK L526-L551; exact schema envelope not verified). Default is not_supported (no response_format)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept-Charset": "utf-8",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": true,
+          "response_format": {
+            "type": "json_object"
+          },
+          "stream_options": {
+            "include_usage": true
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "Your response must be a JSON object that validates against the following JSON schema, and nothing else.\nJSON Schema: ```json\n{\"type\":\"object\",\"properties\":{\"answer\":{\"type\":\"string\"}},\"required\":[\"answer\"]}\n```\n\nYou are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Say hi"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array",
+        "stream.data_only_lf_frames"
+      ],
+      "notes": "Off by default."
+    },
+    {
+      "id": "chat-stream-max-completion-tokens-name",
+      "title": "Endpoint model name matching o1/o3/gpt-5/gpt-6 (token_param_name=auto): max_tokens becomes max_completion_tokens",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/langgenius/dify-official-plugins/blob/60804e30f6fa41fbe890c02c9849b0bdbe28d13a/models/openai_api_compatible/models/llm/llm.py#L750-L765",
+        "note": "Regex ^(?:[\\w-]+\\.)*(o1|o3|gpt-5|gpt-6) (IGNORECASE, anchored at start, optional 'prefix.' segments) is tested on endpoint_model_name or the Dify model name; credential 'Token parameter name' = max_completion_tokens forces it for any name, = max_tokens disables it."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept-Charset": "utf-8",
+          "Authorization": "Bearer {{KEY}}",
+          "User-Agent": "python-requests/2.x",
+          "Accept": "*/*"
+        },
+        "body": {
+          "model": "{{AGENT}}",
+          "stream": true,
+          "max_completion_tokens": 512,
+          "stream_options": {
+            "include_usage": true
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_deltas_present",
+        "stream.finish_reason_chunk",
+        "stream.usage_chunk",
+        "stream.every_chunk_has_choices_array",
+        "stream.data_only_lf_frames"
+      ],
+      "notes": "Included so the gateway proves it accepts max_completion_tokens. An agent literally named like 'o3-helper' or 'gpt-5-bot' triggers this shape automatically; the model-name validation path for these names uses the openai python SDK instead (headers then include OpenAI/Python User-Agent and X-Stainless-*)."
+    }
+  ]
+}

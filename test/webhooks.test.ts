@@ -319,7 +319,8 @@ test('oaa webhook: add, list, test, deliveries and remove (bilingual output)', a
     'en',
   );
   assert.match(await readFile(secretFile, 'utf8'), /^whsec_\S+\n$/);
-  assert.equal((await stat(secretFile)).mode & 0o777, 0o600);
+  // Mode bits exist only on POSIX; Windows relies on the ACL (docs/windows.md).
+  if (process.platform !== 'win32') assert.equal((await stat(secretFile)).mode & 0o777, 0o600);
   assert.equal(printed.join('\n').includes('whsec_'), false);
   await assert.rejects(
     runWebhookCommand(g.admin, ['add', 'http://127.0.0.1:9/x'], { out: secretFile }, out, 'en'),

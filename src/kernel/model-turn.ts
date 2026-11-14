@@ -1,4 +1,5 @@
 /** 模型轮次：工作区上下文、系统指令、调用模型（第一轮失败时可换线路重试）并落盘回复。 */
+import { runSandboxed } from '../core/contracts.js';
 import type {
   AgentBundle,
   AgentDefinition,
@@ -99,7 +100,7 @@ export async function runModelTurn(
       undefined,
       run.digest,
       !!run.checkpoint.byok,
-      run.checkpoint.execution === 'sandbox',
+      runSandboxed(run),
       run.checkpoint.messages.some((m) => !!m.providerState),
     );
     if (!availability.available)
@@ -205,7 +206,7 @@ export async function runModelTurn(
               undefined,
               run.digest,
               !!run.checkpoint.byok,
-              run.checkpoint.execution === 'sandbox',
+              runSandboxed(run),
             ),
           ),
         {

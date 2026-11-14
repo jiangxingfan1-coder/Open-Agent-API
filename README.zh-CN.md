@@ -216,6 +216,8 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 | Gemini `generateContent` / `streamGenerateContent` | 用临时安装的官方 `@google/genai` 3.2.0 做过一次性实测，不是项目依赖，探测脚本在 [examples/gemini-sdk-probe.mjs](examples/gemini-sdk-probe.mjs)；回归测试按线上格式断言 |
 | `oaa/1` 原生协议、UAP/1、MCP | 见 [docs/zh-CN/protocol.md](docs/zh-CN/protocol.md) |
 
+除这些回归测试外，兼容性实验室（`npm run compat`，CI 里每周也会跑）用真实的包去打一个隔离的离线网关：官方 `openai`、`anthropic`、`google-genai` 的 Python SDK 与对应的 Node SDK、Vercel AI SDK、LangChain、LiteLLM、OpenAI Agents SDK、LlamaIndex。Open WebUI、LibreChat、Chatbox、Cherry Studio、LobeChat、NextChat、Dify、n8n、Continue、Cline / Roo Code、Zed 没法在测试里装起来跑，所以按它们源码里读到的请求形状回放；Cursor 闭源，未核实。哪些是实际运行、哪些是回放，各客户端怎么配置，以及不支持或被忽略的参数怎么处理，见 [docs/zh-CN/compatibility.md](docs/zh-CN/compatibility.md)。
+
 任何兼容这几家协议的客户端，只要填 Base URL 和 API 密钥就能用；`Authorization: Bearer`、`x-api-key`、`x-goog-api-key` 三种鉴权头都接受。不支持的输入会明确报错，而不是悄悄降级：例如内联的图片与音频（base64 或 URL）一律返回 400 `unsupported_content`，需要先经 `POST /v1/files` 上传再引用，见 [docs/zh-CN/protocol.md](docs/zh-CN/protocol.md#兼容入口的参数错误与结束原因060)。
 
 ## 控制面：让人留在回路里

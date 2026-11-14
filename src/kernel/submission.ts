@@ -2,6 +2,7 @@
 import type { AgentDefinition, Principal, Run } from '../core/contracts.js';
 import {
   allowedExecution,
+  executionFor,
   executionPermits,
   principalSubject,
   requiredExecution,
@@ -90,7 +91,7 @@ export function prepare(
   // sandbox's environment); on the host they keep using their own configuration.
   const sandboxedNative =
     bundle.agent.engine !== 'kernel' &&
-    allowedExecution(principal) === 'sandbox' &&
+    executionFor(principal, bundle.agent.id) === 'sandbox' &&
     sandboxable(bundle.agent);
   if (byok && bundle.agent.engine !== 'kernel' && !sandboxedNative)
     throw new Fault(
@@ -118,7 +119,7 @@ export function prepare(
   const inspect = routeInspector(rt.hub, principal.owner, bundle, files, {
     preferred,
     byok,
-    sandbox: allowedExecution(principal) === 'sandbox',
+    sandbox: executionFor(principal, bundle.agent.id) === 'sandbox',
     providerState: pinned?.checkpoint.messages.some((m) => !!m.providerState) ?? false,
     clientTools: bridging,
   });
@@ -142,7 +143,11 @@ export function checkExecution(
     seen.add(def.id);
     const required = requiredExecution(def);
     // A sandbox-level key may run host-requiring agents whose host parts all fit the sandbox.
-    const fits = executionPermits(allowed, required) || (allowed === 'sandbox' && sandboxable(def));
+    const fits =
+      executionPermits(allowed, required) ||
+      (allowed === 'sandbox' && sandboxable(def)) ||
+      // Explicit per-agent opt-in (platform listing); each delegate needs its own.
+      !!principal.hostAgents?.includes(def.id);
     if (!fits)
       throw new Fault(
         'isolation_required',
@@ -288,7 +293,7 @@ export function submit(
   }
   if (
     bundle.agent.engine !== 'kernel' &&
-    allowedExecution(principal) === 'sandbox' &&
+    executionFor(principal, bundle.agent.id) === 'sandbox' &&
     providerKey === undefined
   )
     throw new Fault(
@@ -372,6 +377,7 @@ export function submit(
       grantedAgents: [...principal.agents],
       ...(principal.keyId ? { keyId: principal.keyId } : {}),
       execution: allowedExecution(principal),
+      ...(principal.hostAgents?.length ? { hostAgents: [...principal.hostAgents] } : {}),
       ...(providerKey !== undefined ? { byok: true } : {}),
       ...(bridge ? { bridge } : {}),
     },

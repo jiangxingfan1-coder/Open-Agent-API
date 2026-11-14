@@ -270,7 +270,7 @@ test('openai sdk: strict endpoints name the unsupported parameter and report ign
         assert.ok(e instanceof OpenAI.BadRequestError);
         assert.equal(e.code, 'unsupported_parameter');
         assert.equal(e.param, 'response_format');
-        assert.match(e.message, /\/v1\/compat\/chat\/completions/);
+        assert.match(e.message, /\/v1\/compat/);
         return true;
       },
     );

@@ -51,6 +51,7 @@ const listingBody = z
       .strict()
       .optional(),
     enabled: z.boolean().optional(),
+    host_execution: z.boolean().optional(),
   })
   .strict();
 const codesBody = z
@@ -85,6 +86,21 @@ export function registerPlatformAdminRoutes(
       ip: clientIp(req),
       accountId,
       ...(detail ? { detail } : {}),
+    });
+  };
+  /** The listing's host-execution switch changed (`on` / `off`). */
+  const hostSwitch = (req: FastifyRequest, agentId: string, on: boolean) => {
+    const p = req.principal;
+    audit.note({
+      owner: p.owner,
+      code: 'platform_listing_host_execution',
+      keyId: p.keyId,
+      subject: principalSubject(p),
+      method: req.method,
+      path: req.url.split('?')[0]!,
+      ip: clientIp(req),
+      agentId,
+      detail: on ? 'on' : 'off',
     });
   };
   const idOf = (req: FastifyRequest) => (req.params as { id: string }).id;
@@ -173,9 +189,11 @@ export function registerPlatformAdminRoutes(
   app.put('/v1/platform/listings', async (req) => {
     operator(req);
     const b = listingBody.parse(req.body);
-    return wireListing(
+    const before = platform.allListings().find((l) => l.agentId === b.agent_id);
+    const view = wireListing(
       platform.putListing({
         agentId: b.agent_id,
+        ...(b.host_execution !== undefined ? { hostExecution: b.host_execution } : {}),
         ...(b.title !== undefined ? { title: b.title } : {}),
         ...(b.summary !== undefined ? { summary: b.summary } : {}),
         ...(b.tags !== undefined ? { tags: b.tags } : {}),
@@ -192,10 +210,18 @@ export function registerPlatformAdminRoutes(
           : {}),
       }),
     );
+    // Turning the switch on or off (including creating a listing with it on) is audited.
+    if (view.host_execution !== (before?.hostExecution ?? false))
+      hostSwitch(req, b.agent_id, view.host_execution);
+    return view;
   });
   app.delete('/v1/platform/listings', async (req, reply) => {
     operator(req);
-    platform.deleteListing(listingQuery.parse(req.query).agent_id);
+    const agentId = listingQuery.parse(req.query).agent_id;
+    const before = platform.allListings().find((l) => l.agentId === agentId);
+    platform.deleteListing(agentId);
+    // Removing a listing whose switch was on also ends that permission.
+    if (before?.hostExecution) hostSwitch(req, agentId, false);
     return reply.code(204).send();
   });
   app.get('/v1/platform/codes', async (req) => {

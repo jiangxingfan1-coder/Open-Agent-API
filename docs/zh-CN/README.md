@@ -20,7 +20,7 @@
 - 调用前查看选路：[operations.md「调用前查看选路」](operations.md#调用前查看选路)
 - 失败自动换智能体、交接给另一个智能体：[protocol.md「失败自动换智能体」](protocol.md#失败自动换智能体oaaagent_fallback2026-11-10)、[「智能体交接」](protocol.md#智能体交接handoff2026-11-10)
 - 通过 MCP 调用：[operations.md「MCP 与插件入口」](operations.md#mcp-与插件入口)、[MCP 技能说明](../../integrations/open-agent-api/SKILL.md)
-- 哪些官方 SDK 与兼容 OpenAI 的客户端测过、结果如何：[compatibility.md](compatibility.md)
+- 哪些 SDK 与框架实际运行过、哪些聊天客户端按请求形状回放、各自怎么配置、哪些参数被忽略或拒绝：[compatibility.md](compatibility.md)
 
 ## 我想发布智能体
 

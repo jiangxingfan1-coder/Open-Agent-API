@@ -9,8 +9,20 @@ import {
 import { invocationSchema, type Invocation } from '../kernel/invocation.js';
 import { compatInput } from './client-tools.js';
 import { chatFinish, finishOf, runFailure } from './compat-errors.js';
-import { applyMaxTokens, attachResolutionMetadata, unsupportedParameter } from './compat-params.js';
 import {
+  applyMaxTokens,
+  applyReasoningEffort,
+  attachResolutionMetadata,
+  chatChecked,
+  chatTolerated,
+  rejectToolMessages,
+  rejectUnsatisfiable,
+  responsesChecked,
+  responsesTolerated,
+  unsupportedParameter,
+} from './compat-params.js';
+import {
+  rejectNonMessageItems,
   rejectUnsupportedParts,
   renderOpenAIPart,
   renderToolOutput,
@@ -20,7 +32,7 @@ import {
 export { attachResolutionMetadata } from './compat-params.js';
 
 /** 严格端点也接受、但不转发的采样类参数（经 X-OAA-Ignored-Params 告知）。 */
-const ignoredNumber = z.number().optional();
+const ignoredNumber = z.number().nullish();
 const strictCommon = {
   temperature: ignoredNumber,
   top_p: ignoredNumber,
@@ -59,12 +71,15 @@ export {
 } from '../kernel/invocation.js';
 export { responseObject } from '../kernel/response-object.js';
 
+// Parts and items drop unknown keys (`id`, `status`, `annotations`, `cache_control`, ...): they carry
+// bookkeeping, not meaning. `output_text` is how clients replay earlier assistant turns.
 const inputPart = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('input_text'), text: z.string().max(200_000) }).strict(),
-  z.object({ type: z.literal('input_file'), file_id: z.string() }).strict(),
+  z.object({ type: z.literal('input_text'), text: z.string().max(200_000) }),
+  z.object({ type: z.literal('output_text'), text: z.string().max(200_000) }),
+  z.object({ type: z.literal('input_file'), file_id: z.string() }),
 ]);
 
-const STRICT_RESPONSES_PARTS = new Set(['input_text', 'input_file']);
+const STRICT_RESPONSES_PARTS = new Set(['input_text', 'output_text', 'input_file']);
 const STRICT_CHAT_PARTS = new Set(['text', 'input_text', 'file']);
 
 const responsesSchema = z
@@ -74,24 +89,27 @@ const responsesSchema = z
       z.string(),
       z
         .array(
-          z
-            .object({
-              role: z.enum(['user', 'assistant', 'system', 'developer']),
-              content: z.union([z.string(), z.array(inputPart)]),
-            })
-            .strict(),
+          z.object({
+            type: z.literal('message').optional(),
+            role: z.enum(['user', 'assistant', 'system', 'developer']),
+            content: z.union([z.string(), z.array(inputPart)]),
+          }),
         )
         .min(1)
         .max(100),
     ]),
+    instructions: z.string().max(200_000).nullish(),
+    reasoning: z.object({ effort: z.string().nullish() }).nullish(),
     stream: z.boolean().default(false),
     background: z.boolean().default(false),
     previous_response_id: z.string().optional(),
     metadata: z.record(z.string().max(64), z.string().max(512)).default({}),
     max_output_tokens: z.number().int().positive().optional(),
     ...strictCommon,
-    top_logprobs: z.number().int().optional(),
-    truncation: z.enum(['auto', 'disabled']).optional(),
+    ...responsesTolerated,
+    ...responsesChecked,
+    top_logprobs: z.number().int().nullish(),
+    truncation: z.enum(['auto', 'disabled']).nullish(),
   })
   .strict();
 
@@ -121,11 +139,15 @@ export function parseResponse(value: unknown, headers?: Record<string, unknown>)
   if (compatHeader === 'true' || compatHeader === '1') {
     return parseCompatResponse(value, headers);
   }
+  rejectNonMessageItems(value, '/v1/compat/responses');
   rejectUnsupportedParts(value, 'input', STRICT_RESPONSES_PARTS);
   const req = strictParse(responsesSchema, value, '/v1/responses', '/v1/compat/responses');
+  rejectUnsatisfiable('responses', value as Record<string, unknown>, '/v1/responses');
   const files: string[] = [];
+  const system = req.instructions?.trim() ? `[system]\n${req.instructions.trim()}\n\n` : '';
   const rawText =
-    typeof req.input === 'string'
+    system +
+    (typeof req.input === 'string'
       ? req.input
       : req.input
           .map((m) => {
@@ -134,18 +156,20 @@ export function parseResponse(value: unknown, headers?: Record<string, unknown>)
                 ? m.content
                 : m.content
                     .map((p) => {
-                      if (p.type === 'input_text') return p.text;
+                      if (p.type !== 'input_file') return p.text;
                       files.push(p.file_id);
                       return `[Attached file ${p.file_id}]`;
                     })
                     .join('\n');
             return `[${m.role}]\n${content}`;
           })
-          .join('\n\n');
+          .join('\n\n'));
 
   const directive = extractInlineDirective(rawText);
-  const resolved = resolveModelSelector(req.model, req.metadata, headers, directive);
-  const meta = attachResolutionMetadata(req.metadata, resolved);
+  const rawMeta = { ...req.metadata };
+  applyReasoningEffort(rawMeta, req.reasoning?.effort);
+  const resolved = resolveModelSelector(req.model, rawMeta, headers, directive);
+  const meta = attachResolutionMetadata(rawMeta, resolved);
   applyMaxTokens(meta, req.max_output_tokens);
 
   return invocationSchema.parse({
@@ -241,15 +265,7 @@ export function parseCompatResponse(value: unknown, headers?: Record<string, unk
     }
   }
   rawMeta['oaa.compat_mode'] = 'true';
-  const effort =
-    typeof req.reasoning?.effort === 'string' ? req.reasoning.effort.toLowerCase() : undefined;
-  if (effort) {
-    rawMeta['oaa.reasoning_effort'] = effort.slice(0, 32);
-    if (!rawMeta['oaa.routing_strategy']) {
-      if (effort === 'high' || effort === 'xhigh') rawMeta['oaa.routing_strategy'] = 'quality';
-      else if (effort === 'low' || effort === 'minimal') rawMeta['oaa.routing_strategy'] = 'speed';
-    }
-  }
+  applyReasoningEffort(rawMeta, req.reasoning?.effort);
   if (req.max_output_tokens !== undefined) {
     rawMeta['oaa.compat_max_tokens'] = String(req.max_output_tokens);
   }
@@ -274,15 +290,11 @@ export function parseCompatResponse(value: unknown, headers?: Record<string, unk
   });
 }
 
+// Unknown keys on parts are dropped (`cache_control` markers and similar bookkeeping).
 const chatContentPart = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('text'), text: z.string().max(200_000) }).strict(),
-  z.object({ type: z.literal('input_text'), text: z.string().max(200_000) }).strict(),
-  z
-    .object({
-      type: z.literal('file'),
-      file: z.object({ file_id: z.string() }).strict(),
-    })
-    .strict(),
+  z.object({ type: z.literal('text'), text: z.string().max(200_000) }),
+  z.object({ type: z.literal('input_text'), text: z.string().max(200_000) }),
+  z.object({ type: z.literal('file'), file: z.object({ file_id: z.string() }) }),
 ]);
 
 const chatSchema = z
@@ -294,22 +306,27 @@ const chatSchema = z
           .object({
             role: z.enum(['user', 'assistant', 'system', 'developer']),
             content: z.union([z.string().max(200_000), z.array(chatContentPart).min(1).max(100)]),
+            name: z.string().optional(),
           })
           .strict(),
       )
       .min(1)
       .max(100),
     stream: z.boolean().default(false),
-    stream_options: z.object({ include_usage: z.boolean().optional() }).strict().optional(),
+    // `include_usage` is honoured; other keys (`include_obfuscation`, ...) are dropped.
+    stream_options: z.object({ include_usage: z.boolean().nullish() }).nullish(),
     metadata: z.record(z.string(), z.string()).optional(),
-    max_tokens: z.number().int().positive().optional(),
-    max_completion_tokens: z.number().int().positive().optional(),
+    max_tokens: z.number().int().positive().nullish(),
+    max_completion_tokens: z.number().int().positive().nullish(),
     ...strictCommon,
+    ...chatTolerated,
+    ...chatChecked,
+    reasoning_effort: z.string().nullish(),
     seed: ignoredNumber,
-    stop: z.union([z.string(), z.array(z.string()).max(4), z.null()]).optional(),
+    stop: z.union([z.string(), z.array(z.string()), z.null()]).optional(),
     presence_penalty: ignoredNumber,
     frequency_penalty: ignoredNumber,
-    n: z.number().int().optional(),
+    n: z.number().int().nullish(),
   })
   .strict();
 
@@ -318,14 +335,17 @@ export function parseChat(value: unknown, headers?: Record<string, unknown>): In
   if (compatHeader === 'true' || compatHeader === '1') {
     return parseCompatChat(value, headers);
   }
+  rejectToolMessages(value, '/v1/chat/completions');
   rejectUnsupportedParts(value, 'messages', STRICT_CHAT_PARTS);
   const req = strictParse(chatSchema, value, '/v1/chat/completions', '/v1/compat/chat/completions');
-  if (req.n !== undefined && req.n !== 1)
+  rejectUnsatisfiable('chat', value as Record<string, unknown>, '/v1/chat/completions');
+  if (req.n !== undefined && req.n !== null && req.n !== 1)
     throw unsupportedParameter(
       'n',
       '/v1/chat/completions',
       'Only n=1 is supported: an agent returns one answer per run.',
     );
+  // Same as OpenAI: stream_options is only valid together with stream=true.
   if (req.stream_options && !req.stream)
     throw new Fault('invalid_request', 'stream_options requires stream=true.');
 
@@ -349,8 +369,10 @@ export function parseChat(value: unknown, headers?: Record<string, unknown>): In
     .join('\n\n');
 
   const directive = extractInlineDirective(rawInput);
-  const resolved = resolveModelSelector(req.model, req.metadata, headers, directive);
-  const meta = attachResolutionMetadata(req.metadata, resolved);
+  const rawMeta = { ...req.metadata };
+  applyReasoningEffort(rawMeta, req.reasoning_effort);
+  const resolved = resolveModelSelector(req.model, rawMeta, headers, directive);
+  const meta = attachResolutionMetadata(rawMeta, resolved);
   applyMaxTokens(meta, req.max_completion_tokens ?? req.max_tokens);
 
   return invocationSchema.parse({
@@ -453,14 +475,7 @@ export function parseCompatChat(value: unknown, headers?: Record<string, unknown
     }
   }
   rawMeta['oaa.compat_mode'] = 'true';
-  if (req.reasoning_effort) {
-    const effort = req.reasoning_effort.toLowerCase();
-    rawMeta['oaa.reasoning_effort'] = effort.slice(0, 32);
-    if (!rawMeta['oaa.routing_strategy']) {
-      if (effort === 'high' || effort === 'xhigh') rawMeta['oaa.routing_strategy'] = 'quality';
-      else if (effort === 'low' || effort === 'minimal') rawMeta['oaa.routing_strategy'] = 'speed';
-    }
-  }
+  applyReasoningEffort(rawMeta, req.reasoning_effort);
   const maxTok = req.max_completion_tokens ?? req.max_tokens;
   if (maxTok !== undefined) rawMeta['oaa.compat_max_tokens'] = String(maxTok);
   if (req.temperature !== undefined) rawMeta['oaa.compat_temperature'] = String(req.temperature);

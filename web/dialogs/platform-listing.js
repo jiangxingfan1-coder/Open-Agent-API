@@ -1,5 +1,5 @@
 import { state } from '../lib/state.js';
-import { el, toast } from '../lib/dom.js';
+import { el, icon, toast } from '../lib/dom.js';
 import { api } from '../lib/api.js';
 import { t } from '../lib/i18n.js';
 import { encode, parsePoints, platform, refreshPlatform } from './platform-data.js';
@@ -55,6 +55,7 @@ export function openListingDialog(listing) {
   const perRun = numberInput({ value: listing?.price?.per_run ?? 0 });
   const perTokens = numberInput({ value: listing?.price?.per_1k_tokens ?? 0 });
   const live = checkRow(t('dlg.listing.live'), listing?.enabled ?? true);
+  const host = hostSection(listing, () => agent.value);
   // When listing a new agent, the title follows the chosen agent until it has been edited.
   let touched = false;
   title.oninput = () => (touched = true);
@@ -62,7 +63,10 @@ export function openListingDialog(listing) {
     const suggest = () => {
       if (!touched) title.value = shortName(agent.value);
     };
-    agent.onchange = suggest;
+    agent.onchange = () => {
+      suggest();
+      host.sync();
+    };
     suggest();
   }
   const { ctx, open } = formDialog({
@@ -87,6 +91,7 @@ export function openListingDialog(listing) {
           per_1k_tokens: parsePoints(perTokens.value, t('dlg.listing.price_1k')) ?? 0,
         },
         enabled: live.input.checked,
+        ...(host.shown() ? { host_execution: host.input.checked } : {}),
       };
       await api('PUT', '/v1/platform/listings', body);
       toast(editing ? t('dlg.listing.saved') : t('dlg.listing.listed', { id: body.agent_id }));
@@ -114,8 +119,38 @@ export function openListingDialog(listing) {
     grid,
     note,
     liveBox,
+    host.box,
   );
   open();
+}
+
+// The per-listing host switch (docs/platform.md, "Offering external agents"): shown only for an
+// agent that needs host authority. A new listing guesses from the engine (external agents); an
+// existing one uses the gateway's answer (requires_host, which also counts host tools).
+function hostSection(listing, agentId) {
+  const check = checkRow(t('dlg.listing.host'), listing?.host_execution ?? false);
+  const auto = el('p', t('dlg.listing.host_auto'));
+  const doc = el('p');
+  doc.append(
+    el('span', t('dlg.listing.host_doc_before')),
+    el('code', 'docs/security-model.md'),
+    el('span', t('dlg.listing.host_doc_after')),
+  );
+  const notice = el('div', undefined, 'callout');
+  const text = el('div');
+  text.append(el('p', t('dlg.listing.host_why')), el('p', t('dlg.listing.host_risk')), auto, doc);
+  notice.append(icon('info'), text);
+  const box = el('div', undefined, 'field listing-host');
+  box.append(check.row, notice);
+  const published = () => (state.data?.agents ?? []).find((a) => a.id === agentId());
+  const needed = () =>
+    listing ? !!listing.requires_host : (published()?.engine ?? 'kernel') !== 'kernel';
+  const sync = () => {
+    box.hidden = !needed() && !check.input.checked;
+    auto.hidden = !(listing ? listing.auto_approvals : published()?.approvals === 'auto');
+  };
+  sync();
+  return { box, input: check.input, sync, shown: () => !box.hidden };
 }
 
 // Unlisting / relisting only changes enabled; every other field is kept as is.

@@ -11,12 +11,18 @@ const ADMIN_ACCOUNT_KEYS = [...ACCOUNT_KEYS, 'keys', 'last_active_at', 'runs', '
 const LISTING_KEYS = [
   'agent_exists',
   'agent_id',
+  'auto_approvals',
+  'blocked_by',
+  'callable',
   'enabled',
+  'host_execution',
   'price',
+  'requires_host',
   'summary',
   'tags',
   'title',
   'updated_at',
+  'usage_reported',
 ];
 const CODE_KEYS = [
   'created_at',

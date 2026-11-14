@@ -158,10 +158,11 @@ test('billing: failures pay tokens only; repeated settlement adjusts, never doub
     assert.equal(p.account(account.id).balance, pts(10 - 0.2 - 1.7 - 1.5));
 
     p.putListing({ agentId: 'agent/paid', price: { perRun: 1.5, per1kTokens: 0.2 } });
-    // Settlement may overdraw; the next paid submission is refused.
+    // Token charges stop at a zero balance (never overdrawn); the next paid submission is refused.
     hooks.beginKeyRun(principal.keyId, 'owner', 'resp_big', 'agent/paid');
     hooks.finishKeyRun(principal.keyId, 'owner', 'resp_big', 100_000_000, 'failed');
-    assert.ok(p.account(account.id).balance < 0);
+    assert.equal(p.account(account.id).balance, 0);
+    assert.equal(runRow(s, 'resp_big')[0]!.amount, -6_600_000);
     assert.throws(
       () => hooks.checkQuotaForRun(s.auth.revalidate(`Bearer ${key.token}`), 'agent/paid'),
       {

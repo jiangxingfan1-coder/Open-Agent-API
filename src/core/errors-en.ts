@@ -291,6 +291,7 @@ export const ERROR_EN: Readonly<Record<string, readonly [string, string?]>> = {
   insufficient_balance: ['Insufficient balance.', 'Redeem credits, then submit again.'],
   key_limit_reached: ['The account has reached its key limit.', 'Revoke keys you no longer use first.'],
   listing_not_found: ['This agent has no listing.'],
+  usage_pricing_unsupported: ['This agent does not report token usage, so it cannot be priced by usage.', 'Price it per run (set per_1k_tokens to 0).'],
   code_not_found: ['The redeem code does not exist.'],
   reference_conflict: ['This external reference was already used for a credit with a different amount.', 'Use another reference, or check the amount.'],
   platform_managed_by_config: ['The configuration file has a platform section, so the developer platform is managed there and cannot be changed in the console.', 'Edit the platform section in the configuration file and restart, or remove that section and enable it in the console.'],

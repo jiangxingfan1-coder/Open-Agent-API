@@ -1,0 +1,573 @@
+{
+  "client": "nextchat",
+  "label": "NextChat",
+  "version": "ChatGPTNextWeb/NextChat main@1d3dc331512929a4b1d3e82354e72acce33b5c7a (last tagged release v2.16.1, 2025-07-29; main last pushed 2026-10-20). Streaming transport: @fortaine/fetch-event-source 3.0.6.",
+  "retrieved": "2026-11-14",
+  "overall": "verified",
+  "sources": [
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/client/platforms/openai.ts#L85-L122",
+      "note": "ChatGPTApi.path(): base URL handling. Custom endpoint = accessStore.openaiUrl when useCustomConfig is on; trailing '/' stripped; 'https://' prepended if no scheme; final URL = base + '/' + path. Client never appends '/v1' itself (the '/v1' lives in OpenaiPath)."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/constant.ts#L178-L185",
+      "note": "OpenaiPath: ChatPath 'v1/chat/completions', ListModelPath 'v1/models', UsagePath 'dashboard/billing/usage', SubsPath 'dashboard/billing/subscription'."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/client/platforms/openai.ts#L186-L266",
+      "note": "chat(): request payload construction (keys sent by default: messages, stream, model, temperature, presence_penalty, frequency_penalty, top_p; max_tokens deliberately NOT sent except vision-named models; o1/o3/o4-mini/gpt-5 special cases)."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/client/platforms/openai.ts#L83-L83",
+      "note": "disableListModels = true: models() returns the built-in DEFAULT_MODELS, GET /v1/models is never called (L497-L532 would be the code path if it were enabled)."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/client/platforms/openai.ts#L306-L425",
+      "note": "Stream branch (streamWithThink with an SSE parse callback reading choices[0].delta.content / reasoning_content / tool_calls) and the non-stream branch (res.json() -> choices[0].message.content)."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/utils/chat.ts#L392-L666",
+      "note": "streamWithThink(): fetchEventSource options. onopen requires content-type text/event-stream and status 200 (else the body is shown as an error message); onmessage ignores '[DONE]' (finishes), skips empty data, JSON.parse errors are swallowed; onclose also finishes; empty final text -> 'empty response from server'. Tool-call follow-up appends {role:'assistant',tool_calls} (no content key) and {name,role:'tool',content,tool_call_id}."
+    },
+    {
+      "url": "https://unpkg.com/@fortaine/fetch-event-source@3.0.6/lib/esm/fetch.js",
+      "note": "Lines 19-22: headers copy; if no lowercase 'accept' key a lowercase accept: text/event-stream is added. NextChat's getHeaders() already has 'Accept' (capital) so the browser's Headers merges both into 'application/json, text/event-stream'."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/client/api.ts#L244-L366",
+      "note": "getHeaders(): Content-Type application/json, Accept application/json, Authorization: Bearer <openaiApiKey> (or access code 'nk-<code>' if no key). No other custom headers."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/api/common.ts#L93-L109",
+      "note": "Server proxy mode (/api/openai/*): upstream request carries only Content-Type, Cache-Control: no-store, Authorization (+ OpenAI-Organization if env set); upstream URL = BASE_URL env + '/' + path (BASE_URL without /v1)."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/store/chat.ts#L663-L798",
+      "note": "summarizeSession(): (a) topic title request: stream:false, last historyMessageCount messages + a trailing user message with Locale.Store.Prompt.Topic; (b) memory/summary request: stream:true with a trailing role:'system' message. getSummarizeModel (L122-L152) keeps the current model unless its name starts with gpt/chatgpt/gemini/deepseek-."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/store/chat.ts#L542-L642",
+      "note": "getMessagesWithMemory(): default system prompt injected ONLY for model names starting 'gpt-'/'chatgpt-'; mask context prompts (system/user/assistant) + last historyMessageCount (default 4) messages."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/store/config.ts#L66-L84",
+      "note": "Default modelConfig: temperature 0.5, top_p 1, max_tokens 4000 (not sent), presence_penalty 0, frequency_penalty 0, historyMessageCount 4, compressMessageLengthThreshold 1000."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/constant.ts#L478-L499",
+      "note": "VISION_MODEL_REGEXES (/vision/, /gpt-4o/, /vl/i, /o3/, /o4-mini/, /gpt-5/ ...) applied to the MODEL NAME, unanchored; a match turns on the vision code path (max_tokens added, image parts kept)."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/store/plugin.ts#L86-L124",
+      "note": "Plugin (OpenAPI) tools are sent as tools:[{type:'function',function:{name,description,parameters}}]; no tool_choice / parallel_tool_calls anywhere in the client."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/components/settings.tsx#L608-L655",
+      "note": "Settings page auto-runs checkUsage() on open unless the endpoint contains https://api.openai.com: this fires GET <base>/dashboard/billing/usage?... and GET <base>/dashboard/billing/subscription (no /v1)."
+    },
+    {
+      "url": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/store/access.ts#L33-L73",
+      "note": "openaiUrl default is '/api/openai' in the web build (server proxy) and https://api.openai.com in the desktop app; useCustomConfig defaults to false."
+    }
+  ],
+  "setup": {
+    "baseUrl": "http://<gateway-host>:8787  (WITHOUT /v1 - NextChat appends 'v1/chat/completions' itself; typing '.../v1' produces '/v1/v1/chat/completions'). Settings > Custom Endpoint (toggle on) > 'OpenAI Endpoint' (must start with http(s)://). Leaving the default '/api/openai' sends the browser to NextChat's own server, which forwards to the BASE_URL environment variable (same no-/v1 rule).",
+    "model": "Settings > 'Custom Models' (comma separated, e.g. 'agent/sample' or '+agent/sample'), then pick it in the chat model selector. NextChat never lists remote models (disableListModels = true), so GET /v1/models is NOT requested.",
+    "apiKey": "Settings > 'OpenAI API Key' (sent as 'Authorization: Bearer <key>'; if empty and server access control is on, an access code is sent as 'Bearer nk-<code>' instead).",
+    "notes": "Two paths: (1) default web build: browser -> /api/openai/v1/... on the NextChat server -> gateway (server-side request: upstream sees only Content-Type, Cache-Control: no-store, Authorization; body forwarded verbatim; no CORS needed). (2) custom absolute endpoint typed into the browser settings: browser calls the gateway DIRECTLY (needs CORS: preflight request headers are authorization,content-type; 'Accept' is CORS-safelisted). Docker: use host.docker.internal for the server-proxy path. Opening the Settings page fires GET /dashboard/billing/usage and /dashboard/billing/subscription at <base> (no /v1) when the endpoint is not api.openai.com; the gateway may answer 404, NextChat just shows an error in the balance row. Model-name side effects: the vision regexes are unanchored on the model name (any agent name containing 'vl', 'vision', 'o3', 'o4-mini', 'gpt-4o', 'gpt-5' ... is treated as a vision model and gets max_tokens added); names starting with o1/o3/o4-mini/gpt-5 switch to developer-role / max_completion_tokens shapes; names starting 'gpt-'/'chatgpt-' also get an injected English system prompt."
+  },
+  "cases": [
+    {
+      "id": "chat-stream",
+      "title": "Default streaming chat, one user message (the normal send)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/client/platforms/openai.ts#L230-L240",
+        "note": "Body keys come straight from the requestPayload literal; values from DEFAULT_CONFIG.modelConfig. max_tokens, stream_options, user, tools (undefined -> dropped by JSON.stringify) are absent. Accept header merge is from fetch-event-source (verified) + Headers semantics (browser behaviour, inferred)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/event-stream",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true,
+          "model": "{{AGENT}}",
+          "temperature": 0.5,
+          "presence_penalty": 0,
+          "frequency_penalty": 0,
+          "top_p": 1
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present"
+      ],
+      "notes": "onopen: response must be HTTP 200 AND content-type must start with 'text/event-stream' (text/plain is treated as a complete plain-text answer; anything else is rendered as an error message). Each SSE 'data:' payload is JSON.parse'd; chunks with empty/missing choices are ignored; delta.role is never read; finish_reason is never read; usage is never read; '[DONE]' ends the stream but is not required (connection close also finishes). If no text arrives at all NextChat reports 'empty response from server'. Unknown extra fields are harmless."
+    },
+    {
+      "id": "chat-stream-history-system-role",
+      "title": "Streaming chat with mask system prompt + history (system/user/assistant roles, string content)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/store/chat.ts#L542-L642",
+        "note": "Message order: [mask.context prompts] + last historyMessageCount (4) messages + new user message. Only {role, content(string)} is forwarded (openai.ts L221-L227: no name, no tool fields)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/event-stream",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful assistant."
+            },
+            {
+              "role": "user",
+              "content": "Hi"
+            },
+            {
+              "role": "assistant",
+              "content": "Hello! How can I help?"
+            },
+            {
+              "role": "user",
+              "content": "Tell me a joke"
+            }
+          ],
+          "stream": true,
+          "model": "{{AGENT}}",
+          "temperature": 0.5,
+          "presence_penalty": 0,
+          "frequency_penalty": 0,
+          "top_p": 1
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present"
+      ],
+      "notes": "NextChat only uses roles system/user/assistant (never 'developer' except the o1/o3 case below, never 'tool' except the plugin follow-up case). For model names that do NOT start with gpt-/chatgpt- no extra system prompt is injected."
+    },
+    {
+      "id": "title-generation",
+      "title": "Auto topic title: non-stream request, trailing user message with the title prompt",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/store/chat.ts#L695-L727",
+        "note": "config = {model, stream:false, providerName}; ChatGPTApi.chat() merges app modelConfig, so temperature/penalties/top_p are still sent. getSummarizeModel returns the current model for names that do not start with gpt/chatgpt/gemini/deepseek-. The title prompt text is locale dependent (this is zh-CN; en: 'Please generate a four to five word title summarizing our conversation without any lead-in, punctuation, quotation marks, periods, symbols, bold text, or additional text. Remove enclosing quotation marks.')."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Tell me a joke"
+            },
+            {
+              "role": "assistant",
+              "content": "Why did the chicken cross the road? To get to the other side."
+            },
+            {
+              "role": "user",
+              "content": "使用四到五个字直接返回这句话的简要主题，不要解释、不要标点、不要语气词、不要多余文本，不要加粗，如果没有主题，请直接返回“闲聊”"
+            }
+          ],
+          "stream": false,
+          "model": "{{AGENT}}",
+          "temperature": 0.5,
+          "presence_penalty": 0,
+          "frequency_penalty": 0,
+          "top_p": 1
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string"
+      ],
+      "notes": "Fired only when enableAutoGenerateTitle is on, the topic is still the default title and the conversation is >= 50 estimated tokens (SUMMARIZE_MIN_LEN). Response handling (extractMessage): if the JSON has an 'error' key the whole JSON is rendered as the message; if it has 'data' it is treated as an image response (a chat completion must NOT contain a top-level 'data'); otherwise reads res.choices[0].message.content. The title is only applied when the HTTP status is 200 and content is non-empty. Non-stream path uses window.fetch (Accept: application/json only)."
+    },
+    {
+      "id": "chat-memory-summarize-stream",
+      "title": "History compression request: streaming, trailing role:system summarize instruction, max_tokens removed",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/store/chat.ts#L760-L797",
+        "note": "'const { max_tokens, ...modelcfg } = modelConfig' then api.llm.chat({messages: toBeSummarizedMsgs.concat(system Summarize prompt), config: {...modelcfg, stream: true, model, providerName}}). Summarize prompt (zh-CN) shown; en text: 'Summarize the discussion briefly in 200 words or less to use as a prompt for future context.'"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/event-stream",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Tell me a long story"
+            },
+            {
+              "role": "assistant",
+              "content": "Once upon a time ..."
+            },
+            {
+              "role": "system",
+              "content": "简要总结一下对话内容，用作后续的上下文提示 prompt，控制在 200 字以内"
+            }
+          ],
+          "stream": true,
+          "model": "{{AGENT}}",
+          "temperature": 0.5,
+          "presence_penalty": 0,
+          "frequency_penalty": 0,
+          "top_p": 1
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present"
+      ],
+      "notes": "Triggered after a reply when the un-summarized history exceeds compressMessageLengthThreshold (1000 estimated tokens) and sendMemory is on. NOTE the system message is LAST in the array (gateway must not require system first)."
+    },
+    {
+      "id": "chat-stream-vision-named-model",
+      "title": "Streaming chat when the model NAME matches a vision regex (e.g. contains 'vl'/'vision'/'o3'): adds max_tokens",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/client/platforms/openai.ts#L262-L265",
+        "note": "'if (visionModel && !isO1OrO3 && !isGpt5) requestPayload.max_tokens = Math.max(modelConfig.max_tokens, 4000)'. isVisionModel() = unanchored regex tests on the model name (app/constant.ts L478-L499; /vl/i and /o3/ also match e.g. 'agent/devlog', 'agent/demo3')."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/event-stream",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true,
+          "model": "{{AGENT}}",
+          "temperature": 0.5,
+          "presence_penalty": 0,
+          "frequency_penalty": 0,
+          "top_p": 1,
+          "max_tokens": 4000
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present"
+      ],
+      "notes": "This is the ONLY default-settings situation in which NextChat sends max_tokens. Replay this case against an agent whose name does not match, to prove the gateway accepts max_tokens=4000 regardless."
+    },
+    {
+      "id": "image-part",
+      "title": "User message with an attached image (vision-named model): text part + image_url data URI",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/store/chat.ts#L420-L428",
+        "note": "attachImages -> content: [{type:'text',text}, ...{type:'image_url', image_url:{url}}]. For a non-vision model name the images are silently dropped (getMessageTextContent) and plain string content is sent. Uploaded images are held in CacheStorage and converted to a base64 data URL by cacheImageToBase64Image (app/utils/chat.ts L96-L131); the exact data-URI prefix is the browser's compress output (inferred: data:image/jpeg;base64,...)."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/event-stream",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "What is in this picture?"
+                },
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AL+AB//Z"
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "model": "{{AGENT}}",
+          "temperature": 0.5,
+          "presence_penalty": 0,
+          "frequency_penalty": 0,
+          "top_p": 1,
+          "max_tokens": 4000
+        }
+      },
+      "expect": {
+        "status": 400,
+        "code": "unsupported_content"
+      },
+      "consumes": [],
+      "notes": "Only reachable when the model name matches the vision regexes (see previous case) - otherwise NextChat never sends an image. On a 400 NextChat shows the raw JSON error body as the assistant message (content-type is not text/event-stream -> error path)."
+    },
+    {
+      "id": "developer-role-reasoning-name",
+      "title": "Model name starts with o1/o3/o4-mini: developer message injected, system dropped, temperature 1, max_completion_tokens",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/client/platforms/openai.ts#L198-L259",
+        "note": "isO1OrO3 = model.startsWith('o1'|'o3'|'o4-mini'): role:'system' messages are dropped, {role:'developer', content:'Formatting re-enabled'} is unshifted as messages[0], temperature/top_p forced to 1, penalties forced to 0, max_completion_tokens = modelConfig.max_tokens (4000). No max_tokens key."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/event-stream",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "messages": [
+            {
+              "role": "developer",
+              "content": "Formatting re-enabled"
+            },
+            {
+              "role": "user",
+              "content": "Hello"
+            }
+          ],
+          "stream": true,
+          "model": "{{AGENT}}",
+          "temperature": 1,
+          "presence_penalty": 0,
+          "frequency_penalty": 0,
+          "top_p": 1,
+          "max_completion_tokens": 4000
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present"
+      ],
+      "notes": "Only happens when the agent name itself starts with 'o1', 'o3' or 'o4-mini' (a 'gpt-5*' name instead keeps system/roles but sends max_completion_tokens=4000 and temperature=1 and no max_tokens). Included so the gateway proves it accepts the 'developer' role and max_completion_tokens."
+    },
+    {
+      "id": "tools-and-tool-choice",
+      "title": "Plugin (OpenAPI tool) chat: tools array only; no tool_choice, no parallel_tool_calls",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/utils/chat.ts#L532-L540",
+        "note": "body = {...requestPayload, tools: tools.length ? tools : undefined}. tool objects come from app/store/plugin.ts L116-L123: {type:'function', function:{name: operationId, description, parameters: requestBody schema or {type:'object',properties:{},required:[]}}}. The concrete function names/parameters below are an illustrative OpenAPI plugin."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/event-stream",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            }
+          ],
+          "stream": true,
+          "model": "{{AGENT}}",
+          "temperature": 0.5,
+          "presence_penalty": 0,
+          "frequency_penalty": 0,
+          "top_p": 1,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "getWeather",
+                "description": "Get the current weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string",
+                      "description": "City name"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present"
+      ],
+      "notes": "Only when the active mask has plugins enabled (default: none). Streamed tool calls are read from choices[0].delta.tool_calls[0] ONLY (index 0, first element): a new tool call is recognised when tool_calls[0].id is non-empty, later fragments with no id are appended to the previous call's arguments. Parallel tool calls in one delta array are NOT supported by this parser (only element [0] is read)."
+    },
+    {
+      "id": "assistant-tool-calls-history",
+      "title": "Plugin follow-up round: assistant message with tool_calls and NO content key, then a role:tool message with name",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/utils/chat.ts#L448-L512",
+        "note": "toolCallMessage = {role:'assistant', tool_calls:[...runTools]} (no content property at all); each result = {name, role:'tool', content (string), tool_call_id}. They are spliced onto the SAME requestPayload.messages and the request is re-sent (processToolMessage in openai.ts L387-L402). tool_calls entries are {id, type, function:{name, arguments}} copied from the streamed delta."
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/event-stream",
+          "Authorization": "Bearer {{KEY}}"
+        },
+        "body": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "What is the weather in Paris?"
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_abc123",
+                  "type": "function",
+                  "function": {
+                    "name": "getWeather",
+                    "arguments": "{\"city\":\"Paris\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "getWeather",
+              "role": "tool",
+              "content": "{\"temp\":18}",
+              "tool_call_id": "call_abc123"
+            }
+          ],
+          "stream": true,
+          "model": "{{AGENT}}",
+          "temperature": 0.5,
+          "presence_penalty": 0,
+          "frequency_penalty": 0,
+          "top_p": 1,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "getWeather",
+                "description": "Get the current weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "city": {
+                      "type": "string",
+                      "description": "City name"
+                    }
+                  },
+                  "required": [
+                    "city"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "stream.content_type_sse",
+        "stream.content_deltas_present"
+      ],
+      "notes": "Risk: the assistant tool_calls message has no 'content' field (not null, not ''), and the tool message carries an extra 'name' field. A strict gateway validator that requires content on assistant messages will reject this."
+    },
+    {
+      "id": "cors-preflight-browser-direct",
+      "title": "CORS preflight when the browser calls the gateway directly (custom absolute endpoint in settings)",
+      "evidence": {
+        "status": "verified",
+        "source": "https://github.com/ChatGPTNextWeb/NextChat/blob/1d3dc331512929a4b1d3e82354e72acce33b5c7a/app/client/api.ts#L244-L366",
+        "note": "Request headers set by the client: Content-Type: application/json (not CORS-safelisted -> triggers preflight), Accept (safelisted), Authorization (when a key is set). A browser lists the non-safelisted ones, lowercase and sorted: authorization,content-type."
+      },
+      "request": {
+        "method": "OPTIONS",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Origin": "http://localhost:3000",
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "authorization,content-type"
+        },
+        "body": null
+      },
+      "expect": {
+        "status": 200
+      },
+      "consumes": [
+        "cors.allow_origin_echo",
+        "cors.allow_headers_cover_request"
+      ],
+      "notes": "Only needed in the direct-browser setup (absolute URL typed into 'OpenAI Endpoint'). The default web path via /api/openai is server-to-server and needs no CORS. 204 is the more common preflight status; 200 listed per the test-lab convention. The actual POST response must also carry Access-Control-Allow-Origin."
+    }
+  ]
+}

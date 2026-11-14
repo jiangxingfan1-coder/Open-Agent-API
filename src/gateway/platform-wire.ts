@@ -71,6 +71,14 @@ export const wireListing = (l: ListingView) => ({
   tags: l.tags,
   price: wirePrice(l.price),
   enabled: l.enabled,
+  host_execution: l.hostExecution,
+  // Whether account keys can call it now, and if not which agents (it or a delegate) need the
+  // host switch; see docs/platform.md#offering-external-agents.
+  callable: l.blockedBy.length === 0,
+  requires_host: l.requiresHost,
+  blocked_by: l.blockedBy,
+  usage_reported: l.usageReported,
+  auto_approvals: l.autoApprovals,
   updated_at: l.updatedAt,
   agent_exists: l.agentExists,
 });

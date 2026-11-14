@@ -41,6 +41,25 @@ export function renderOpenAIPart(p: unknown, param: string, files: string[]): st
   throw unsupportedContent(param, describe(p));
 }
 
+/**
+ * 严格 Responses 端点只认 `message` 输入项（`type` 可省略）：`function_call`、`function_call_output`、
+ * `reasoning`、`item_reference` 等带有工具或服务端状态，改走兼容端点；先于 zod 校验，错误里点明项的位置。
+ */
+export function rejectNonMessageItems(body: unknown, compat: string): void {
+  const input = (body as Part | null)?.input;
+  if (!Array.isArray(input)) return;
+  input.forEach((item, i) => {
+    const type = (item as Part | null)?.type;
+    if (typeof type === 'string' && type !== 'message')
+      throw new CompatFault(
+        'unsupported_content',
+        `input.${i}: input items of type "${type}" are not supported on this endpoint. Tool calls and their results are accepted on ${compat} (Base URL <origin>/v1/compat, or X-OAA-Compat: true).`,
+        400,
+        `input.${i}`,
+      );
+  });
+}
+
 /** `function_call_output.output`：字符串原样；内容块数组逐块渲染；其它结构作为工具结果的 JSON。 */
 export function renderToolOutput(output: unknown, param: string, files: string[]): string {
   if (typeof output === 'string') return output;

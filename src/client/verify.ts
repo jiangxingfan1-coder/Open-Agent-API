@@ -209,7 +209,9 @@ export async function runVerifyCommand(
   if (!confirmed) return 0;
 
   await mkdir(outDir, { recursive: true, mode: 0o700 });
-  const workDir = await mkdtemp(path.join(os.tmpdir(), 'oaa-verify-'));
+  // OAA_VERIFY_TMPDIR: where the temporary work directory goes (default: the system temp dir).
+  const tmpRoot = process.env.OAA_VERIFY_TMPDIR || os.tmpdir();
+  const workDir = await mkdtemp(path.join(tmpRoot, 'oaa-verify-'));
   const startedAt = Date.now();
   let done = 0;
   const ids = chosen.map((s) => s.id);

@@ -1,4 +1,5 @@
 /** 外部智能体回合：把一整轮交给执行机器并落盘它的回复与产物。 */
+import { runSandboxed } from '../core/contracts.js';
 import type {
   AgentBundle,
   AgentDefinition,
@@ -65,7 +66,7 @@ export async function runNativeAgent(
           : run.input,
         nativeState: run.checkpoint.nativeState,
         context: await rt.context(run),
-        ...(run.checkpoint.execution === 'sandbox' ? { isolation: 'sandbox' as const } : {}),
+        ...(runSandboxed(run) ? { isolation: 'sandbox' as const } : {}),
         ...(nativeKey !== undefined ? { credential: { apiKey: nativeKey } } : {}),
         ...(run.checkpoint.bridge?.tools.length
           ? { clientTools: run.checkpoint.bridge.tools.map((t) => ({ ...t })) }

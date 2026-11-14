@@ -1,0 +1,89 @@
+// Vercel AI SDK (`ai` + @ai-sdk/openai, @ai-sdk/openai-compatible, @ai-sdk/anthropic, @ai-sdk/google)
+// pointed at the gateway: non-streaming, streaming and a tool-calling loop per provider package.
+import { readFile } from 'node:fs/promises';
+import { createLab, env, check, equal, loadOrSkip } from '../lib/harness.mjs';
+
+const version = async (name) => JSON.parse(await readFile(new URL(`../node_modules/${name}/package.json`, import.meta.url), 'utf8')).version;
+const lab = createLab('vercel-ai-sdk', `ai ${await version('ai')}`);
+const ai = await loadOrSkip(lab, 'ai');
+if (!ai) process.exit(0);
+const { generateText, streamText, tool, isStepCount } = ai;
+const { z } = await import('zod');
+const { createOpenAI } = await import('@ai-sdk/openai');
+const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
+const { createAnthropic } = await import('@ai-sdk/anthropic');
+const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
+
+const M = env.fixture;
+const BRIDGE = { 'X-OAA-Client-Tools': 'bridge' };
+const TEXT = 'Hello world from the fixture.';
+const weather = () =>
+  tool({
+    description: 'Get the weather',
+    inputSchema: z.object({ city: z.string() }),
+    execute: async ({ city }) => `sunny in ${city}`,
+  });
+
+// One entry per provider package: how to build a model for the gateway, with and without the tool bridge.
+const providers = {
+  'openai.chat': (headers, base = `${env.baseUrl}/v1`) => createOpenAI({ baseURL: base, apiKey: env.apiKey, headers }).chat(M),
+  'openai.responses': (headers, base = `${env.baseUrl}/v1`) => createOpenAI({ baseURL: base, apiKey: env.apiKey, headers }).responses(M),
+  'openai-compatible': (headers, base = `${env.baseUrl}/v1`) =>
+    createOpenAICompatible({ name: 'oaa', baseURL: base, apiKey: env.apiKey, headers, includeUsage: true }).chatModel(M),
+  anthropic: (headers) => createAnthropic({ baseURL: `${env.baseUrl}/v1`, apiKey: env.apiKey, headers })(M),
+  google: (headers) => createGoogleGenerativeAI({ baseURL: `${env.baseUrl}/v1beta`, apiKey: env.apiKey, headers })(M),
+};
+// Caller tools need the compat mode on the OpenAI routes; Anthropic and Gemini entries are compat already.
+const toolBase = { 'openai.chat': `${env.baseUrl}/v1/compat`, 'openai.responses': `${env.baseUrl}/v1/compat`, 'openai-compatible': `${env.baseUrl}/v1/compat` };
+
+for (const [name, build] of Object.entries(providers)) {
+  await lab.scenario(`${name}.generateText`, async () => {
+    const r = await generateText({ model: build(), prompt: 'hi' });
+    equal(r.text, TEXT, 'text');
+    check((r.usage?.totalTokens ?? r.usage?.inputTokens) > 0, `usage ${JSON.stringify(r.usage)}`);
+    equal(r.finishReason, 'stop', 'finishReason');
+  });
+  await lab.scenario(`${name}.streamText`, async () => {
+    const result = streamText({ model: build(), prompt: 'LONG' });
+    let text = '';
+    let parts = 0;
+    for await (const delta of result.textStream) {
+      text += delta;
+      parts++;
+    }
+    check(parts > 3 && text.includes('Paragraph 6'), `streamed ${parts} parts`);
+    equal(await result.finishReason, 'stop', 'finishReason');
+    check((await result.usage).totalTokens > 0, 'usage');
+  });
+  await lab.scenario(`${name}.system_and_history`, async () => {
+    const r = await generateText({
+      model: build(),
+      system: 'SYSTEM_MARK',
+      messages: [
+        { role: 'user', content: 'first question' },
+        { role: 'assistant', content: 'first answer' },
+        { role: 'user', content: 'SHOW_PROMPT' },
+      ],
+      temperature: 0.2,
+      topP: 0.9,
+      maxOutputTokens: 200,
+      stopSequences: ['END'],
+      seed: 3,
+      presencePenalty: 0.1,
+      frequencyPenalty: 0.1,
+    });
+    for (const mark of ['SYSTEM_MARK', 'first question', 'first answer']) check(r.text.includes(mark), `${mark} lost: ${r.text.slice(0, 120)}`);
+  });
+  await lab.scenario(`${name}.tool_loop_via_bridge`, async () => {
+    const r = await generateText({
+      model: build(BRIDGE, toolBase[name]),
+      prompt: 'CALLTOOL',
+      tools: { get_weather: weather() },
+      stopWhen: isStepCount(4),
+    });
+    check(r.steps.length >= 2, `only ${r.steps.length} step(s): ${r.text}`);
+    check(r.toolResults?.length || r.steps.some((s) => s.toolResults?.length), 'no tool result recorded');
+    check(r.text.startsWith('Tool result:') && r.text.includes('sunny in Paris'), `final text: ${r.text}`);
+  });
+}
+lab.done();

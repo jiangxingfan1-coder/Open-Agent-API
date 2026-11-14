@@ -46,8 +46,9 @@ export type AccountKeyView = {
 };
 /** What the developer platform supplies for account keys (see gateway/platform.ts). */
 export interface AccountKeyPolicy {
-  /** Listed (enabled) agents right now. */
+  /** Listed (enabled) agents right now; `hostAgents` those opted into host execution. */
   agents(): string[];
+  hostAgents(): string[];
   readonly execution: 'workspace' | 'sandbox';
   readonly quota: KeyQuota;
   /** Throws `account_disabled` / `unauthorized` when the account may not call. */
@@ -62,9 +63,8 @@ export interface AccountKeyPolicy {
 }
 export class Auth {
   private platform?: AccountKeyPolicy;
-  /** keyId -> accountId for every account key, revoked ones included (their runs still settle). */
+  /** keyId -> accountId (revoked keys included: their runs still settle); accountId -> keys. */
   private accountOfKey = new Map<string, string>();
-  /** accountId -> keyId -> key, in creation order, revoked keys included. */
   private keysOfAccount = new Map<string, Map<string, StoredKey>>();
   private configured: { principal: Principal; token: string; hash: string }[] = [];
   private configuredByHash = new Map<string, { principal: Principal; token: string }>();
@@ -191,6 +191,7 @@ export class Auth {
       subject: `acct:${accountId}`,
       accountId,
       execution: platform.execution,
+      hostAgents: platform.hostAgents(),
       quota: platform.quota,
     };
   }

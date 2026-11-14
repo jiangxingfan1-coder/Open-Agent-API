@@ -328,7 +328,19 @@ test('console contract: the developer-platform page reads and sends the document
     const paid = listings.find((l: { agent_id: string }) => l.agent_id === 'agent/paid');
     hasFields(
       paid,
-      ['agent_id', 'title', 'summary', 'tags', 'price', 'enabled', 'agent_exists'],
+      [
+        'agent_id',
+        'title',
+        'summary',
+        'tags',
+        'price',
+        'enabled',
+        'agent_exists',
+        'host_execution',
+        'callable',
+        'requires_host',
+        'blocked_by',
+      ],
       'listing',
     );
     hasFields(paid.price, ['per_run', 'per_1k_tokens'], 'listing price');

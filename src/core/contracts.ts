@@ -289,6 +289,8 @@ export type Checkpoint = {
   keyId?: string;
   /** Highest execution level the submitting key allowed; delegated sub-runs inherit it. */
   execution?: ExecutionLevel;
+  /** Agents the submitting key may run at `host` despite `execution` (see Principal.hostAgents). */
+  hostAgents?: string[];
   /**
    * The run's model calls must use a caller-supplied provider key (never the publisher's). Only
    * this flag is stored; the key itself stays in gateway memory.
@@ -388,6 +390,11 @@ export type Principal = {
   dataScope?: 'own' | 'owner';
   /** Highest execution level this key may start. Absent means `host` (pre-P1 behaviour). */
   execution?: ExecutionLevel;
+  /**
+   * Agents this key may run at `host` although `execution` is lower: developer-platform listings
+   * whose owner explicitly opted in (docs/platform.md). Per agent: never inherited by delegates.
+   */
+  hostAgents?: string[];
 };
 /**
  * `workspace`: the kernel's model loop with built-in tools only, confined to the run's session
@@ -415,6 +422,16 @@ export function sandboxable(agent: AgentDefinition): boolean {
 /** What a principal may start. Admin keys are the owner's own management keys. */
 export function allowedExecution(p: Principal): ExecutionLevel {
   return p.scopes.includes('admin') ? 'host' : (p.execution ?? 'host');
+}
+/** The level a principal gets for one agent: `host` for agents it was explicitly opted into. */
+export function executionFor(p: Principal, agentId: string): ExecutionLevel {
+  return p.hostAgents?.includes(agentId) ? 'host' : allowedExecution(p);
+}
+/** Whether a run's own work goes into a worker sandbox (sandbox key, agent not opted into host). */
+export function runSandboxed(run: { agentId: string; checkpoint: Checkpoint }): boolean {
+  return (
+    run.checkpoint.execution === 'sandbox' && !run.checkpoint.hostAgents?.includes(run.agentId)
+  );
 }
 export function executionPermits(allowed: ExecutionLevel, required: ExecutionLevel): boolean {
   return executionLevels.indexOf(required) <= executionLevels.indexOf(allowed);

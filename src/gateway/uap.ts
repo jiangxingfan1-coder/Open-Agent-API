@@ -11,6 +11,7 @@ import { Fault } from '../core/util.js';
 import { geminiBridgeFields, geminiToolCount, withClientTools } from './client-tools.js';
 import { CompatFault, finishOf, geminiFinish, runFailure } from './compat-errors.js';
 import { applyMaxTokens } from './compat-params.js';
+import { camelizeGeminiBody } from './gemini.js';
 
 type GeminiPart = z.infer<typeof geminiPartSchema>;
 
@@ -296,7 +297,7 @@ export function parseGeminiGenerateContent(
   stream = false,
   headers?: Record<string, unknown>,
 ): Invocation {
-  const req = geminiGenerateSchema.parse(value);
+  const req = geminiGenerateSchema.parse(camelizeGeminiBody(value));
   const rawModel = targetFromPath ?? req.model;
   if (!rawModel) {
     throw new Fault('invalid_request', 'Gemini request requires model in URL path or body.');

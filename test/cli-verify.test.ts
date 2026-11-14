@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -56,8 +56,12 @@ const lines = () => {
   const out: string[] = [];
   return { out, push: (l: string) => void out.push(l), text: () => out.join('\n') };
 };
-const tmpVerifyDirs = () =>
-  readdirSync(os.tmpdir()).filter((n) => n.startsWith('oaa-verify-') && !n.includes('test'));
+// A private temp root for verify's work directories (inherited by child processes), so other
+// test processes using the shared system temp directory cannot disturb the before/after snapshot.
+const verifyTmp = mkdtempSync(path.join(os.tmpdir(), 'oaa-verify-root-'));
+process.env.OAA_VERIFY_TMPDIR = verifyTmp;
+test.after(() => rmSync(verifyTmp, { recursive: true, force: true }));
+const tmpVerifyDirs = () => readdirSync(verifyTmp).filter((n) => n.startsWith('oaa-verify-'));
 type ScenarioJson = {
   key: string;
   status: string;
@@ -275,10 +279,14 @@ test('verify: a native agent is resolved from --executable, read with --version 
   const dir = await mkdtemp(path.join(os.tmpdir(), 'oaa-verify-test-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const log = path.join(dir, 'calls.txt');
-  const fake = path.join(dir, 'codex');
+  // Windows has no shebangs: the same stand-in as a node script (run through node by launchPlan).
+  const windows = process.platform === 'win32';
+  const fake = path.join(dir, windows ? 'codex.mjs' : 'codex');
   await writeFile(
     fake,
-    `#!/bin/sh\necho "$@" >> '${log}'\necho "fake-codex 1.2.3 ($PWD/secret-place)"\n`,
+    windows
+      ? `import { appendFileSync } from 'node:fs';\nimport path from 'node:path';\nappendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');\nconsole.log('fake-codex 1.2.3 (' + path.join(process.cwd(), 'secret-place') + ')');\n`
+      : `#!/bin/sh\necho "$@" >> '${log}'\necho "fake-codex 1.2.3 ($PWD/secret-place)"\n`,
   );
   await chmod(fake, 0o755);
   const out = lines();
@@ -339,42 +347,49 @@ test('verify: refuses an existing --out, an unknown agent and a missing name', a
   );
 });
 
-test('verify: Ctrl+C ends the run cleanly: exit 130, partial report, no agent process or work directory left', async (t) => {
-  const marker = `oaa-verify-marker-${Date.now()}`;
-  const dir = await dataDir(t, { live: { command: process.execPath, args: [fixture, marker] } });
-  const before = tmpVerifyDirs();
-  const outDir = path.join(dir, 'reports', 'interrupted');
-  const child = spawn(
-    process.execPath,
-    [cli, 'verify', 'live', '--dir', dir, '--out', outDir, '--confirm-live-cost'],
-    { env: { ...process.env, OAA_LOCALE: 'en', OAA_TOKEN_FILE: '', OAA_GATEWAY_URL: '' } },
-  );
-  let stdout = '';
-  child.stdout.on('data', (chunk: Buffer) => {
-    stdout += chunk.toString();
-  });
-  const exited = new Promise<number | null>((resolve) => child.once('exit', resolve));
-  // The cancel scenario sleeps three seconds after the approvals scenario: interrupt inside it.
-  for (let i = 0; i < 600 && !/\[6\/12\] approvals/.test(stdout); i++)
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  assert.match(stdout, /\[6\/12\] approvals/);
-  child.kill('SIGINT');
-  assert.equal(await exited, 130);
-  const report = await readJson(path.join(outDir, 'report.json'));
-  assert.equal(report.interrupted, true);
-  const status = Object.fromEntries(report.scenarios.map((s) => [s.key, s.status]));
-  assert.equal(status.chat, 'pass', 'finished scenarios keep their results');
-  assert.equal(status.cancel, 'skipped', 'the running scenario is marked skipped');
-  assert.equal(status.concurrency, 'skipped');
-  assert.equal(status.cleanup, 'skipped');
-  assert.equal(report.scenarios.find((s) => s.key === 'cancel')?.error?.code, 'interrupted');
-  const alive = (await run('ps', ['-A', '-o', 'command='])).stdout
-    .split('\n')
-    .filter((l) => l.includes(marker));
-  assert.deepEqual(alive, [], 'no agent process survived');
-  assert.deepEqual(tmpVerifyDirs(), before, 'the temporary work directory was removed');
-  assert.match(stdout, /Total: \d+ pass/);
-});
+test(
+  'verify: Ctrl+C ends the run cleanly: exit 130, partial report, no agent process or work directory left',
+  {
+    // child.kill('SIGINT') is TerminateProcess on Windows; a console Ctrl+C cannot be sent to a child.
+    skip: process.platform === 'win32' ? 'Windows cannot deliver SIGINT to a child process' : false,
+  },
+  async (t) => {
+    const marker = `oaa-verify-marker-${Date.now()}`;
+    const dir = await dataDir(t, { live: { command: process.execPath, args: [fixture, marker] } });
+    const before = tmpVerifyDirs();
+    const outDir = path.join(dir, 'reports', 'interrupted');
+    const child = spawn(
+      process.execPath,
+      [cli, 'verify', 'live', '--dir', dir, '--out', outDir, '--confirm-live-cost'],
+      { env: { ...process.env, OAA_LOCALE: 'en', OAA_TOKEN_FILE: '', OAA_GATEWAY_URL: '' } },
+    );
+    let stdout = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    const exited = new Promise<number | null>((resolve) => child.once('exit', resolve));
+    // The cancel scenario sleeps three seconds after the approvals scenario: interrupt inside it.
+    for (let i = 0; i < 600 && !/\[6\/12\] approvals/.test(stdout); i++)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.match(stdout, /\[6\/12\] approvals/);
+    child.kill('SIGINT');
+    assert.equal(await exited, 130);
+    const report = await readJson(path.join(outDir, 'report.json'));
+    assert.equal(report.interrupted, true);
+    const status = Object.fromEntries(report.scenarios.map((s) => [s.key, s.status]));
+    assert.equal(status.chat, 'pass', 'finished scenarios keep their results');
+    assert.equal(status.cancel, 'skipped', 'the running scenario is marked skipped');
+    assert.equal(status.concurrency, 'skipped');
+    assert.equal(status.cleanup, 'skipped');
+    assert.equal(report.scenarios.find((s) => s.key === 'cancel')?.error?.code, 'interrupted');
+    const alive = (await run('ps', ['-A', '-o', 'command='])).stdout
+      .split('\n')
+      .filter((l) => l.includes(marker));
+    assert.deepEqual(alive, [], 'no agent process survived');
+    assert.deepEqual(tmpVerifyDirs(), before, 'the temporary work directory was removed');
+    assert.match(stdout, /Total: \d+ pass/);
+  },
+);
 
 test('verify: S13 usage is derived from earlier responses without another call', () => {
   const mk = (

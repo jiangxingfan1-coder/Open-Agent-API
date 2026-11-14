@@ -119,6 +119,8 @@ curl -s -X PUT https://console.example.com/v1/platform/listings \
 - `price.per_run` 是每个任务的点数，`price.per_1k_tokens` 是每 1000 个 token 的点数，两者都可以为 0，范围是 0 到 1000 点。新建上架记录时 `enabled` 默认为 `true`，标题默认为智能体 ID，价格默认为 0。
 - 改价只影响之后提交的任务，进行中的任务按开始时的价格结算（见 [计费规则](#计费规则)）。
 - `enabled: false` 保留记录但下架；`DELETE /v1/platform/listings?agent_id=` 移除记录。上架状态的变化立即生效。
+- 需要本机权限的智能体（Codex、Claude Code、ACP 智能体等外部智能体，或带宿主工具的内核智能体）可以上架，但在打开上架项的 `host_execution` 开关之前，账号密钥调不了它，见 [对外提供外部智能体](#对外提供外部智能体)。返回里会写明：`callable: false`、`requires_host: true`，以及 `blocked_by`（还需要打开开关的智能体）。
+- 不上报 token 用量的智能体（上架项上 `usage_reported: false`），`price.per_1k_tokens` 必须为 0，否则返回 400 `usage_pricing_unsupported`。见 [计费规则](#计费规则) 第 8 条。
 
 ### 发放点数
 
@@ -328,22 +330,53 @@ curl -s https://api.example.com/v1/portal/password-reset \
 
 返回 204。重置码是 20 个字符，24 小时内有效，只能用一次；运营者重新生成后，旧码失效。新密码为 8 到 200 位。用掉后，这个账号的全部会话都会作废，需要重新登录。码错误、已过期、已用过，或邮箱不存在，都返回 400 `invalid_code`，接口不会泄露邮箱是否存在。这个接口按来源 IP 与邮箱限流，数值与登录相同（每个来源 IP 每 10 分钟 30 次，每个邮箱每 10 分钟 10 次），但计数与登录分开；超限返回 429 `rate_limited`。已登录时修改密码，用 `POST /v1/portal/account/password`，见上文。
 
+## 对外提供外部智能体
+
+外部智能体（Codex、Claude Code、ACP 智能体、适配器）以及带宿主工具的内核智能体，以 **host**（本机）权限运行：它们以运行网关的那个系统用户的身份做事。账号密钥的执行等级只有 `workspace` 或 `sandbox`（`keyExecution`），所以默认调不了这类智能体：调用在任何东西开始运行之前就被拒绝，返回 403 `isolation_required`，不扣费。这个默认行为不变。
+
+要对外提供这样的智能体，所有者对**那一个上架项**打开开关：
+
+```bash
+curl -s -X PUT https://console.example.com/v1/platform/listings \
+  -H "Authorization: Bearer $(cat /srv/oaa/data/admin.token)" \
+  -H 'Content-Type: application/json' \
+  -d '{"agent_id":"agent/sample","price":{"per_run":2},"host_execution":true}'
+```
+
+在控制台里，它是上架对话框里的「允许平台账号在本机运行这个智能体」复选框；只对需要本机权限的智能体显示，并附有说明。
+
+这个开关意味着：
+
+- **只对这一个智能体**。账号密钥可以用本机权限运行这个上架的智能体，仅此而已。它们对其它智能体的执行等级仍是 `workspace` / `sandbox`。
+- **委派、交接、备选智能体要各自放开**。如果这个智能体委派、交接或回退到另一个需要本机权限的智能体，那个智能体也必须上架并打开自己的开关，否则调用以 `isolation_required` 被拒绝（提交时沿委派链检查，每个子运行提交时再查一次）。委派链没有全部放开的上架项显示 `callable: false`，缺的智能体列在 `blocked_by` 里。
+- **以什么权限运行什么**。智能体以运行网关的系统用户身份运行：能读写这个用户能读写的文件，能做这个用户能做的事。它实际能做什么，受审批策略（`approvals`）与工作目录约束。请保持审批（`ask`，默认值）：账号密钥发起的运行，其操作请求等待**所有者**处理；账号密钥没有 `approve` 权限，不能自己批准（403 `scope_denied`）。`approvals: auto` 的智能体，其请求无需任何人就被批准；上架项会显示 `auto_approvals: true`，控制台也会提示。请用专用系统用户或在沙箱里运行网关。信任边界见 [security-model.md](../security-model.md#parties-and-trust-boundaries)（只有英文）。
+- **关闭开关**从下一次调用起生效；关闭期间，账号也不能恢复这个智能体被中断的运行（`isolation_required`）。已经在进行的运行会正常结束。
+- **写审计**。打开或关闭开关（包括新建时就打开、移除一个打开着的上架项）写一条审计记录 `platform_listing_host_execution`，带 `agent_id` 和 `detail`（`on` / `off`）（`GET /v1/audit`）。
+- **目录只显示调得了的智能体**。`GET /v1/portal/agents` 只列出账号密钥能调用它及其全部委派对象的启用上架项（`callable: true`）；其余的 `GET /v1/portal/agent?id=` 返回 404。这样开发者不会为调不了的智能体充值。
+- **`sandbox` 等级下**，能放进沙箱的智能体（Claude、Codex、可移植脚本）不打开开关也照旧在沙箱里运行；打开开关后改为在本机运行。
+
+想离线看完整条路径（上架、打开开关、兑换码、注册、兑换、建密钥、调用、扣费、余额不足、充值），在源码目录运行 `npm run build && node dist/examples/platform-walkthrough.js`：它只用离线示例智能体、临时数据目录与 `127.0.0.1` 随机端口。
+
+上架项里与此相关的字段：`host_execution`（开关）、`requires_host`（智能体本身需要高于账号密钥等级的权限）、`callable` 与 `blocked_by`（见上）、`usage_reported`（能否按用量定价）、`auto_approvals`。
+
 ## 计费规则
 
 计费以点数记账。一个运行对应一个任务，规则如下：
 
 1. **价格**：每个上架智能体有两个价格，`per_run`（每个任务多少点）和 `per_1k_tokens`（每 1000 个 token 多少点），两者都可以为 0。
 2. **计费对象**：只对账号密钥发起的根运行计费。运营者自己的密钥发起的运行不计费。一个运行就是一个任务：用 `previous_response_id` 续接对话时，每次续接都是一次新的调用，按一个新任务计费。调用方工具桥接（任务停下来等调用方执行工具、回传后继续）是同一个运行，只计一次。委托产生的子运行不单独计费，但它们用掉的 token 已并入父运行的用量，所以按 token 计价的部分包含子运行。
-3. **提交时检查**：智能体不是免费的（两个价格不全为 0），并且余额小于 `per_run` 或余额小于等于 0 时，拒绝提交，返回 402 `insufficient_balance`，不创建运行。两个价格都为 0 的免费智能体，余额为 0 也可以调用。
-4. **开始时登记**：运行开始时，在流水里登记一行 `kind: run`，记下当时的价格。之后改价不影响进行中的任务。这一行在运行进行中时 `status` 为 `in_progress`、`amount` 为 0；结束后 `status` 变为运行状态（`completed`、`failed`、`cancelled`、`interrupted` 或 `incomplete`），`amount` 变为实际金额。
+3. **提交时检查**：账号密钥调用需要本机权限、而上架项没有打开开关的智能体，返回 403 `isolation_required`（见 [对外提供外部智能体](#对外提供外部智能体)）。智能体不是免费的（两个价格不全为 0），并且余额小于 `per_run` 或余额小于等于 0 时，拒绝提交，返回 402 `insufficient_balance`，不创建运行。两个价格都为 0 的免费智能体，余额为 0 也可以调用。
+4. **开始时登记并预扣**：运行开始时，在流水里登记一行 `kind: run`，记下当时的价格，并立即预扣 `per_run`：这一行的 `amount` 为 `-per_run`，余额随之减少。之后改价不影响进行中的任务。运行进行中时这一行的 `status` 为 `in_progress`；结束后 `status` 变为运行状态（`completed`、`failed`、`cancelled`、`interrupted` 或 `incomplete`），`amount` 变为实际金额（运行没有完成时预扣退回）。
 5. **结束时结算**：`completed` 的运行收取 `per_run + per_1k_tokens × total_tokens / 1000`。失败、取消、中断等其它终态只收取 token 部分，不收每次的费用。中断的运行按中断时已用的 token 结算：网关正常关闭时即时结算；网关崩溃留下的进行中行，由下次启动时的对账结算（第 11 条）。金额向上取整到微点。
 6. **幂等**：一个运行只对应一行流水。同一运行被多次收尾时（例如中断后恢复、再次完成），按新旧应收金额之差调整余额，不会重复扣费。账号密钥的 token 用量（`PortalKey.usage.used_tokens`）同样只累加差额；升级前已经多记的历史数据不回改。
-7. **透支**：token 数在任务结束前无法预知，结算后余额可能短暂变为负数。下一次提交会被第 3 条拒绝。并发上限（`keyQuota.maxConcurrentRuns`、`maxActiveRunsPerSubject`）限制了最坏情况下的透支。
-8. **外部智能体可能不报告 token**：`total_tokens` 为 0 或缺失时，只有按次价格生效。token 数不是费用估算，本文不把它当作费用来宣传。
+7. **不透支**：`per_run` 在开始时预扣（第 4 条），同时进来的运行各自看到前面的运行扣过之后的余额，所以并发调用不会把同一笔点数花两次：余额 5、`per_run` 为 2 时，同时发出的几次调用里只有两次运行，其余返回 402。token 部分要到结束时才知道，按当时可用的余额收取，不会让余额低于 0（余额不够的部分不收）。余额为 0 时，下一次付费提交会被第 3 条拒绝。在这条规则之前已经为负的余额（旧版本允许短暂透支）不会被继续扣低。
+8. **不上报 token 的智能体按次定价**：只有引擎总会上报 token 用量的智能体（内核智能体、Claude、HTTP 与 `oaa/1` 适配器；即上架项的 `usage_reported`）才接受按用量的价格。其余的（Codex、ACP 智能体、A2A 智能体、DSH、Antigravity、未知适配器）`per_1k_tokens` 必须为 0，设置了的上架请求返回 400 `usage_pricing_unsupported`：否则只按用量定价时它们等于免费运行，或者只能按猜测向开发者收费。在这项检查之前保存的上架项保留原价；这类运行的 `total_tokens` 为 0 或缺失，只有按次价格生效。token 数不是费用估算，本文不把它当作费用来宣传。
 9. **金额精度**：内部以整数微点存储与计算（1 点 = 1,000,000 微点）。接口上的金额以「点」为单位，最多 6 位小数。
 10. **不变量**：任一账号的余额恒等于它全部流水 `amount` 之和。
 11. **启动对账**：网关启动后（不阻塞启动），核对流水里仍为 `in_progress` 的行。运行已经结束的（包括仍在库里的已中断运行），按第 5 条的终态规则结算，中断的按它已用的 token 结算；运行记录已不存在的，把这一行记为 `interrupted`，按 0 个 token 结算，因此金额为 0（用量已无从得知）；运行仍在排队或等待的不动。对账是幂等的，重复执行不改变结果。
 12. **恢复**：恢复一个已中断的运行（`POST /v1/runs/{id}/resume`）前，按提交时的规则重新检查：运行所属的密钥是否仍有效（过期或已删除时拒绝；管理员代为恢复别人的运行时，原密钥失效返回 409 `run_key_inactive`）、账号是否启用（停用返回 403 `account_disabled`）、智能体是否仍对这把密钥可用（上架被下架返回 403 `scope_denied`）、收费智能体的余额（不足返回 402 `insufficient_balance`），以及密钥的并发、token 与运行次数配额。任何一项不通过，运行保持中断，不写入任何东西。通过后，这一行改回 `in_progress`，完成后按差额补结。恢复的运行与网关启动后重新入队的运行，都重新计入所属密钥的并发上限，但不增加运行次数。
+13. **失败、取消、拒绝审批、中断**：只有 `completed` 的运行收取 `per_run`。失败的运行（包括启动不了的外部智能体，以及所有者拒绝了操作请求的 ACP 运行——它以 `failed`、`permission_denied` 结束）、被取消的运行、被中断的运行（例如外部智能体等待审批时被取消，以 `interrupted`、`effect_outcome_unknown` 结束），都退回预扣，只收它上报的 token。在运行创建之前就被拒绝的请求（`insufficient_balance`、`isolation_required`、`scope_denied` 等）不写流水。
+14. **断开连接不改变计费**：流式响应中途断开连接不会取消任务（见 [protocol.md](protocol.md)），按运行最终怎样结束计费。不想为一个任务付费，请取消它（`POST /v1/responses/{id}/cancel`）。
 
 ## 接口一览
 
@@ -362,7 +395,7 @@ Session      { token, expires_at }
 PortalKey    { id, name, created_at, revoked（恒为 false）, quota, usage: { used_tokens, used_runs, active_runs } }
 Price        { per_run, per_1k_tokens }
 ListedAgent  { id, title, summary, tags, description, kind: "kernel" | "external", models, price, updated_at, conversion? }
-Listing      { agent_id, title, summary, tags, price, enabled, updated_at, agent_exists }
+Listing      { agent_id, title, summary, tags, price, enabled, host_execution, callable, requires_host, blocked_by, usage_reported, auto_approvals, updated_at, agent_exists }
 LedgerEntry  { id, kind, amount, balance_after, agent, run_id, tokens, status, note, reference?, created_at }
 Usage        { balance, totals: { runs, tokens, spent }, daily: [{ date, runs, tokens, spent }], by_agent: [{ agent, runs, tokens, spent }] }
 RunItem      { id, agent, status, tokens, charge, created_at }
@@ -415,7 +448,7 @@ AdminAccount = Account + { keys, runs, spent, last_active_at }
 | `POST /v1/platform/accounts/:id/reset-code` | — | 201 `{ code, expires_at }`（明文只此一次，24 小时有效，生成新的会使旧的失效） |
 | `GET /v1/platform/accounts/:id/ledger?limit=&cursor=` | — | `{ data: LedgerEntry[], next_cursor }` |
 | `GET /v1/platform/listings` | — | `{ data: Listing[] }` |
-| `PUT /v1/platform/listings` | `{ agent_id, title?, summary?, tags?, price?, enabled? }` | `Listing`（有则改、无则建；智能体不存在 404 `agent_not_found`） |
+| `PUT /v1/platform/listings` | `{ agent_id, title?, summary?, tags?, price?, enabled?, host_execution? }` | `Listing`（有则改、无则建；智能体不存在 404 `agent_not_found`；不上报用量的智能体设按用量价格 400 `usage_pricing_unsupported`；`host_execution` 变化写审计 `platform_listing_host_execution`） |
 | `DELETE /v1/platform/listings?agent_id=` | — | 204 |
 | `GET /v1/platform/codes` | — | `{ data: Code[] }` |
 | `POST /v1/platform/codes` | `{ kind, credits?, max_uses?, count?, expires_at?, note? }`（`count` 取 1 到 100） | 201 `{ data: (Code + { code })[] }` |
@@ -452,19 +485,19 @@ AdminAccount = Account + { keys, runs, spent, last_active_at }
 ## 安全要点
 
 - **两种令牌互不通用**。门户会话（`oas_…`）只能用于 `/v1/portal/*`；账号密钥（`sk-oaa-…`，旧的 `oaa_…` 同样）只能用于调用接口。
-- **账号密钥的权限是固定的**。`scopes` 为 `invoke`、`read`、`files`，没有 `approve` 和 `admin`。执行等级只能是 `keyExecution` 配置的 `workspace` 或 `sandbox`，不能是 `host`。执行等级的含义与 [deploy-public.md 第 4 节](deploy-public.md#4-网关配置) 的 `defaultKeyExecution` 相同：`workspace` 级的密钥只能调用 workspace 级智能体，调不了原生智能体、适配器和宿主工具。
+- **账号密钥的权限是固定的**。`scopes` 为 `invoke`、`read`、`files`，没有 `approve` 和 `admin`。执行等级只能是 `keyExecution` 配置的 `workspace` 或 `sandbox`，不能是 `host`；唯一的例外是打开了 `host_execution` 的上架项，而且只对那一个智能体（见 [对外提供外部智能体](#对外提供外部智能体)）。执行等级的含义与 [deploy-public.md 第 4 节](deploy-public.md#4-网关配置) 的 `defaultKeyExecution` 相同：`workspace` 级的密钥只能调用 workspace 级智能体，调不了原生智能体、适配器和宿主工具。
 - **只能调用上架的智能体**。未上架或已停用的智能体，对账号密钥不可见、不可调。
 - **停用即失效**。账号被停用时，它的会话全部作废，它的密钥在鉴权时即被拒绝（`account_disabled`，403）。改密码、被停用、运营者重置密码、用重置码设置新密码时，该账号的全部会话都会作废。
 - **密码存储**。使用 `node:crypto` 的 scrypt，参数为 `N=32768, r=8, p=3`，每个账号有独立的随机盐，比较时用 `timingSafeEqual`。参数与盐一起写在存储串里（`scrypt$N$r$p$盐$散列`），以后调整强度不影响已有账号。长度 8 到 200 位。不引入新的依赖。
 - **登录失败不泄露邮箱是否存在**。邮箱不存在与密码错误统一返回 401 `invalid_credentials`；对不存在的邮箱也做一次等价的散列计算。
 - **限流**。注册每个来源 IP 每小时 10 次；登录与重置密码（`POST /v1/portal/password-reset`）每个来源 IP 每 10 分钟 30 次，每个邮箱每 10 分钟 10 次。超限返回 429 `rate_limited`。不论成败，每次尝试都计数。计数保存在进程内存里，单实例有效。来源 IP 沿用网关已有的规则：只在 `trustProxy` 开启时读取 `X-Forwarded-For`。
-- **管理接口的审计**。调整余额、停用或启用账号、重置密码、生成重置码都写入审计记录。
+- **管理接口的审计**。调整余额、停用或启用账号、重置密码、生成重置码、打开或关闭上架项的 `host_execution`，都写入审计记录。
 - **兑换码**。明文只在生成时返回一次，数据库里只存散列。同一账号不能重复使用同一张码。
 - **充值专用密钥**。`billing` 权限的密钥只能给账号加点数（`credit`，`amount` 必须大于 0）和按邮箱查找账号，没有扣减、管理账号或调用智能体的权限。它不是 `admin` 密钥，所以可以在 API 域名上使用；只有 owner 等于 `platform.owner` 的这类密钥才生效。把它只放在支付回调服务里，并在回调里先验证支付渠道的签名，再调用 `credit`。
 - **重置码**。运营者生成的重置码只存散列，绑定到账号，一次有效，24 小时后失效；生成新码会使旧码失效；用掉后该账号的全部会话作废。重置接口对码错误、过期、已用过和邮箱不存在统一返回 400 `invalid_code`，并做一次等价的散列计算，不泄露邮箱是否存在。它的限流数值与登录相同，但计数与登录分开。
 - **开放注册的防滥用**。依靠邀请码模式（`registration: invite`）与限流；密码由开发者用重置码自己设置，或由运营者直接设置。
 - **门户页面**。沿用控制台同样严格的 CSP，没有内联脚本与内联样式。
-- **不要上架原生智能体给不认识的开发者**。Codex、Claude、Antigravity、DSH 等原生智能体以宿主机权限运行，见 [deploy-public.md 第 1 节](deploy-public.md#1-部署前确认)。账号密钥在 `workspace` 等级下本来也调不了它们。
+- **不要上架原生智能体给不认识的开发者**。Codex、Claude、Antigravity、DSH 等原生智能体以宿主机权限运行，见 [deploy-public.md 第 1 节](deploy-public.md#1-部署前确认)。除非你打开那个上架项的 `host_execution`，账号密钥调不了它们；只对你信得过、能承受那个系统用户所能做之事的开发者打开（见 [对外提供外部智能体](#对外提供外部智能体)）。
 
 ## 限制
 
@@ -476,8 +509,8 @@ AdminAccount = Account + { keys, runs, spent, last_active_at }
 - **没有邮件**，所以重置码要由运营者经其它渠道交给开发者。没有邮箱验证。
 - **限流计数在进程内存里**，网关重启后清零。
 - **启动对账会扫描流水**。启动对账（见[计费规则](#计费规则)第 11 条）要找出流水里仍标为进行中的行，流水很多时，启动后的这一步会慢一些；它在启动之后异步进行，不阻塞启动。
-- **外部智能体可能不报告 token**。这时只有按次价格生效，token 数不是费用估算。
-- **余额可能短暂为负**，见 [计费规则](#计费规则) 第 7 条。
+- **外部智能体可能不报告 token**。这类智能体只能按次定价（见[计费规则](#计费规则)第 8 条），token 数不是费用估算。
+- **token 费用以余额为限**。余额不够的那部分 token 费用不收（见[计费规则](#计费规则)第 7 条）；token 用量可能很大的智能体，请设置合理的 `per_run`。
 - **命令行没有平台管理命令**。运营操作在控制台或 `/v1/platform/*` 接口上完成。
 - **反向代理后面必须开启 `trustProxy`**。网关在反向代理后面时，必须开启 `trustProxy`（见 [deploy-public.md 第 4 节](deploy-public.md#4-网关配置)），否则所有访客的来源 IP 都是代理的地址，会共用同一个限流计数。
 - **登录按邮箱限流有副作用**。有人反复用错误密码尝试某个邮箱，会让这个邮箱在 10 分钟内无法登录，包括正确的密码。这是防暴力破解的取舍。
