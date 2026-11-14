@@ -271,7 +271,7 @@ response = client.responses.create(
 - 账号密钥可以用 OpenAI Responses、Chat Completions 与 Claude Messages 等任一兼容入口调用，流式同样可用。
 - `model` 填的是智能体的调用名，不是模型名。
 - 智能体收费时（两个价格不全为 0），余额不足会返回 402 `insufficient_balance`，任务不会被创建。
-- 长任务可以加 `background=True`，之后用 `client.responses.retrieve(response.id)` 查询，写法与 [README 的三分钟上手](../README.md#三分钟上手) 相同。
+- 长任务可以加 `background=True`，之后用 `client.responses.retrieve(response.id)` 查询，写法与 [README 的三分钟跑起来](../README.zh-CN.md#三分钟跑起来) 相同。
 - 非流式调用在任务已经创建、但没有正常结束（失败、取消、中断或待审批）时，Chat Completions、Claude Messages 与 Gemini 返回 422，并带 `x-should-retry: false`，官方 SDK 不会因此自动重试（不会重复提交）。Responses 照常返回带 `status` 的响应对象。各入口的错误形状、重试头与截断时的结束原因，见 [protocol.md「兼容入口的参数、错误与结束原因」](protocol.md#兼容入口的参数错误与结束原因060)。
 
 ### 查看任务的过程

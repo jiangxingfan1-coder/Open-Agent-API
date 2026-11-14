@@ -137,7 +137,7 @@ PingFang SC，所以渲染要在 macOS 上做；换机器要保证有同样的�
 英文版是同一条片子的另一个语言版本：分镜、时间轴、画面构成都一样，变的是文案、字体与控制台界面语言。
 
 - **文案**在 [copy.en.json](copy.en.json)，形状与 `copy.json` 一致，只是每条文案是 `{ "en": 主文案, "sub": 可选的小号副文案 }`
-  （中文版是大号中文加一行小号英文，英文版只有一行主文案）。定位语与 `README.en.md` 一致：开场是「Turn agents into an API.」加一行
+  （中文版是大号中文加一行小号英文，英文版只有一行主文案）。定位语与 英文 `README.md` 一致：开场是「Turn agents into an API.」加一行
   「You call an agent, not a model.」。
 - **字体**：英文标题与字幕用 Instrument Serif（与产品英文界面的标题字体一致），小字用 Geist / Geist Mono；中文版仍是 Noto Serif SC。
   录制里原样保留的中文（真实问答）会带上 `lang="zh-CN"`，字形不会被英文环境换掉。

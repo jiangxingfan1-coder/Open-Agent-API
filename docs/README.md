@@ -4,7 +4,7 @@
 
 ## 我想上手
 
-- 安装、初始化、启动、打开控制台：[README「三分钟上手」](../README.md#三分钟上手)
+- 安装、初始化、启动、打开控制台：[README「三分钟跑起来」](../README.zh-CN.md#三分钟跑起来)
 - 控制台各页面怎么用：[console.md](console.md)
 - 本地启动的更多细节（配置文件、后台运行）：[operations.md「Local start」](operations.md#local-start)
 
@@ -29,7 +29,7 @@
 - 接入契约与各方式的能力差异：[adapters.md「AgentAPI 转换契约」](adapters.md#agentapi-转换契约2026-11-08)
 - 写一个 `oaa/1` / `oaa/1-stream` 适配器：[adapters.md](adapters.md#oaa1-最终结果-abi)
 - ACP 与 A2A 智能体：[adapters.md「ACP 智能体」](adapters.md#acp-智能体agent-client-protocol)、[「A2A 远程智能体」](adapters.md#a2a-远程智能体2026-11-08)
-- 已支持的外部智能体与它们的边界：[README「外部智能体的边界」](../README.md#外部智能体的边界)
+- 已支持的外部智能体与它们的边界：[README「能接入哪些智能体」](../README.zh-CN.md#能接入哪些智能体)
 
 ## 我想让调用方的工具参与
 
@@ -52,7 +52,7 @@
 - 接入自己的支付（`billing` 密钥、按外部单号防重）：[platform.md「接入你自己的支付」](platform.md#接入你自己的支付)
 - 安全要点与限制：[platform.md「安全要点」](platform.md#安全要点)、[platform.md「限制」](platform.md#限制)
 - 英文开发者指南（调用、计费、任务记录、忘记密码）：[platform.en.md](platform.en.md)
-- 英文简介：[README.en.md](../README.en.md)
+- 英文简介：[README.md](../README.md)
 
 ## 我想理解架构
 
