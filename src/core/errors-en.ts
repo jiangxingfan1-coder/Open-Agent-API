@@ -81,6 +81,8 @@ export const ERROR_EN: Readonly<Record<string, readonly [string, string?]>> = {
   oaa_roundtrip_error: ['The formatted source compiles to a different contract; refusing to output source that could change behavior.'],
   oaa_validation_error: ['The OAA-Lang syntax is valid, but a declared value violates the agent contract.', 'Fix the declaration at the reported line and column.'],
   invalid_schema: ['The JSON Schema is invalid or references an unavailable external schema.'],
+  output_schema_unsupported: ['The requested output schema contains something the gateway cannot honestly enforce (async, references outside the document, an unimplemented format, a dangerous regular expression, too deep nesting).', 'Rewrite the schema: reference only inside the document, use standard formats, keep regular expressions simple.'],
+  structured_output_invalid: ['Structured output was requested, but the agent\'s answer (including the correction rounds) is still not JSON that fits.', 'Loosen the schema, describe the shape in the prompt, or raise structuredOutput.maxRepairs.'],
   schema_dialect_unsupported: ['Async JSON Schema is not supported.'],
   // run
   run_not_found: ['The run (response) does not exist.'],

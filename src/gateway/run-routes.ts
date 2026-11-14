@@ -1,3 +1,4 @@
+import { outputContractOf } from './run-contract.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Auth } from './auth.js';
@@ -92,7 +93,12 @@ export function registerRunRoutes(app: FastifyInstance, context: RunRouteContext
     const run = ownedIdentity(req);
     const state = store.runState(run.id, run.owner);
     const queue = kernel.queueInsight(run.id, run.owner, state.status);
-    return queue ? { ...state, queue } : state;
+    const contract = outputContractOf(store, run.id);
+    return {
+      ...state,
+      ...(contract ? { output_contract: contract } : {}),
+      ...(queue ? { queue } : {}),
+    };
   });
   // Derived from durable events, steps and checkpoint marks; never calls a model or tool.
   app.get('/v1/runs/:id/timeline', async (req, reply) => {

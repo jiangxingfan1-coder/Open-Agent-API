@@ -57,6 +57,7 @@ These are the `dependencies` (runtime dependencies) of `package.json`. They are 
 | `@fastify/multipart` | 10.1.8 | MIT | The Fastify team |
 | `@modelcontextprotocol/sdk` | 1.32.2 | MIT | Anthropic, PBC |
 | `ajv` | 8.20.0 | MIT | Evgeny Poberezkin |
+| `ajv-formats` | 3.0.1 | MIT | Evgeny Poberezkin |
 | `fastify` | 5.12.8 | MIT | The Fastify team |
 | `lucide` | 1.71.0 | ISC | Lucide Icons and Contributors |
 | `ws` | 8.22.2 | MIT | Einar Otto Stangvik and contributors |

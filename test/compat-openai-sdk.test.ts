@@ -264,13 +264,13 @@ test('openai sdk: strict endpoints name the unsupported parameter and report ign
       client().chat.completions.create({
         model: 'agent/test',
         messages: [{ role: 'user', content: 'hi' }],
-        response_format: { type: 'json_object' },
+        logprobs: true,
       }),
       (e: InstanceType<typeof OpenAI.APIError>) => {
         assert.ok(e instanceof OpenAI.BadRequestError);
         assert.equal(e.code, 'unsupported_parameter');
-        assert.equal(e.param, 'response_format');
-        assert.match(e.message, /\/v1\/compat/);
+        assert.equal(e.param, 'logprobs');
+        assert.match(e.message, /logprobs/);
         return true;
       },
     );

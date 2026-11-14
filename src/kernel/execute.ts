@@ -18,7 +18,8 @@ import { checkExecution } from './submission.js';
 import { autoApprove, awaitApproval, expireApprovals } from './approvals.js';
 import { abandonCallerTool, awaitCallerTool } from './client-tools.js';
 import { runModelTurn } from './model-turn.js';
-import { runNativeAgent } from './native-turn.js';
+import { nativeStepId, runNativeAgent } from './native-turn.js';
+import { settleStructuredOutput } from './structured-output.js';
 import { runToolPhase } from './tool-phase.js';
 import { releaseRun } from './lifecycle.js';
 
@@ -70,6 +71,8 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
       controller.abort();
     },
   );
+  // Structured output: the answer is checked before any of it is written (structured-output.ts).
+  if (run.checkpoint.outputContract) writer.hold(true);
   const external = agent.engine !== 'kernel';
   // 外部智能体调用了调用方工具：之前的文本已作为一条输出消息结束，结束时不再整段补发。
   let callerSplit = false;
@@ -147,42 +150,54 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
       data: { response: responseObject(view) },
     }));
     checkAbort(controller.signal);
-    if (agent.engine !== 'kernel') {
-      await runNativeAgent(rt, run, bundle, agent, controller.signal, {
-        emit,
-        writer,
-        approvalElapsed,
-        pending: (value) => {
-          modelPending = value;
-        },
-        failure: () => eventError,
-        split: () => callerSplit,
-      });
-    } else {
-      while (run.checkpoint.phase !== 'done') {
-        checkAbort(controller.signal);
-        if (run.checkpoint.phase === 'model') {
-          await runModelTurn(rt, run, bundle, agent, controller.signal, slice, {
-            emit,
-            writer,
-            pending: (value) => {
-              modelPending = value;
-            },
-            failure: () => eventError,
-            timedOut: () => timedOut,
-          });
+    // Structured output: each pass is one try at the final answer; a rejected answer goes back to the
+    // agent for a correction round (structured-output.ts) and the pass repeats.
+    let nativeInput: string | undefined;
+    for (;;) {
+      let answer: string;
+      if (agent.engine !== 'kernel') {
+        answer = await runNativeAgent(rt, run, bundle, agent, controller.signal, {
+          emit,
+          writer,
+          approvalElapsed,
+          pending: (value) => {
+            modelPending = value;
+          },
+          failure: () => eventError,
+          split: () => callerSplit,
+          input: nativeInput,
+        });
+      } else {
+        while (run.checkpoint.phase !== 'done') {
+          checkAbort(controller.signal);
+          if (run.checkpoint.phase === 'model') {
+            await runModelTurn(rt, run, bundle, agent, controller.signal, slice, {
+              emit,
+              writer,
+              pending: (value) => {
+                modelPending = value;
+              },
+              failure: () => eventError,
+              timedOut: () => timedOut,
+            });
+          }
+          if (run.checkpoint.phase === 'tools') {
+            await runToolPhase(
+              rt,
+              run,
+              bundle,
+              agent.limits.toolConcurrency,
+              controller.signal,
+              slice,
+            );
+          }
         }
-        if (run.checkpoint.phase === 'tools') {
-          await runToolPhase(
-            rt,
-            run,
-            bundle,
-            agent.limits.toolConcurrency,
-            controller.signal,
-            slice,
-          );
-        }
+        answer = run.checkpoint.messages.findLast((m) => m.role === 'assistant')?.content ?? '';
       }
+      checkAbort(controller.signal);
+      const settled = settleStructuredOutput(rt, run, agent, writer, answer);
+      if (!settled.again) break;
+      nativeInput = settled.nativeInput;
     }
     checkAbort(controller.signal);
     if (agent.outputSchema) {
@@ -255,7 +270,7 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
       return;
     if (modelPending) run.metadata['oaa.usage_complete'] = 'false';
     if (agent.engine !== 'kernel') {
-      const step = rt.store.getStep(`native_${run.id}`);
+      const step = rt.store.getStep(nativeStepId(run));
       if (step?.status === 'running') {
         step.status = fault.uncertain ? 'uncertain' : 'failed';
         step.error = fault.code;

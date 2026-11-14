@@ -1,5 +1,5 @@
 // Official `openai` Node SDK against the gateway over a real socket: Chat Completions and Responses.
-import { createLab, env, check, equal, runsCreated, snapshotRuns, loadOrSkip } from '../lib/harness.mjs';
+import { acpScript, createLab, env, check, equal, runsCreated, snapshotRuns, loadOrSkip } from '../lib/harness.mjs';
 import { readFile } from 'node:fs/promises';
 
 const pkg = JSON.parse(await readFile(new URL('../node_modules/openai/package.json', import.meta.url), 'utf8'));
@@ -80,11 +80,11 @@ await lab.scenario('chat.length_finish', async () => {
   equal(r.choices[0].finish_reason, 'length', 'finish_reason');
 });
 await lab.scenario('chat.tools_bridge_roundtrip_stream', async () => {
-  const first = await bridge.chat.completions.stream(say('CALLTOOL', { tools: [TOOL] })).finalChatCompletion();
+  const first = await client.chat.completions.stream(say('CALLTOOL', { tools: [TOOL] })).finalChatCompletion();
   equal(first.choices[0].finish_reason, 'tool_calls', 'finish_reason');
   const calls = first.choices[0].message.tool_calls;
   equal(JSON.parse(calls[0].function.arguments).city, 'Paris', 'arguments');
-  const done = await bridge.chat.completions.create({
+  const done = await client.chat.completions.create({
     model: M, tools: [TOOL],
     messages: [
       { role: 'user', content: 'CALLTOOL' },
@@ -94,10 +94,23 @@ await lab.scenario('chat.tools_bridge_roundtrip_stream', async () => {
   });
   equal(text(done), 'Tool result: sunny', 'final answer');
 });
-await lab.scenario('chat.tools_on_default_endpoint_error_says_where', async () => {
-  const e = await rejects(client.chat.completions.create(say('hi', { tools: [TOOL] })), OpenAI.BadRequestError, 'tools');
+await lab.scenario('chat.tools_on_an_agent_that_cannot_bridge_is_explicit', async () => {
+  const e = await rejects(client.chat.completions.create({ model: env.native, messages: [{ role: 'user', content: 'hi' }], tools: [TOOL] }), OpenAI.BadRequestError, 'tools');
   equal(e.code, 'unsupported_parameter', 'code');
-  check(/compat/.test(e.message), `message does not point to /v1/compat: ${e.message}`);
+  check(/compat/.test(e.message) && /managed/.test(e.message), `message does not name the way out: ${e.message}`);
+});
+await lab.scenario('chat.tools_explicit_bridge_mode_and_acp_agent', async () => {
+  const explicit = await bridge.chat.completions.create(say('CALLTOOL', { tools: [TOOL] }));
+  equal(explicit.choices[0].finish_reason, 'tool_calls', 'explicit bridge');
+  const prompt = acpScript([{ name: 'get_weather', arguments: { city: 'Paris' } }]);
+  const first = await client.chat.completions.create({ model: env.acp, messages: [{ role: 'user', content: prompt }], tools: [TOOL] });
+  equal(first.choices[0].finish_reason, 'tool_calls', 'ACP agent');
+  const calls = first.choices[0].message.tool_calls;
+  const done = await client.chat.completions.create({
+    model: env.acp, tools: [TOOL],
+    messages: [{ role: 'user', content: prompt }, { role: 'assistant', content: null, tool_calls: calls }, { role: 'tool', tool_call_id: calls[0].id, content: 'sunny' }],
+  });
+  check(text(done).includes('sunny'), `the ACP agent did not see the tool result: ${text(done)}`);
 });
 await lab.scenario('chat.response_format_via_compat', async () => {
   const r = await compat.chat.completions.create(say('JSON', { response_format: { type: 'json_object' } }));
@@ -168,10 +181,10 @@ await lab.scenario('responses.background_poll_and_cancel', async () => {
   equal(state.status, 'cancelled', 'cancelled status');
 });
 await lab.scenario('responses.tools_bridge_roundtrip', async () => {
-  const first = await bridge.responses.create({ model: M, input: 'CALLTOOL', tools: [RTOOL] });
+  const first = await client.responses.create({ model: M, input: 'CALLTOOL', tools: [RTOOL] });
   const calls = first.output.filter((o) => o.type === 'function_call');
   equal(calls.length, 1, 'function_call items');
-  const done = await bridge.responses.create({
+  const done = await client.responses.create({
     model: M, tools: [RTOOL], previous_response_id: first.id,
     input: [{ type: 'function_call_output', call_id: calls[0].call_id, output: 'sunny' }],
   });
@@ -186,4 +199,34 @@ await lab.scenario('unsupported_endpoints_are_clean_404', async () => {
   for (const [name, call] of [['embeddings', () => client.embeddings.create({ model: M, input: 'x' })], ['moderations', () => client.moderations.create({ input: 'x' })]])
     await rejects(call(), OpenAI.APIError, name).then((e) => check(e.status === 404, `${name}: HTTP ${e.status}`));
 });
+
+const PERSON = { type: 'object', properties: { name: { type: 'string' }, age: { type: 'integer' } }, required: ['name', 'age'], additionalProperties: false };
+await lab.scenario('structured.chat_json_schema_and_correction_round', async () => {
+  const r = await client.chat.completions.create(say('BADJSON who?', { response_format: { type: 'json_schema', json_schema: { name: 'person', strict: true, schema: PERSON } } }));
+  equal(text(r), '{"name":"x","age":1}', 'answer');
+});
+await lab.scenario('structured.chat_parse_with_zod_helper', async () => {
+  const { zodResponseFormat } = await import('openai/helpers/zod');
+  const { z } = await import('zod');
+  const Person = z.object({ name: z.string(), age: z.number().int() });
+  const r = await client.chat.completions.parse(say('who?', { response_format: zodResponseFormat(Person, 'person') }));
+  equal(r.choices[0].message.parsed?.name, 'x', 'parsed name');
+});
+await lab.scenario('structured.responses_text_format_and_stream', async () => {
+  const format = { type: 'json_schema', name: 'person', strict: true, schema: PERSON };
+  const r = await client.responses.create({ model: M, input: 'BADJSON who?', text: { format } });
+  equal(JSON.parse(r.output_text).age, 1, 'age');
+  equal(r.text.format.type, 'json_schema', 'echoed format');
+  const deltas = [];
+  const stream = client.responses.stream({ model: M, input: 'who?', text: { format } });
+  for await (const e of stream) if (e.type === 'response.output_text.delta') deltas.push(e.delta);
+  equal(deltas.length, 1, 'text deltas (held until the answer is checked)');
+});
+await lab.scenario('structured.failure_is_a_422_and_not_retried', async () => {
+  const before = await snapshotRuns();
+  const e = await rejects(make({ maxRetries: 2 }).chat.completions.create(say('ALWAYSBAD who?', { response_format: { type: 'json_object' } })), OpenAI.UnprocessableEntityError, 'failure');
+  equal(e.code, 'structured_output_invalid', 'code');
+  equal(await runsCreated(before), 1, 'runs created');
+});
+
 lab.done();

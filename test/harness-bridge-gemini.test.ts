@@ -283,7 +283,11 @@ test('gemini bridge: built-in tools are refused; bad declarations are invalid; t
 test('gemini: managed mode is unchanged by bridging; inlineData stays unsupported', async () => {
   const s = await bridgeSetup(new FixtureModel(() => ({ text: 'Done.' })));
   try {
-    const managed = await gemini(s, { contents: [USER] }, { headers: {} });
+    const managed = await gemini(
+      s,
+      { contents: [USER] },
+      { headers: { 'x-oaa-client-tools': 'managed' } },
+    );
     assert.equal(managed.statusCode, 200, managed.body);
     assert.equal(managed.headers['x-oaa-client-tools'], 'ignored');
     assert.ok(partsOf(managed.json()).every((p) => !p.functionCall));

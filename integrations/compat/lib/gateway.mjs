@@ -11,6 +11,7 @@ import { FixtureModel } from './fixture-model.mjs';
 // COMPAT_GATEWAY_ROOT: run the lab against another build of the gateway (for example an older
 // release, to see which findings a fix closed). Default: this checkout.
 const REPO = process.env.COMPAT_GATEWAY_ROOT ?? path.resolve(import.meta.dirname, '..', '..', '..');
+const OWN = path.resolve(import.meta.dirname, '..', '..', '..');
 const load = (p) => import(pathToFileURL(path.join(REPO, 'dist', p)).href);
 
 export async function startLabGateway(options = {}) {
@@ -28,7 +29,11 @@ export async function startLabGateway(options = {}) {
   const tokenEnv = 'OAA_COMPAT_LAB_TOKEN';
   // Only this process sees the variable; the lab never changes the environment of the machine.
   process.env[tokenEnv] = token;
-  const model = new FixtureModel();
+  // The deterministic answer for a response-format instruction comes from the replay engine (dist/test).
+  const { answerForRequirement } = await import(
+    pathToFileURL(path.join(OWN, 'dist', 'test', 'compat-replay.js')).href
+  );
+  const model = new FixtureModel(answerForRequirement);
   const workerConfig = workerSchema.parse({
     nodeId: 'local',
     dataDir: path.join(dir, 'worker'),
@@ -37,6 +42,13 @@ export async function startLabGateway(options = {}) {
         transport: 'acp',
         command: process.execPath,
         args: [path.join(REPO, 'examples', 'sample-agent.mjs')],
+        enabled: true,
+      },
+      // ACP stand-in that calls the caller's tools through the MCP relay (a scripted prompt decides which).
+      'oaa-caller': {
+        transport: 'acp',
+        command: process.execPath,
+        args: [path.join(REPO, 'test', 'fixtures', 'acp-caller-agent.mjs')],
         enabled: true,
       },
     },
@@ -89,13 +101,47 @@ export async function startLabGateway(options = {}) {
       }),
     ),
   );
+  store.publish(
+    'owner',
+    bundle.makeBundle(
+      contracts.agentSchema.parse({
+        id: 'agent/acp',
+        description: 'ACP stand-in agent that calls the caller tools (no model, no network).',
+        engine: 'adapter/oaa-caller',
+        provider: 'native',
+        model: 'default',
+        instructions: '',
+        tools: [],
+        allowGraph: false,
+        routes: [{ id: 'default', provider: 'native', model: 'default', priority: 0 }],
+      }),
+    ),
+  );
+  // An agent that runs its own tool loop (a native engine that is not enabled here, so it never starts):
+  // it cannot take caller tools over, which the lab uses to check the refusal. 
+  store.publish(
+    'owner',
+    bundle.makeBundle(
+      contracts.agentSchema.parse({
+        id: 'agent/native',
+        description: 'Stand-in for an agent that runs its own tool loop (never started).',
+        engine: 'codex',
+        provider: 'native',
+        model: 'default',
+        instructions: '',
+        tools: [],
+        allowGraph: false,
+        routes: [{ id: 'default', provider: 'native', model: 'default', priority: 0 }],
+      }),
+    ),
+  );
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   return {
     baseUrl: `http://127.0.0.1:${port}`,
     apiKey: token,
-    agents: { sample: 'agent/sample', fixture: 'agent/fixture' },
+    agents: { sample: 'agent/sample', fixture: 'agent/fixture', native: 'agent/native', acp: 'agent/acp' },
     store,
     model,
     async stop() {

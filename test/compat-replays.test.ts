@@ -4,6 +4,7 @@ import { agent, FixtureModel, setup, token } from './helpers.js';
 import { makeBundle } from '../src/lang/bundle.js';
 import {
   KNOWN_TOKENS,
+  answerForRequirement,
   loadReplayFiles,
   outOfScope,
   replayOrigins,
@@ -47,9 +48,15 @@ test('replays: every file is well-formed and honest about its evidence', () => {
 
 for (const file of files) {
   test(`replay ${file.client}: ${file.cases.filter((c) => !outOfScope(c)).length} request shapes are accepted and answered in a form the client parses`, async () => {
-    const model = new FixtureModel(() => ({ text: 'Hello world from fixture.' }));
+    const model = new FixtureModel((_agent, messages) => ({
+      text:
+        answerForRequirement(messages.map((m) => m.content).join('\n')) ??
+        'Hello world from fixture.',
+    }));
     const s = await setup(model, { allowedOrigins: replayOrigins(files) });
     s.store.publish('owner', makeBundle(agent()));
+    // An agent that runs its own tool loop (never started here): refuses caller tools clearly.
+    s.store.publish('owner', makeBundle(agent({ id: 'agent/native', engine: 'codex' })));
     const transport: Transport = async (req) => {
       const r = await s.app.inject({
         method: req.method as 'GET',
@@ -66,7 +73,11 @@ for (const file of files) {
       const failures: string[] = [];
       for (const c of file.cases) {
         if (outOfScope(c)) continue;
-        const result = await runReplayCase(c, transport, { AGENT: 'agent/test', KEY: token });
+        const result = await runReplayCase(c, transport, {
+          AGENT: 'agent/test',
+          NATIVE: 'agent/native',
+          KEY: token,
+        });
         if (!result.ok)
           failures.push(`${c.id} [${c.evidence.status}]: ${result.problems.join('; ')}`);
       }

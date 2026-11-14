@@ -94,8 +94,10 @@ const code = (c: string) => (e: unknown) => (e as { code?: string }).code === c;
 type Inv = { input: string; metadata: Record<string, string> };
 
 test('harness: mode resolution, note and bridge precheck', () => {
-  assert.deepEqual([...CLIENT_TOOLS_MODES], ['managed', 'bridge', 'reject']);
-  assert.equal(resolveClientToolsMode({}, {}), 'managed');
+  assert.deepEqual([...CLIENT_TOOLS_MODES], ['auto', 'managed', 'bridge', 'reject']);
+  // No mode chosen: the parser prepares bridge fields and the gateway settles it at submit time.
+  assert.equal(resolveClientToolsMode({}, {}), 'default');
+  assert.equal(resolveClientToolsMode({ 'x-oaa-client-tools': 'Auto' }, {}), 'auto');
   assert.equal(resolveClientToolsMode({ 'x-oaa-client-tools': 'REJECT' }, {}), 'reject');
   assert.equal(resolveClientToolsMode({}, { 'oaa.client_tools': 'Bridge' }), 'bridge');
   assert.equal(
@@ -107,7 +109,7 @@ test('harness: mode resolution, note and bridge precheck', () => {
     (e: { code?: string; status?: number; message: string }) =>
       e.code === 'invalid_request' &&
       e.status === 400 &&
-      ['managed', 'bridge', 'reject'].every((m) => e.message.includes(m)),
+      ['auto', 'managed', 'bridge', 'reject'].every((m) => e.message.includes(m)),
   );
   assert.equal(CLIENT_TOOLS_MANAGED_NOTE.split(/(?<=\.)\s+/).length, 3);
   assert.throws(
@@ -127,10 +129,27 @@ for (const p of PROTOCOLS) {
     same(p.parse(p.body, { 'x-oaa-client-tools': 'nonsense' }), BASELINE[p.name]);
   });
 
-  test(`harness ${p.name}: managed (default and explicit) appends the note`, () => {
+  test(`harness ${p.name}: no mode chosen leaves the input alone and prepares the bridge`, () => {
+    const base = BASELINE[p.name] as Inv;
+    for (const headers of [{}, { 'x-oaa-client-tools': 'auto' }]) {
+      const inv = p.parse({ ...p.body, tools: [p.tool, p.tool] }, headers) as Inv & {
+        client_tools?: unknown[];
+      };
+      assert.equal(inv.input, base.input, 'no harness note before the agent is known');
+      assert.equal(
+        inv.metadata['oaa.client_tools'],
+        Object.keys(headers).length ? 'auto' : 'default',
+      );
+      assert.equal(inv.metadata['oaa.client_tools_declared'], '2');
+      assert.equal(inv.metadata['oaa.client_tools_ignored'], undefined);
+      assert.equal(inv.client_tools?.length, 2);
+    }
+  });
+
+  test(`harness ${p.name}: managed (explicit) appends the note`, () => {
     const base = BASELINE[p.name] as Inv;
     for (const [body, headers] of [
-      [{ ...p.body, tools: [p.tool, p.tool] }, {}],
+      [{ ...p.body, tools: [p.tool, p.tool] }, { 'x-oaa-client-tools': 'managed' }],
       [{ ...p.body, tools: [p.tool, p.tool] }, { 'x-oaa-client-tools': 'Managed' }],
       [{ ...p.body, tools: [p.tool, p.tool], metadata: { 'oaa.client_tools': 'managed' } }, {}],
     ] as const) {
@@ -174,7 +193,7 @@ test('harness: inline directives are still recognised before the note is appende
       messages: [{ role: 'user', content: '@oaa(speed)\nHello' }],
       tools: [TOOL],
     },
-    {},
+    { 'x-oaa-client-tools': 'managed' },
   );
   assert.ok(!inv.input.includes('@oaa('), inv.input);
   assert.equal(inv.metadata['oaa.routing_strategy'], 'speed');
@@ -188,7 +207,13 @@ test('harness: Gemini supports managed, reject and bridge; UAP keeps rejecting t
     tools: [{ functionDeclarations: [{ name: 'a' }, { name: 'b' }] }],
   };
   const plain = parseGeminiGenerateContent({ contents: body.contents }, 'agent/test');
-  const managed = parseGeminiGenerateContent(body, 'agent/test');
+  const undecided = parseGeminiGenerateContent(body, 'agent/test');
+  assert.equal(undecided.input, plain.input);
+  assert.equal(undecided.metadata['oaa.client_tools'], 'default');
+  assert.equal(undecided.client_tools?.length, 2);
+  const managed = parseGeminiGenerateContent(body, 'agent/test', false, {
+    'x-oaa-client-tools': 'managed',
+  });
   assert.equal(managed.input, plain.input + SUFFIX);
   assert.equal(managed.metadata['oaa.client_tools_ignored'], '2');
   assert.throws(
@@ -223,15 +248,36 @@ test('harness gateway: X-OAA-Client-Tools header, errors and bridge precheck', a
     assert.equal(plain.statusCode, 200, plain.body);
     assert.equal(plain.headers['x-oaa-client-tools'], undefined);
 
-    const managed = await s.request(
+    // No mode chosen: a kernel agent takes the tools over (bridge); an agent that runs its own tool
+    // loop keeps working as before (managed, ignored).
+    const auto = await s.request(
       'POST',
       '/v1/chat/completions',
       { ...chat, tools: [TOOL] },
       undefined,
       compat,
     );
+    assert.equal(auto.statusCode, 200, auto.body);
+    assert.equal(auto.headers['x-oaa-client-tools'], 'bridge');
+    const managed = await s.request(
+      'POST',
+      '/v1/chat/completions',
+      { ...chat, tools: [TOOL] },
+      undefined,
+      { ...compat, 'x-oaa-client-tools': 'managed' },
+    );
     assert.equal(managed.statusCode, 200, managed.body);
     assert.equal(managed.headers['x-oaa-client-tools'], 'ignored');
+    const nativeAuto = await s.request(
+      'POST',
+      '/v1/chat/completions',
+      { ...chat, model: 'agent/native', tools: [TOOL] },
+      undefined,
+      compat,
+    );
+    // The stand-in codex agent is not installed here: the request got as far as running it as managed
+    // (the old behaviour), instead of failing on the bridge.
+    assert.equal(nativeAuto.json().error.code, 'model_unavailable');
 
     const streamed = await s.request('POST', '/v1/compat/messages', {
       model: 'agent/test',
@@ -241,7 +287,7 @@ test('harness gateway: X-OAA-Client-Tools header, errors and bridge precheck', a
       tools: [CLAUDE_TOOL],
     });
     assert.equal(streamed.statusCode, 200, streamed.body);
-    assert.equal(streamed.headers['x-oaa-client-tools'], 'ignored');
+    assert.equal(streamed.headers['x-oaa-client-tools'], 'bridge');
     const streamedPlain = await s.request('POST', '/v1/compat/messages', {
       model: 'agent/test',
       max_tokens: 64,
@@ -260,9 +306,23 @@ test('harness gateway: X-OAA-Client-Tools header, errors and bridge precheck', a
     assert.equal(rejected.statusCode, 400);
     assert.equal(rejected.json().error.code, 'client_tools_unsupported');
 
-    // 严格接口：传 tools 仍然直接报错，不受模式影响。
+    // 默认端点：智能体能接管就桥接；接管不了，报专门的拒绝（点明三条出路），不创建运行。
     const strict = await s.request('POST', '/v1/chat/completions', { ...chat, tools: [TOOL] });
-    assert.equal(strict.statusCode, 400);
+    assert.equal(strict.statusCode, 200, strict.body);
+    assert.equal(strict.headers['x-oaa-client-tools'], 'bridge');
+    const runsBefore = s.store.allRuns().length;
+    const strictNative = await s.request('POST', '/v1/chat/completions', {
+      ...chat,
+      model: 'agent/native',
+      tools: [TOOL],
+    });
+    assert.equal(strictNative.statusCode, 400);
+    assert.equal(strictNative.json().error.code, 'unsupported_parameter');
+    assert.equal(strictNative.json().error.param, 'tools');
+    assert.match(strictNative.json().error.message, /cannot be handed to this agent/);
+    assert.match(strictNative.json().error.message, /\/v1\/compat/);
+    assert.match(strictNative.json().error.message, /X-OAA-Client-Tools: managed/);
+    assert.equal(s.store.allRuns().length, runsBefore, 'a refused request creates no run');
 
     const before = s.store.allRuns().length;
     for (const model of ['agent/native']) {

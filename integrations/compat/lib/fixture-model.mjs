@@ -11,6 +11,11 @@
 //   SHOW_PROMPT   answers with every message the agent received as "role: content" lines
 //   CALLTOOL      calls the caller-declared tools (bridge mode): the first one, or every one with PARALLEL
 //
+// Structured output: when the request carries a "[Response Format Requirement ...]" instruction (the
+// gateway adds it for response_format / text.format / responseSchema / output_config.format), the answer
+// is the smallest JSON that fits the schema in it. BADJSON makes the first attempt prose instead (the
+// gateway sends it back for correction and the second attempt fits); ALWAYSBAD never fits.
+//
 // When the conversation already holds tool results, the answer is "Tool result: <results>".
 // Token usage is derived from the text length, so it is deterministic and non-zero.
 
@@ -48,6 +53,11 @@ function argumentsFor(schema) {
 
 export class FixtureModel {
   calls = 0;
+  /** (prompt text) => a JSON answer for a response-format instruction, or undefined. */
+  constructor(answerFor = () => undefined) {
+    this.answerFor = answerFor;
+  }
+
   /** Every message list the agent received (the lab uses it to check what reached the agent). */
   seen = [];
 
@@ -79,6 +89,15 @@ export class FixtureModel {
     }
     if (/\bLENGTH\b/.test(prompt)) return finish('partial text', { finish: 'length' });
     if (/\bLONG\b/.test(prompt)) return finish(LONG_TEXT);
+    const everything = messages.map((m) => m.content).join('\n');
+    const answer = this.answerFor(everything);
+    if (answer !== undefined) {
+      const asked = (word) => messages.some((m) => m.role === 'user' && new RegExp(`\\b${word}\\b`).test(m.content));
+      const repairing = /^\[Structured output repair\]/.test(prompt);
+      if (asked('ALWAYSBAD') || (asked('BADJSON') && !repairing))
+        return finish('I looked into it and here is my answer in plain words, without the JSON.');
+      return finish(answer);
+    }
     if (/\bJSON\b/.test(prompt)) return finish('{"answer":"ok","n":1}');
     if (/\bSHOW_PROMPT\b/.test(prompt))
       return finish(messages.map((m) => `${m.role}: ${m.content}`).join('\n'));

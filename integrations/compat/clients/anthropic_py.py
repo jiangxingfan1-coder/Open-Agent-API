@@ -1,11 +1,12 @@
 """Official `anthropic` Python SDK against the gateway: the Messages API."""
 
+import json
 import os
 import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from harness import API_KEY, BASE_URL, FIXTURE, Lab, check, equal, make_key, runs_created, snapshot_runs  # noqa: E402
+from harness import ACP, API_KEY, BASE_URL, FIXTURE, Lab, acp_script, check, equal, make_key, runs_created, snapshot_runs  # noqa: E402
 
 try:
     import anthropic
@@ -143,12 +144,12 @@ def _():
 
 @lab.scenario("messages.tools_bridge_roundtrip")
 def _():
-    first = bridge.messages.create(model=MODEL, max_tokens=256, messages=[{"role": "user", "content": "CALLTOOL"}], tools=[TOOL])
+    first = client.messages.create(model=MODEL, max_tokens=256, messages=[{"role": "user", "content": "CALLTOOL"}], tools=[TOOL])
     equal(first.stop_reason, "tool_use", "stop_reason")
     uses = [b for b in first.content if b.type == "tool_use"]
     check(len(uses) == 1 and uses[0].name == "get_weather", "no tool_use block")
     equal(uses[0].input.get("city"), "Paris", "tool input")
-    done = bridge.messages.create(
+    done = client.messages.create(
         model=MODEL,
         max_tokens=256,
         tools=[TOOL],
@@ -163,11 +164,36 @@ def _():
 
 @lab.scenario("messages.tools_bridge_stream")
 def _():
-    with bridge.messages.stream(model=MODEL, max_tokens=256, messages=[{"role": "user", "content": "CALLTOOL"}], tools=[TOOL]) as stream:
+    with client.messages.stream(model=MODEL, max_tokens=256, messages=[{"role": "user", "content": "CALLTOOL"}], tools=[TOOL]) as stream:
         final = stream.get_final_message()
     uses = [b for b in final.content if b.type == "tool_use"]
     check(len(uses) == 1 and uses[0].input == {"city": "Paris"}, f"streamed tool_use input: {[u.input for u in uses]}")
     equal(final.stop_reason, "tool_use", "stop_reason")
+
+
+@lab.scenario("messages.tools_explicit_bridge_mode")
+def _():
+    first = bridge.messages.create(model=MODEL, max_tokens=256, messages=[{"role": "user", "content": "CALLTOOL"}], tools=[TOOL])
+    equal(first.stop_reason, "tool_use", "stop_reason")
+
+
+@lab.scenario("messages.tools_acp_agent_roundtrip")
+def _():
+    prompt = acp_script([{"name": "get_weather", "arguments": {"city": "Paris"}}])
+    first = client.messages.create(model=ACP, max_tokens=256, messages=[{"role": "user", "content": prompt}], tools=[TOOL])
+    equal(first.stop_reason, "tool_use", "stop_reason")
+    use = [b for b in first.content if b.type == "tool_use"][0]
+    done = client.messages.create(
+        model=ACP,
+        max_tokens=256,
+        tools=[TOOL],
+        messages=[
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": [b.model_dump() for b in first.content]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": use.id, "content": "sunny"}]},
+        ],
+    )
+    check("sunny" in text_of(done), f"the ACP agent did not see the tool result: {text_of(done)[:120]}")
 
 
 @lab.scenario("messages.image_rejected_clearly")
@@ -283,6 +309,47 @@ def _():
     except anthropic.NotFoundError:
         return
     raise AssertionError("batches did not 404")
+
+
+
+@lab.scenario("structured.output_config_format_with_a_correction_round")
+def _():
+    schema = {"type": "object", "properties": {"name": {"type": "string"}, "age": {"type": "integer"}}, "required": ["name", "age"], "additionalProperties": False}
+    m = client.messages.create(
+        model=MODEL,
+        max_tokens=256,
+        messages=[{"role": "user", "content": "BADJSON who?"}],
+        output_config={"format": {"type": "json_schema", "schema": schema}},
+    )
+    equal(json.loads(text_of(m)), {"name": "x", "age": 1}, "answer")
+    equal(m.stop_reason, "end_turn", "stop_reason")
+
+
+@lab.scenario("structured.parse_helper")
+def _():
+    from pydantic import BaseModel
+
+    class Person(BaseModel):
+        name: str
+        age: int
+
+    m = client.messages.parse(model=MODEL, max_tokens=256, messages=[{"role": "user", "content": "who?"}], output_format=Person)
+    equal((m.parsed_output.name, m.parsed_output.age), ("x", 1), "parsed_output")
+
+
+@lab.scenario("structured.failure_is_a_clear_error")
+def _():
+    try:
+        client.messages.create(
+            model=MODEL,
+            max_tokens=64,
+            messages=[{"role": "user", "content": "ALWAYSBAD who?"}],
+            output_config={"format": {"type": "json_schema", "schema": {"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}}},
+        )
+    except anthropic.UnprocessableEntityError as error:
+        equal((error.body or {}).get("error", {}).get("code"), "structured_output_invalid", "error code")
+        return
+    raise AssertionError("an answer that does not fit was returned as a success")
 
 
 lab.done()

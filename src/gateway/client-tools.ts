@@ -8,15 +8,21 @@ import { Fault } from '../core/util.js';
 import { CLIENT_TOOLS_MANAGED_NOTE, resolveClientToolsMode } from '../kernel/harness.js';
 import type { Invocation } from '../kernel/invocation.js';
 
+export type ToolsFallback = 'managed' | 'reject';
+
 /**
  * 按模式处理调用方工具，返回交给内层智能体的输入；`meta` 会被就地写入模式标记。
+ *
+ * 请求没有选模式时（`default`，或显式的 `auto`）这里什么都不替智能体决定：输入原样返回，桥接字段照
+ * bridge 准备好，提交时由 `submitClientTools` 按网关配置与智能体能力定下来（能桥接就桥接，否则回到
+ * `fallback`：OpenAI 默认端点 `reject`，其余入口 `managed`）。
  */
 export function withClientTools(
   tools: unknown,
   headers: Record<string, unknown> | undefined,
   meta: Record<string, string>,
   input: string,
-  options: { count?: number } = {},
+  options: { count?: number; forced?: boolean; fallback?: ToolsFallback } = {},
 ): string {
   if (!Array.isArray(tools) || tools.length === 0) return input;
   const count = String(options.count || tools.length);
@@ -31,9 +37,45 @@ export function withClientTools(
     meta['oaa.client_tools_declared'] = count;
     return input;
   }
-  meta['oaa.client_tools'] = 'managed';
-  meta['oaa.client_tools_ignored'] = count;
-  return `${input}\n\n[Harness note] ${CLIENT_TOOLS_MANAGED_NOTE}`;
+  if (mode === 'managed') {
+    meta['oaa.client_tools'] = 'managed';
+    meta['oaa.client_tools_ignored'] = count;
+    return `${input}\n\n[Harness note] ${CLIENT_TOOLS_MANAGED_NOTE}`;
+  }
+  meta['oaa.client_tools'] = mode;
+  meta['oaa.client_tools_declared'] = count;
+  if (options.fallback === 'reject') meta['oaa.client_tools_fallback'] = 'reject';
+  if (options.forced) meta['oaa.tool_choice_forced'] = '1';
+  return input;
+}
+
+/** 这次请求的桥接字段要不要准备：显式 bridge，或还没定的 auto / default。 */
+const preparesBridge = (meta: Record<string, string>) =>
+  ['bridge', 'auto', 'default'].includes(meta['oaa.client_tools'] ?? '');
+
+/**
+ * 桥接字段构造失败（内置或服务端工具、不合规的名字或 schema）：显式 bridge 照旧报错；还没定的
+ * auto / default 不报错，记下原因、不带桥接字段，提交时直接走回退行为。
+ */
+export function bridgeFieldsOrFallback(
+  meta: Record<string, string>,
+  build: () => Pick<Invocation, 'client_tools' | 'client_results'>,
+): Pick<Invocation, 'client_tools' | 'client_results'> {
+  try {
+    return build();
+  } catch (error) {
+    if (meta['oaa.client_tools'] === 'bridge' || !(error instanceof Fault)) throw error;
+    meta['oaa.client_tools_unbridgeable'] = error.message.slice(0, 300);
+    return {};
+  }
+}
+
+/** 调用方强制了工具选择（网关与上游模型都没法如实保证）。 */
+export function forcedToolChoice(choice: unknown): boolean {
+  if (choice === 'required' || choice === 'any') return true;
+  if (!choice || typeof choice !== 'object') return false;
+  const c = choice as { type?: unknown; mode?: unknown };
+  return c.type === 'function' || c.type === 'tool' || c.type === 'any' || c.mode === 'ANY';
 }
 
 /** Gemini 的 `tools[].functionDeclarations`：按声明的函数个数计数，没有声明时按 tools 条数。 */
@@ -69,7 +111,7 @@ export function chatBridgeFields(
   messages: ChatMessage[],
   meta: Record<string, string>,
 ): Pick<Invocation, 'client_tools' | 'client_results'> {
-  if (meta['oaa.client_tools'] !== 'bridge' || !Array.isArray(tools)) return {};
+  if (!preparesBridge(meta) || !Array.isArray(tools)) return {};
   const clientTools = tools.map((t) => {
     const fn = (t as { type?: unknown; function?: Record<string, unknown> })?.function;
     if ((t as { type?: unknown })?.type !== 'function' || !fn || typeof fn.name !== 'string')
@@ -119,7 +161,7 @@ export function responsesBridgeFields(
   input: unknown,
   meta: Record<string, string>,
 ): Pick<Invocation, 'client_tools' | 'client_results'> {
-  if (meta['oaa.client_tools'] !== 'bridge' || !Array.isArray(tools)) return {};
+  if (!preparesBridge(meta) || !Array.isArray(tools)) return {};
   const clientTools = tools.map((t) => {
     const tool = (t ?? {}) as Record<string, unknown>;
     if (tool.type !== 'function') throw onlyFunctions('Responses');
@@ -150,7 +192,7 @@ export function claudeBridgeFields(
   messages: { role: string; content: unknown }[],
   meta: Record<string, string>,
 ): Pick<Invocation, 'client_tools' | 'client_results'> {
-  if (meta['oaa.client_tools'] !== 'bridge' || !Array.isArray(tools)) return {};
+  if (!preparesBridge(meta) || !Array.isArray(tools)) return {};
   const clientTools = tools.map((t) => {
     const tool = (t ?? {}) as Record<string, unknown>;
     if (tool.type !== undefined && tool.type !== 'custom') throw onlyFunctions('Claude Messages');
@@ -190,7 +232,7 @@ const SCHEMA_SLOTS = new Set(['items', 'prefixItems', 'anyOf', 'oneOf', 'allOf',
  * 类型转成 JSON Schema 的小写，`nullable: true` 并入类型；嵌套 schema 的位置都递归。
  * `parametersJsonSchema` 已是 JSON Schema，原样。
  */
-function geminiSchema(value: unknown): unknown {
+export function geminiSchema(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(geminiSchema);
   const node = record(value);
   if (!node) return value;
@@ -222,7 +264,7 @@ export function geminiBridgeFields(
   contents: GeminiContent[],
   meta: Record<string, string>,
 ): Pick<Invocation, 'client_tools' | 'client_results'> {
-  if (meta['oaa.client_tools'] !== 'bridge' || !Array.isArray(tools)) return {};
+  if (!preparesBridge(meta) || !Array.isArray(tools)) return {};
   const clientTools = tools.flatMap((t) => {
     const tool = record(t) ?? {};
     const keys = Object.keys(tool);
@@ -273,18 +315,23 @@ export function geminiBridgeFields(
  */
 export function compatInput(
   protocol: 'chat' | 'responses' | 'claude',
-  req: { tools?: unknown; messages?: unknown; input?: unknown },
+  req: { tools?: unknown; messages?: unknown; input?: unknown; tool_choice?: unknown },
   headers: Record<string, unknown> | undefined,
   meta: Record<string, string>,
   text: string,
+  fallback: ToolsFallback = 'managed',
 ): { input: string } & Pick<Invocation, 'client_tools' | 'client_results'> {
-  const input = withClientTools(req.tools, headers, meta, text);
-  const fields =
+  const input = withClientTools(req.tools, headers, meta, text, {
+    forced: forcedToolChoice(req.tool_choice),
+    fallback,
+  });
+  const fields = bridgeFieldsOrFallback(meta, () =>
     protocol === 'chat'
       ? chatBridgeFields(req.tools, req.messages as ChatMessage[], meta)
       : protocol === 'responses'
         ? responsesBridgeFields(req.tools, req.input, meta)
-        : claudeBridgeFields(req.tools, req.messages as { role: string; content: unknown }[], meta);
+        : claudeBridgeFields(req.tools, req.messages as { role: string; content: unknown }[], meta),
+  );
   return { input, ...fields };
 }
 

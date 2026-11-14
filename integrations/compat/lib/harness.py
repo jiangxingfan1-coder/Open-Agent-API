@@ -23,10 +23,17 @@ BASE_URL = os.environ.get("OAA_BASE_URL", "")
 API_KEY = os.environ.get("OAA_API_KEY", "")
 FIXTURE = os.environ.get("OAA_AGENT_FIXTURE", "agent/fixture")
 SAMPLE = os.environ.get("OAA_AGENT_SAMPLE", "agent/sample")
+NATIVE = os.environ.get("OAA_AGENT_NATIVE", "agent/native")
+ACP = os.environ.get("OAA_AGENT_ACP", "agent/acp")
 
 
 class NotApplicable(Exception):
     pass
+
+
+def acp_script(*groups) -> str:
+    """Prompt for the ACP stand-in agent: it calls the named caller tools (groups run one after another)."""
+    return "Do the task.\nSCRIPT:" + json.dumps({"groups": [list(g) for g in groups]})
 
 
 def describe(error: BaseException) -> str:

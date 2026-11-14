@@ -6,7 +6,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from harness import API_KEY, BASE_URL, FIXTURE, Lab, NotApplicable, check, equal  # noqa: E402
+from harness import API_KEY, BASE_URL, FIXTURE, NATIVE, Lab, NotApplicable, check, equal  # noqa: E402
 
 try:
     from importlib.metadata import version
@@ -67,7 +67,7 @@ def _():
 
 @lab.scenario("openai_like.tools_bridge_roundtrip")
 def _():
-    llm = like(api_base=COMPAT, default_headers=BRIDGE, is_function_calling_model=True)
+    llm = like(is_function_calling_model=True)
     tool = FunctionTool.from_defaults(fn=get_weather)
     first = llm.chat_with_tools([tool], user_msg="CALLTOOL")
     calls = llm.get_tool_calls_from_response(first, error_on_no_tool_call=False)
@@ -75,16 +75,16 @@ def _():
     equal(calls[0].tool_kwargs.get("city"), "Paris", "tool kwargs")
 
 
-@lab.scenario("openai_like.tools_on_default_endpoint_error_says_where")
+@lab.scenario("openai_like.tools_on_an_agent_that_cannot_bridge_is_explicit")
 def _():
-    llm = like(is_function_calling_model=True)
+    llm = OpenAILike(model=NATIVE, api_base=V1, api_key=API_KEY, is_chat_model=True, max_retries=0, context_window=32000, is_function_calling_model=True)
     tool = FunctionTool.from_defaults(fn=get_weather)
     try:
         llm.chat_with_tools([tool], user_msg="hi")
     except Exception as error:  # noqa: BLE001
-        check("compat" in str(error), f"the error does not point to /v1/compat: {error}")
+        check("compat" in str(error) and "managed" in str(error), f"the error does not name the way out: {error}")
         return
-    raise AssertionError("tools were silently accepted on the default endpoint")
+    raise AssertionError("tools were silently accepted for an agent that cannot take them over")
 
 
 @lab.scenario("openai_class.unknown_model_name")

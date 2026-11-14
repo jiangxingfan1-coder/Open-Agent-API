@@ -6,7 +6,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from harness import API_KEY, BASE_URL, FIXTURE, SAMPLE, Lab, NotApplicable, check, equal, cancel_active_runs, make_key, runs_created, snapshot_runs  # noqa: E402
+from harness import ACP, API_KEY, BASE_URL, FIXTURE, NATIVE, SAMPLE, Lab, NotApplicable, acp_script, check, equal, cancel_active_runs, make_key, runs_created, snapshot_runs  # noqa: E402
 
 try:
     import openai
@@ -18,7 +18,8 @@ except ImportError as error:
 
 lab = Lab("openai-python", openai.__version__)
 client = OpenAI(base_url=f"{BASE_URL}/v1", api_key=API_KEY, max_retries=0)
-# Caller-defined tools need the compat mode: /v1/compat as Base URL, X-OAA-Client-Tools: bridge to hand calls back.
+# Caller-defined tools are handed to an agent that can take them over without any header (auto mode);
+# `bridge` selects the mode explicitly on the compat entry.
 bridge = OpenAI(
     base_url=f"{BASE_URL}/v1/compat",
     api_key=API_KEY,
@@ -179,13 +180,13 @@ def _():
 
 @lab.scenario("chat.tools_bridge_roundtrip")
 def _():
-    first = bridge.chat.completions.create(model=FIXTURE, messages=[{"role": "user", "content": "CALLTOOL"}], tools=[TOOL])
+    first = client.chat.completions.create(model=FIXTURE, messages=[{"role": "user", "content": "CALLTOOL"}], tools=[TOOL])
     equal(first.choices[0].finish_reason, "tool_calls", "finish_reason")
     calls = first.choices[0].message.tool_calls
     check(calls and calls[0].function.name == "get_weather", "no tool call")
     args = json.loads(calls[0].function.arguments)
     equal(args.get("city"), "Paris", "tool arguments")
-    done = bridge.chat.completions.create(
+    done = client.chat.completions.create(
         model=FIXTURE,
         tools=[TOOL],
         messages=[
@@ -199,23 +200,50 @@ def _():
 
 @lab.scenario("chat.tools_bridge_stream")
 def _():
-    chunks = list(bridge.chat.completions.create(model=FIXTURE, messages=[{"role": "user", "content": "CALLTOOL"}], tools=[TOOL], stream=True))
+    chunks = list(client.chat.completions.create(model=FIXTURE, messages=[{"role": "user", "content": "CALLTOOL"}], tools=[TOOL], stream=True))
     names = [tc.function.name for c in chunks if c.choices for tc in (c.choices[0].delta.tool_calls or []) if tc.function and tc.function.name]
     equal(names, ["get_weather"], "streamed tool call names")
     equal([c.choices[0].finish_reason for c in chunks if c.choices][-1], "tool_calls", "finish_reason")
 
 
-@lab.scenario("chat.tools_default_endpoint_is_explicit")
+@lab.scenario("chat.tools_explicit_bridge_mode")
+def _():
+    first = bridge.chat.completions.create(model=FIXTURE, messages=[{"role": "user", "content": "CALLTOOL"}], tools=[TOOL])
+    equal(first.choices[0].finish_reason, "tool_calls", "finish_reason")
+
+
+@lab.scenario("chat.tools_acp_agent_roundtrip")
+def _():
+    # An external (ACP) agent calls the caller's tool through the MCP relay; the answer comes back as tool_calls.
+    prompt = acp_script([{"name": "get_weather", "arguments": {"city": "Paris"}}])
+    first = client.chat.completions.create(model=ACP, messages=[{"role": "user", "content": prompt}], tools=[TOOL])
+    equal(first.choices[0].finish_reason, "tool_calls", "finish_reason")
+    calls = first.choices[0].message.tool_calls
+    equal(calls[0].function.name, "get_weather", "tool name")
+    done = client.chat.completions.create(
+        model=ACP,
+        tools=[TOOL],
+        messages=[
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": None, "tool_calls": [c.model_dump() for c in calls]},
+            {"role": "tool", "tool_call_id": calls[0].id, "content": "sunny"},
+        ],
+    )
+    check("sunny" in text_of(done), f"the ACP agent did not see the tool result: {text_of(done)[:120]}")
+
+
+@lab.scenario("chat.tools_on_an_agent_that_cannot_bridge_is_explicit")
 def _():
     try:
-        client.chat.completions.create(model=FIXTURE, messages=[{"role": "user", "content": "hi"}], tools=[TOOL])
+        client.chat.completions.create(model=NATIVE, messages=[{"role": "user", "content": "hi"}], tools=[TOOL])
     except openai.BadRequestError as error:
         body = error.body or {}
         code = body.get("code") if isinstance(body, dict) else None
         equal(code, "unsupported_parameter", "error code")
-        check("compat" in str(error).lower(), f"the error does not say where tools are accepted: {error}")
+        equal(body.get("param"), "tools", "error param")
+        check("compat" in str(error).lower() and "managed" in str(error), f"the error does not name the way out: {error}")
         return
-    raise AssertionError("tools were silently accepted on the default endpoint")
+    raise AssertionError("tools were silently accepted for an agent that cannot take them over")
 
 
 @lab.scenario("chat.response_format_json")
@@ -487,11 +515,11 @@ def _():
 
 @lab.scenario("responses.tools_bridge_roundtrip")
 def _():
-    first = bridge.responses.create(model=FIXTURE, input="CALLTOOL", tools=[RTOOL])
+    first = client.responses.create(model=FIXTURE, input="CALLTOOL", tools=[RTOOL])
     calls = [o for o in first.output if o.type == "function_call"]
     check(len(calls) == 1 and calls[0].name == "get_weather", "no function_call item")
     equal(json.loads(calls[0].arguments).get("city"), "Paris", "arguments")
-    done = bridge.responses.create(
+    done = client.responses.create(
         model=FIXTURE,
         tools=[RTOOL],
         previous_response_id=first.id,
@@ -507,7 +535,7 @@ def _():
         input="JSON",
         text={"format": {"type": "json_schema", "name": "a", "schema": {"type": "object", "properties": {"answer": {"type": "string"}}}, "strict": False}},
     )
-    equal(json.loads(r.output_text).get("answer"), "ok", "parsed JSON")
+    equal(json.loads(r.output_text).get("answer"), "x", "parsed JSON")
 
 
 @lab.scenario("responses.error_failed_run")
@@ -561,6 +589,90 @@ def _():
         except Exception as error:  # noqa: BLE001
             raise AssertionError(f"{name}: {type(error).__name__}: {error}")
     return "; ".join(results)
+
+
+
+# ---------------------------------------------------------------- structured output
+from pydantic import BaseModel
+
+
+class Person(BaseModel):
+    name: str
+    age: int
+
+
+@lab.scenario("structured.chat_parse_pydantic")
+def _():
+    r = client.chat.completions.parse(model=FIXTURE, messages=[{"role": "user", "content": "who?"}], response_format=Person)
+    parsed = r.choices[0].message.parsed
+    equal((parsed.name, parsed.age), ("x", 1), "parsed model")
+    equal(r.choices[0].message.refusal, None, "refusal")
+
+
+@lab.scenario("structured.chat_parse_after_a_correction_round")
+def _():
+    r = client.chat.completions.parse(model=FIXTURE, messages=[{"role": "user", "content": "BADJSON who?"}], response_format=Person)
+    equal(r.choices[0].message.parsed.age, 1, "parsed after the correction round")
+    check(r.usage.total_tokens > 0, "usage")
+
+
+@lab.scenario("structured.chat_stream_helper_parses_and_arrives_in_one_chunk")
+def _():
+    with client.chat.completions.stream(model=FIXTURE, messages=[{"role": "user", "content": "BADJSON who?"}], response_format=Person) as stream:
+        chunks = [e for e in stream if e.type == "chunk"]
+        final = stream.get_final_completion()
+    equal(final.choices[0].message.parsed.name, "x", "parsed")
+    pieces = [c.chunk.choices[0].delta.content for c in chunks if c.chunk.choices and c.chunk.choices[0].delta.content]
+    equal(len(pieces), 1, "content chunks (the answer is held until it is checked)")
+
+
+@lab.scenario("structured.json_object_and_json_schema_dict")
+def _():
+    r = client.chat.completions.create(model=FIXTURE, messages=[{"role": "user", "content": "who?"}], response_format={"type": "json_object"})
+    check(isinstance(json.loads(text_of(r)), dict), "json_object answer is an object")
+    schema = {"name": "answer", "strict": True, "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"], "additionalProperties": False}}
+    r = client.chat.completions.create(model=FIXTURE, messages=[{"role": "user", "content": "who?"}], response_format={"type": "json_schema", "json_schema": schema})
+    equal(json.loads(text_of(r)), {"ok": True}, "answer")
+
+
+@lab.scenario("structured.chat_failure_is_a_clear_422")
+def _():
+    retrying = OpenAI(base_url=f"{BASE_URL}/v1", api_key=API_KEY, max_retries=2)
+    before = snapshot_runs()
+    try:
+        retrying.chat.completions.parse(model=FIXTURE, messages=[{"role": "user", "content": "ALWAYSBAD who?"}], response_format=Person)
+    except openai.UnprocessableEntityError as error:
+        equal((error.body or {}).get("code"), "structured_output_invalid", "error code")
+        equal(runs_created(before), 1, "runs created with max_retries=2 (a 422 is not retried)")
+        return
+    raise AssertionError("an answer that does not fit was returned as a success")
+
+
+@lab.scenario("structured.responses_parse")
+def _():
+    r = client.responses.parse(model=FIXTURE, input="BADJSON who?", text_format=Person)
+    equal((r.output_parsed.name, r.output_parsed.age), ("x", 1), "output_parsed")
+    equal(r.text.format.type, "json_schema", "the response echoes the format")
+
+
+@lab.scenario("structured.responses_stream_parse")
+def _():
+    with client.responses.stream(model=FIXTURE, input="who?", text_format=Person) as stream:
+        deltas = [e for e in stream if e.type == "response.output_text.delta"]
+        final = stream.get_final_response()
+    equal(final.output_parsed.age, 1, "output_parsed")
+    equal(len(deltas), 1, "text deltas (held until checked)")
+
+
+@lab.scenario("structured.unsupported_schema_is_a_clear_400")
+def _():
+    bad = {"name": "x", "schema": {"type": "object", "properties": {"a": {"$ref": "https://example.com/s.json"}}}}
+    try:
+        client.chat.completions.create(model=FIXTURE, messages=[{"role": "user", "content": "x"}], response_format={"type": "json_schema", "json_schema": bad})
+    except openai.BadRequestError as error:
+        equal((error.body or {}).get("code"), "output_schema_unsupported", "error code")
+        return
+    raise AssertionError("a schema that cannot be enforced was accepted")
 
 
 lab.done()

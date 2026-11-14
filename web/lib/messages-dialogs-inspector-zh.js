@@ -18,6 +18,8 @@ export const zhInspector = {
   'insp.usage.tokens': '{n} token',
   'insp.usage.partial': ' · 部分',
   'insp.usage.none': '未报告用量',
+  'insp.contract': '结构化输出（{kind}）',
+  'insp.contract.repairs': '，修复 {n} 次',
   'insp.output_chars': '{n} 字符',
   'insp.unavailable': '不可用',
   'insp.output_empty': '暂无输出',

@@ -13,7 +13,7 @@ import warnings
 os.environ["OPENAI_AGENTS_DISABLE_TRACING"] = "1"
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from harness import API_KEY, BASE_URL, FIXTURE, Lab, check, equal  # noqa: E402
+from harness import API_KEY, BASE_URL, FIXTURE, NATIVE, Lab, check, equal  # noqa: E402
 
 try:
     from importlib.metadata import version
@@ -43,12 +43,12 @@ def aclient(base="v1", headers=None):
     return AsyncOpenAI(base_url=f"{BASE_URL}/{base}", api_key=API_KEY, max_retries=0, default_headers=headers)
 
 
-def responses_model(**kw):
-    return OpenAIResponsesModel(model=FIXTURE, openai_client=aclient(**kw))
+def responses_model(model=FIXTURE, **kw):
+    return OpenAIResponsesModel(model=model, openai_client=aclient(**kw))
 
 
-def chat_model(**kw):
-    return OpenAIChatCompletionsModel(model=FIXTURE, openai_client=aclient(**kw))
+def chat_model(model=FIXTURE, **kw):
+    return OpenAIChatCompletionsModel(model=model, openai_client=aclient(**kw))
 
 
 @function_tool
@@ -101,22 +101,22 @@ for label, build in (("responses_model", responses_model), ("chat_completions_mo
 
     lab.scenario(f"{label}.model_settings_tolerated")(settings)
 
-    def tools_default(build=build):
-        agent = Agent(name="lab", instructions="x", model=build(), tools=[get_weather])
+    def tools_native(build=build):
+        agent = Agent(name="lab", instructions="x", model=build(model=NATIVE), tools=[get_weather])
         try:
             run(agent, "hi")
         except Exception as error:  # noqa: BLE001
-            check("compat" in str(error), f"the error does not point to /v1/compat: {error}")
-            return "tools on the default endpoint: explicit error pointing to /v1/compat"
-        raise AssertionError("tools were silently accepted on the default endpoint")
+            check("compat" in str(error) and "managed" in str(error), f"the error does not name the way out: {error}")
+            return "an agent that cannot bridge: explicit error naming the way out"
+        raise AssertionError("tools were silently accepted for an agent that cannot take them over")
 
-    lab.scenario(f"{label}.function_tool_on_default_endpoint_is_explicit")(tools_default)
+    lab.scenario(f"{label}.function_tool_on_an_agent_that_cannot_bridge_is_explicit")(tools_native)
 
     def tools_bridge(build=build):
-        agent = Agent(name="lab", instructions="x", model=build(base="v1/compat", headers=BRIDGE), tools=[get_weather])
+        agent = Agent(name="lab", instructions="x", model=build(), tools=[get_weather])
         r = run(agent, "CALLTOOL")
         check("sunny in Paris" in r.final_output and r.final_output.startswith("Tool result:"), f"final_output: {r.final_output}")
 
-    lab.scenario(f"{label}.function_tool_loop_via_bridge")(tools_bridge)
+    lab.scenario(f"{label}.function_tool_loop_without_any_header")(tools_bridge)
 
 lab.done()

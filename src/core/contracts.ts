@@ -302,6 +302,17 @@ export type Checkpoint = {
    * messages already handed to the caller, so a continuation only returns what is new.
    */
   bridge?: { tools: ClientTool[]; delivered: number };
+  /** Structured output (docs/structured-output.md): `repairs` correction rounds allowed, `used` spent so far. */
+  outputContract?: OutputContract & { repairs: number; used?: number };
+};
+/** What `response_format` / `text.format` / `responseSchema` / `output_config.format` asks for. */
+export type OutputContract = {
+  kind: 'json_object' | 'json_any' | 'json_schema';
+  schema?: Record<string, unknown>;
+  name?: string;
+  strict?: boolean;
+  /** The caller's own format object, echoed in the Responses `text.format` field. */
+  format?: Record<string, unknown>;
 };
 /** A tool declared by the caller in a bridged compatibility request. */
 export type ClientTool = {

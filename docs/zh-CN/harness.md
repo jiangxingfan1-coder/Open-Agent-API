@@ -21,21 +21,31 @@ OAA 内核（准入、身份、持久化、审批、事件）
 
 两层各有一套工具。如果只是把外层的 `tools` 悄悄丢掉，外层系统提示里「必须调用 edit_file」之类的话会原样交给内层智能体，而内层并没有这个工具，容易在正文里编造工具调用。所以 OAA 让调用方明确选择外层工具怎么处理。
 
-## 三种模式
+## 各种模式
 
 | 模式 | 含义 | 谁执行工具 | 适用场景 |
 | --- | --- | --- | --- |
-| `managed` 托管（默认） | 内层智能体全权完成任务。外层传入的工具不执行，并明确告知：响应头 `X-OAA-Client-Tools: ignored`；同时在交给智能体的输入末尾加一段固定说明（外部工具在这里不可用，请用自己的工具完成并直接给出结果，不要在正文里写工具调用） | 内层智能体 | 把 OAA 智能体当作「会自己干活的模型」接进现有工具 |
+| `auto` 自动（默认） | 知道是哪个智能体之后由网关决定：智能体能接管调用方的工具就按 `bridge`，否则做该入口原来做的事（见「auto 怎么判定」） | 取决于它选的模式 | 几乎总是：调用方不用知道名字背后是哪一类智能体 |
+| `managed` 托管 | 内层智能体全权完成任务。外层传入的工具不执行，并明确告知：响应头 `X-OAA-Client-Tools: ignored`；同时在交给智能体的输入末尾加一段固定说明（外部工具在这里不可用，请用自己的工具完成并直接给出结果，不要在正文里写工具调用） | 内层智能体 | 把 OAA 智能体当作「会自己干活的模型」接进现有工具，或保持 `auto` 之前的行为 |
 | `bridge` 桥接 | 外层的工具投射给内层智能体；内层调用时运行停车，以标准 `tool_calls` 返回给调用方，调用方执行后回传结果，同一个运行接着做 | 调用方（由内层发起） | 工具必须在调用方本机执行（例如编辑调用方工作区里的文件） |
 | `reject` 拒绝 | 只要传了工具就报错 `client_tools_unsupported`，不降级 | — | 需要严格语义、不接受工具被忽略的调用方 |
 
-> **桥接已对内置内核智能体提供，支持 Chat Completions、Responses、Claude Messages 与 Gemini `generateContent`。** 不支持桥接的外部智能体请求 `bridge` 会得到 `client_tools_bridge_unsupported`（400），UAP/1 不接受 `tools` 字段；这些情况下任何运行都不会创建。
+> **桥接已对内置内核智能体与 ACP 外部智能体提供，支持 Chat Completions、Responses、Claude Messages 与 Gemini `generateContent`。** 不支持桥接的外部智能体请求 `bridge` 会得到 `client_tools_bridge_unsupported`（400），UAP/1 不接受 `tools` 字段；这些情况下任何运行都不会创建。
+
+## auto 怎么判定
+
+请求声明了工具、又没有选模式，就得到 `auto`（网关配置 `clientTools.default` 可以把这个缺省改成 `managed`、`bridge` 或 `reject`；请求头里显式写的 `auto` 优先于配置）。规则如下，提交时智能体已经知道：
+
+1. 智能体能接管工具（内核智能体，或有在线执行机器为它声明了 `client-tools-v1` 的 ACP 智能体），工具都是普通函数、名字与智能体自己的不重名，且没有强制工具选择：请求按 `bridge` 处理。响应带 `X-OAA-Client-Tools: bridge`；智能体的调用以 `tool_calls` / `function_call` / `tool_use` / `functionCall` 交回。
+2. 其它情况得到该入口原来的行为。OpenAI 默认端点（不带 `X-OAA-Compat` 的 `/v1/chat/completions`、`/v1/responses`）返回 400 `unsupported_parameter`（`error.param` 是 `tools`）：信息说明这个智能体接管不了你的工具、原因是什么（自己跑工具循环的原生引擎、没有为调用方工具声明支持的执行机器、名字重名、工具不是函数、强制了工具选择），并写明三条出路：Base URL 用 `<origin>/v1/compat`、`X-OAA-Compat: true`、`X-OAA-Client-Tools: managed`。兼容端点、Claude Messages 与 Gemini 照旧按 `managed`（智能体用自己的工具完成；`X-OAA-Client-Tools: ignored`）。
+
+所以变化的只有两种情况：对能桥接的智能体的请求现在会桥接（在 OpenAI 默认端点上以前是 400，其它入口以前是 `managed`）。不能桥接的智能体（Codex、Claude Code、Antigravity、A2A、HTTP 适配器）在每个入口上与以前完全一样。强制的工具选择网关和上游模型都没法保证做到，所以它从不桥接；默认端点拒绝强制的 `tool_choice`（`unsupported_parameter`，`error.param` 是 `tool_choice`），其余入口照旧忽略。桥接回合里外部智能体自己的权限请求怎么放行不变（见「外部智能体的桥接是怎么工作的」）：`auto` 不会放宽自动放行的范围。
 
 只有请求里的 `tools` 是**非空数组**时才会按模式处理。没有 `tools`、或者 `tools: []`，行为与以前完全相同，模式请求头也不起作用。
 
 ## 怎么选
 
-- 不确定就用默认的 `managed`：调用方照常拿到最终结果，响应头告诉你工具被忽略了。
+- 不确定就保持默认的 `auto`：能用你的工具的智能体拿到工具，其它智能体照旧工作，响应头（`bridge` 或 `ignored`）说明发生了哪一种。
 - 调用方必须知道「工具没被执行」并据此改变行为（例如换一个模型）时，用 `reject`，按错误码分支。
 - 智能体必须调用你本机的工具才能完成任务、而且背后是内核智能体或 ACP 外部智能体时，用 `bridge`。其它外部智能体可以先把这些工具发布成 OAA 智能体自己的工具（MCP 导入或节点工具），再用 `managed`。
 
@@ -43,7 +53,7 @@ OAA 内核（准入、身份、持久化、审批、事件）
 
 两种写法，请求头优先：
 
-1. 请求头 `X-OAA-Client-Tools: managed | bridge | reject`（大小写不敏感）。
+1. 请求头 `X-OAA-Client-Tools: auto | managed | bridge | reject`（大小写不敏感）。
 2. 请求体 `metadata["oaa.client_tools"]`，取值同上。
 
 其它取值报 `invalid_request`（400），消息里列出三个合法值。
@@ -81,15 +91,16 @@ Responses（`/v1/compat/responses`）与 Gemini（`tools[].functionDeclarations`
 
 | 情况 | 响应头 |
 | --- | --- |
-| `managed` 且请求确实带了工具 | `X-OAA-Client-Tools: ignored`（流式与非流式都有） |
+| 智能体继续用自己的工具、且请求确实带了工具（`managed`，或 `auto` 回退） | `X-OAA-Client-Tools: ignored`（流式与非流式都有） |
+| 工具交给了智能体（`bridge`，或 `auto` 选了它） | `X-OAA-Client-Tools: bridge` |
 | 没有带工具 | 不出现，响应头集合与以前一致 |
 | 请求里有被接受但不转发的参数（`temperature` 等，见 protocol.md「兼容入口的参数、错误与结束原因」） | `X-OAA-Ignored-Params: <参数名, …>`；没有时不出现 |
 
-运行记录的 `metadata` 里同时可见 `oaa.client_tools: "managed"` 与 `oaa.client_tools_ignored: "<工具个数>"`。
+运行记录的 `metadata` 里可见实际采用的模式：`oaa.client_tools: "managed"` 加 `oaa.client_tools_ignored: "<工具个数>"`，或 `oaa.client_tools: "bridge"`。
 
 ## 当前支持矩阵
 
-接入方式 × 模式（智能体画像 `conversion.client_tools` 给出每个智能体的取值：内核与 ACP 为 `bridge`，其余为 `managed`）：
+接入方式 × 模式（智能体画像 `conversion.client_tools` 给出每个智能体的取值：内核与 ACP 为 `bridge`，其余为 `managed`；`auto` 取其中那一列）：
 
 | 智能体接入方式 | `managed` | `reject` | `bridge` |
 | --- | --- | --- | --- |
@@ -108,10 +119,10 @@ Responses（`/v1/compat/responses`）与 Gemini（`tools[].functionDeclarations`
 | Responses（`X-OAA-Compat: true` 或 `/v1/compat/responses`） | 支持 | 支持 | 支持（内核与 ACP 智能体；只接受 `type: "function"` 工具） |
 | Claude Messages（`/v1/messages`、`/v1/compat/messages`） | 支持 | 支持 | 支持（内核与 ACP 智能体；带 `type` 的服务端工具被拒） |
 | Gemini `generateContent` / `streamGenerateContent`（`/v1beta` 与 `/v1`） | 支持 | 支持 | 支持（内核与 ACP 智能体；只接受 `functionDeclarations`，`googleSearch` 等内置工具被拒） |
-| 严格接口（不带 `X-OAA-Compat` 的 `/v1/chat/completions`、`/v1/responses`） | — | — | — |
+| 严格接口（不带 `X-OAA-Compat` 的 `/v1/chat/completions`、`/v1/responses`） | 支持（显式写请求头） | 支持（显式写请求头） | 支持（内核与 ACP 智能体）；没选模式时，不能桥接的智能体被拒绝（见「auto 怎么判定」） |
 | UAP/1（`/v1/uap`） | — | — | — |
 
-严格接口与 UAP/1 不受模式影响。严格接口拒绝非空的 `tools`（也包括 `functions`、工具结果消息与 assistant 的 `tool_calls`），报 `unsupported_parameter`（`error.param` 是 `"tools"` 或 `messages.N`；说明里指向 Base URL `<origin>/v1/compat` 与 `X-OAA-Client-Tools: bridge`），空的 `tools: []` 按没有工具接受。UAP/1 按未知字段报 `invalid_request`。
+严格接口和其它入口一样参与各模式；不同的只是 `auto` 的回退（拒绝，而不是 `managed`）。旧式的 `functions` / `function_call` 在那里仍被拒绝，空的 `tools: []` 按没有工具接受。UAP/1 不参与：带 `tools` 字段会报 `invalid_request`。
 
 ## 与人工审批的区别
 

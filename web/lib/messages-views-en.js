@@ -226,9 +226,12 @@ export const en = {
   'access.cliCommandTitle': 'Command-line call',
   'access.callerTitle': 'When the caller is an agent too',
   'access.callerText':
-    'When the caller (such as Cursor, Claude Code or any agent SDK) brings tools of its own, the X-OAA-Client-Tools request header chooses how they are handled. Without it, they are managed.',
+    'When the caller (such as Cursor, Claude Code or any agent SDK) brings tools of its own, the X-OAA-Client-Tools request header chooses how they are handled. Without it, the mode is auto: the tools go to an agent that can take them over, and otherwise things work as before.',
   'access.colMode': 'Mode',
   'access.colMeaning': 'Meaning',
+  'access.modeAuto': 'auto (default)',
+  'access.modeAutoText':
+    'If the agent can take the caller’s tools over they are bridged; otherwise as before: the agent finishes with its own tools, or (OpenAI default endpoints) the request is refused clearly.',
   'access.modeManaged': 'managed',
   'access.modeManagedText':
     'The agent finishes the task with its own tools. The caller’s tools are not run, and the response says so.',

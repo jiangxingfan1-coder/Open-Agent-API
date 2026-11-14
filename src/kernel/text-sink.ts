@@ -19,6 +19,7 @@ export class RunTextSink {
   private pending: string[] = [];
   private pendingChars = 0;
   private scheduled = false;
+  private holding = false;
 
   constructor(
     private readonly store: Store,
@@ -34,8 +35,16 @@ export class RunTextSink {
     return this.sink !== undefined;
   }
 
+  /**
+   * Structured output: while held, text is not recorded at all. The answer is checked first and
+   * written out in one piece once it fits (kernel/structured-output.ts).
+   */
+  hold(on: boolean): void {
+    this.holding = on;
+  }
+
   emit(delta: string): void {
-    if (!delta || this.aborted()) return;
+    if (!delta || this.holding || this.aborted()) return;
     const written = this.run.output.reduce((n, m) => n + m.text.length, 0);
     if (written + this.pendingChars + delta.length > OUTPUT_LIMIT) {
       this.fail(new Fault('output_too_large', 'Agent output exceeds limit.', 413));

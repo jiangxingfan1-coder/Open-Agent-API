@@ -76,15 +76,14 @@ def _():
 
 @lab.scenario("openai.tools_bridge_roundtrip")
 def _():
-    first = say("CALLTOOL", api_base=COMPAT, extra_headers=BRIDGE, tools=[TOOL])
+    first = say("CALLTOOL", tools=[TOOL])
     calls = first.choices[0].message.tool_calls
     check(calls and calls[0].function.name == "get_weather", "no tool call")
     equal(json.loads(calls[0].function.arguments).get("city"), "Paris", "arguments")
     done = litellm.completion(
         model=OPENAI,
-        api_base=COMPAT,
+        api_base=V1,
         api_key=API_KEY,
-        extra_headers=BRIDGE,
         tools=[TOOL],
         messages=[
             {"role": "user", "content": "CALLTOOL"},

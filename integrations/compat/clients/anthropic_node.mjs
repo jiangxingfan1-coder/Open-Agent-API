@@ -66,11 +66,11 @@ await lab.scenario('messages.tools_default_mode_is_not_an_error', async () => {
   equal(text(await ask('hi', { tools: [TOOL], tool_choice: { type: 'auto' } })), 'Hello world from the fixture.', 'text');
 });
 await lab.scenario('messages.tools_bridge_roundtrip', async () => {
-  const first = await ask('CALLTOOL', { tools: [TOOL] }, bridge);
+  const first = await ask('CALLTOOL', { tools: [TOOL] });
   equal(first.stop_reason, 'tool_use', 'stop_reason');
   const use = first.content.find((b) => b.type === 'tool_use');
   equal(use.input.city, 'Paris', 'input');
-  const done = await bridge.messages.create({
+  const done = await client.messages.create({
     model: M, max_tokens: 256, tools: [TOOL],
     messages: [
       { role: 'user', content: 'CALLTOOL' },
@@ -79,7 +79,7 @@ await lab.scenario('messages.tools_bridge_roundtrip', async () => {
     ],
   });
   equal(text(done), 'Tool result: sunny', 'final');
-  const streamed = await bridge.messages.stream({ model: M, max_tokens: 64, tools: [TOOL], messages: [{ role: 'user', content: 'CALLTOOL' }] }).finalMessage();
+  const streamed = await client.messages.stream({ model: M, max_tokens: 64, tools: [TOOL], messages: [{ role: 'user', content: 'CALLTOOL' }] }).finalMessage();
   equal(streamed.content.find((b) => b.type === 'tool_use')?.input?.city, 'Paris', 'streamed input_json_delta');
 });
 await lab.scenario('messages.image_rejected_clearly', async () => {
@@ -112,5 +112,8 @@ await lab.scenario('unsupported.count_tokens_and_batches_are_clean_404', async (
   const a = await rejects(client.messages.countTokens({ model: M, messages: [{ role: 'user', content: 'hi' }] }), Anthropic.NotFoundError, 'count_tokens');
   equal(a.error?.error?.type, 'not_found_error', 'error.type');
   await rejects(client.messages.batches.list(), Anthropic.NotFoundError, 'batches');
+});
+await lab.scenario('messages.tools_explicit_bridge_mode', async () => {
+  equal((await ask('CALLTOOL', { tools: [TOOL] }, bridge)).stop_reason, 'tool_use', 'stop_reason');
 });
 lab.done();

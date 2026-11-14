@@ -20,6 +20,8 @@ async function gateway() {
     { allowedOrigins: ['http://localhost:3000'] },
   );
   s.store.publish('owner', makeBundle(agent()));
+  // An agent that runs its own tool loop: it cannot take caller tools over.
+  s.store.publish('owner', makeBundle(agent({ id: 'agent/native', engine: 'codex' })));
   const chat = (extra: Record<string, unknown>, path = '/v1/chat/completions') =>
     s.request('POST', path, {
       model: 'agent/test',
@@ -111,18 +113,16 @@ test('strict chat: message names, extra keys on content parts and extra stream_o
   }
 });
 
-test('strict chat: tools, tool messages, forced tool_choice, logprobs, JSON formats and non-text output are refused with the way out', async () => {
+test('strict chat: forced tool_choice, logprobs and non-text output are refused with the way out; tools are bridged or refused by agent', async () => {
   const { s, chat } = await gateway();
   try {
     const tool = { type: 'function', function: { name: 'f', parameters: { type: 'object' } } };
     const cases: [Record<string, unknown>, string][] = [
-      [{ tools: [tool] }, 'tools'],
       [{ functions: [{ name: 'f' }] }, 'functions'],
       [{ tool_choice: 'required' }, 'tool_choice'],
       [{ tool_choice: { type: 'function', function: { name: 'f' } } }, 'tool_choice'],
       [{ logprobs: true }, 'logprobs'],
       [{ modalities: ['text', 'audio'] }, 'modalities'],
-      [{ response_format: { type: 'json_object' } }, 'response_format'],
       [{ n: 2 }, 'n'],
     ];
     for (const [extra, param] of cases) {
@@ -131,9 +131,16 @@ test('strict chat: tools, tool messages, forced tool_choice, logprobs, JSON form
       assert.equal(r.json().error.code, 'unsupported_parameter');
       assert.equal(r.json().error.param, param);
     }
-    const tools = (await chat({ tools: [tool] })).json().error.message as string;
-    assert.match(tools, /\/v1\/compat/);
-    assert.match(tools, /X-OAA-Client-Tools: bridge/);
+    // Caller tools: a kernel agent takes them over; an agent that cannot gets the refusal that names the way out.
+    const bridged = await chat({ tools: [tool] });
+    assert.equal(bridged.statusCode, 200, bridged.body);
+    assert.equal(bridged.headers['x-oaa-client-tools'], 'bridge');
+    const native = await chat({ model: 'agent/native', tools: [tool] });
+    assert.equal(native.statusCode, 400);
+    assert.equal(native.json().error.code, 'unsupported_parameter');
+    assert.equal(native.json().error.param, 'tools');
+    assert.match(native.json().error.message, /\/v1\/compat/);
+    assert.match(native.json().error.message, /X-OAA-Client-Tools: managed/);
     // Harmless values are accepted: no tools, text format, logprobs off.
     for (const extra of [
       { tools: [] },
@@ -156,13 +163,10 @@ test('strict chat: tools, tool messages, forced tool_choice, logprobs, JSON form
         { role: 'tool', tool_call_id: 'c', content: 'x' },
       ],
     });
-    assert.equal(history.statusCode, 400);
-    assert.equal(history.json().error.code, 'unsupported_parameter');
-    assert.equal(history.json().error.param, 'messages.1');
-    assert.match(history.json().error.message, /assistant tool calls/);
+    assert.equal(history.statusCode, 200, history.body);
     // The compatibility endpoint takes all of them.
     const compat = await chat(
-      { tools: [tool], response_format: { type: 'json_object' }, tool_choice: 'required' },
+      { tools: [tool], tool_choice: 'required' },
       '/v1/compat/chat/completions',
     );
     assert.equal(compat.statusCode, 200, compat.body);
@@ -221,7 +225,7 @@ test('strict responses: instructions, reasoning, typed message items and output_
   }
 });
 
-test('strict responses: tool items, forced tool_choice, JSON formats and tools are refused with the way out', async () => {
+test('strict responses: a forced tool_choice is refused with the way out; tools are bridged or refused by agent', async () => {
   const { s, responses } = await gateway();
   try {
     const item = await responses({
@@ -230,14 +234,17 @@ test('strict responses: tool items, forced tool_choice, JSON formats and tools a
         { type: 'function_call', call_id: 'c', name: 'f', arguments: '{}' },
       ],
     });
-    assert.equal(item.statusCode, 400);
-    assert.equal(item.json().error.code, 'unsupported_content');
-    assert.equal(item.json().error.param, 'input.1');
-    assert.match(item.json().error.message, /\/v1\/compat/);
+    assert.equal(item.statusCode, 200, item.body);
+    const tools = [{ type: 'function', name: 'f', parameters: { type: 'object' } }];
+    const bridged = await responses({ tools });
+    assert.equal(bridged.statusCode, 200, bridged.body);
+    assert.equal(bridged.headers['x-oaa-client-tools'], 'bridge');
+    const native = await responses({ model: 'agent/native', tools });
+    assert.equal(native.statusCode, 400);
+    assert.equal(native.json().error.param, 'tools');
+    assert.match(native.json().error.message, /\/v1\/compat/);
     const refused: [Record<string, unknown>, string][] = [
-      [{ tools: [{ type: 'function', name: 'f', parameters: {} }] }, 'tools'],
       [{ tool_choice: 'required' }, 'tool_choice'],
-      [{ text: { format: { type: 'json_object' } } }, 'text.format'],
     ];
     for (const [extra, param] of refused) {
       const r = await responses(extra);

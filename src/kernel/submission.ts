@@ -380,8 +380,18 @@ export function submit(
       ...(principal.hostAgents?.length ? { hostAgents: [...principal.hostAgents] } : {}),
       ...(providerKey !== undefined ? { byok: true } : {}),
       ...(bridge ? { bridge } : {}),
+      ...(invocation.output_contract
+        ? {
+            outputContract: {
+              ...invocation.output_contract,
+              repairs: rt.limits.structuredRepairs ?? 1,
+            },
+          }
+        : {}),
     },
   };
+  if (invocation.output_contract)
+    run.metadata = { ...run.metadata, 'oaa.output_contract': invocation.output_contract.kind };
   const created = rt.store.createRun(run, idem, fingerprint, {
     type: 'response.created',
     data: { response: responseObject(run) },

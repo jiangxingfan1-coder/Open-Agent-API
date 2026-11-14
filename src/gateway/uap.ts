@@ -8,10 +8,17 @@ import {
   type RoutingStrategy,
 } from './protocol.js';
 import { Fault } from '../core/util.js';
-import { geminiBridgeFields, geminiToolCount, withClientTools } from './client-tools.js';
+import {
+  bridgeFieldsOrFallback,
+  forcedToolChoice,
+  geminiBridgeFields,
+  geminiToolCount,
+  withClientTools,
+} from './client-tools.js';
 import { CompatFault, finishOf, geminiFinish, runFailure } from './compat-errors.js';
 import { applyMaxTokens } from './compat-params.js';
 import { camelizeGeminiBody } from './gemini.js';
+import { geminiContract, instructionFor } from './structured-output.js';
 
 type GeminiPart = z.infer<typeof geminiPartSchema>;
 
@@ -291,6 +298,11 @@ export const geminiGenerateSchema = z
   })
   .passthrough();
 
+/** Gemini's forced function calling: `toolConfig.functionCallingConfig.mode: "ANY"`. */
+const geminiToolChoice = (req: object) =>
+  ((req as { toolConfig?: { functionCallingConfig?: unknown } }).toolConfig ?? {})
+    .functionCallingConfig;
+
 export function parseGeminiGenerateContent(
   value: unknown,
   targetFromPath?: string,
@@ -327,6 +339,8 @@ export function parseGeminiGenerateContent(
     segments.push(`[${role}]\n${text}`);
   });
 
+  const contract = geminiContract(req.generationConfig);
+  if (contract) segments.push(`[user]\n${instructionFor(contract)}`);
   const directive = extractInlineDirective(segments.join('\n\n'));
   const resolved = resolveModelSelector(rawModel, req.metadata, headers, directive);
   const meta: Record<string, string> = { ...(req.metadata ?? {}) };
@@ -343,16 +357,18 @@ export function parseGeminiGenerateContent(
 
   const input = withClientTools(req.tools, headers, meta, directive.cleanedInput, {
     count: geminiToolCount(req.tools),
+    forced: forcedToolChoice(geminiToolChoice(req)),
   });
   return invocationSchema.parse({
     agent: resolved.agent,
     model: resolved.model,
     input,
-    ...geminiBridgeFields(req.tools, contents, meta),
+    ...bridgeFieldsOrFallback(meta, () => geminiBridgeFields(req.tools, contents, meta)),
     file_ids: [...new Set(files)],
     stream,
     metadata: meta,
     agent_version: resolved.agent_version,
+    ...(contract ? { output_contract: contract } : {}),
   });
 }
 

@@ -210,6 +210,7 @@ const FEATURE_LABELS = {
   'harness-bridge-acp-v1': t('feature.harness-bridge-acp-v1'),
   'harness-bridge-v1': t('feature.harness-bridge-v1'),
   'local-backends-v1': t('feature.local-backends-v1'),
+  'structured-output-v1': t('feature.structured-output-v1'),
   'oaa-lang-roundtrip-v1': t('feature.oaa-lang-roundtrip-v1'),
   'overview-activity-v1': t('feature.overview-activity-v1'),
   'overview-etag-v1': t('feature.overview-etag-v1'),

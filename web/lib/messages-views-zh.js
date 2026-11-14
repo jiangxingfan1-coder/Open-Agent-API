@@ -220,9 +220,12 @@ export const zh = {
   'access.cliCommandTitle': '命令行调用命令',
   'access.callerTitle': '调用方自己也是智能体时',
   'access.callerText':
-    '调用方（如 Cursor、Claude Code 或各种 Agent SDK）自己也带着工具时，可以用请求头 X-OAA-Client-Tools 选择这些工具怎么处理。不传时按托管处理。',
+    '调用方（如 Cursor、Claude Code 或各种 Agent SDK）自己也带着工具时，可以用请求头 X-OAA-Client-Tools 选择这些工具怎么处理。不传时按自动处理：智能体能接管就桥接，否则照旧。',
   'access.colMode': '模式',
   'access.colMeaning': '含义',
+  'access.modeAuto': '自动 auto（默认）',
+  'access.modeAutoText':
+    '智能体能接管调用方的工具就桥接，否则照旧：智能体用自己的工具完成，或（OpenAI 默认端点）明确拒绝。',
   'access.modeManaged': '托管 managed',
   'access.modeManagedText': '智能体用自己的工具完成任务，调用方的工具不执行，响应里会注明。',
   'access.modeBridge': '桥接 bridge',

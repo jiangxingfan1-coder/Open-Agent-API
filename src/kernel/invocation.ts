@@ -1,5 +1,16 @@
 import { z } from 'zod';
 
+/** Structured output the caller asked for; checked when the run finishes (kernel/output-contract.ts). */
+export const outputContractSchema = z
+  .object({
+    kind: z.enum(['json_object', 'json_any', 'json_schema']),
+    schema: z.record(z.string(), z.unknown()).optional(),
+    name: z.string().max(64).optional(),
+    strict: z.boolean().optional(),
+    format: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+
 export const invocationSchema = z
   .object({
     protocol: z.literal('oaa/1').default('oaa/1'),
@@ -44,6 +55,7 @@ export const invocationSchema = z
       )
       .max(64)
       .optional(),
+    output_contract: outputContractSchema.optional(),
   })
   .strict();
 export type Invocation = z.infer<typeof invocationSchema>;

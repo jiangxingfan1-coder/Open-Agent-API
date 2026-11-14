@@ -295,14 +295,19 @@ test('anthropic sdk: streamed bridge turns assemble input_json_delta into object
   }
 });
 
-test('anthropic sdk: managed mode (no bridge header) ignores tools and says so', async () => {
+test('anthropic sdk: explicit managed mode ignores tools and says so; the default hands them to a kernel agent', async () => {
   const { s, client } = await gateway();
   try {
-    const { data, response } = await client()
+    const { data, response } = await client({ defaultHeaders: { 'x-oaa-client-tools': 'managed' } })
       .messages.create({ model: 'agent/test', max_tokens: 10, tools: [tool], messages: user('hi') })
       .withResponse();
     assert.equal(data.stop_reason, 'end_turn');
     assert.equal(response.headers.get('x-oaa-client-tools'), 'ignored');
+    // No mode chosen: the kernel agent can take the tools over, and the header says so.
+    const auto = await client()
+      .messages.create({ model: 'agent/test', max_tokens: 10, tools: [tool], messages: user('hi') })
+      .withResponse();
+    assert.equal(auto.response.headers.get('x-oaa-client-tools'), 'bridge');
   } finally {
     await s.cleanup();
   }

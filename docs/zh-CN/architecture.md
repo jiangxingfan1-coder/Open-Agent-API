@@ -181,7 +181,7 @@ Open Agent API 对外提供的是**智能体的能力**，而不仅仅是模型�
 
 ## 4. 双层 Harness
 
-调用方自己也是智能体（Cursor、Cline、Claude Code 等）时，请求里会带上它自己的 `tools`：外层是调用方的 Harness，内层是 OAA 智能体的 Harness。兼容接口按请求选择的模式处理这些工具：`managed` 托管（默认，调用方工具不执行，响应头 `X-OAA-Client-Tools: ignored`）、`bridge` 桥接（内核智能体与 ACP 外部智能体可用，调用方工具以标准 `tool_calls` 交回调用方执行，同一个运行接着做）、`reject` 拒绝（报 `client_tools_unsupported`）。契约与支持矩阵见 [harness.md](harness.md)。
+调用方自己也是智能体（Cursor、Cline、Claude Code 等）时，请求里会带上它自己的 `tools`：外层是调用方的 Harness，内层是 OAA 智能体的 Harness。模式由请求选择，请求没选时由网关在知道智能体之后决定：`auto`（缺省）对能接管工具的智能体（内核智能体与 ACP 外部智能体）按 `bridge` 处理（调用方的工具以标准 `tool_calls` 交回调用方执行，同一个运行接着做），否则做该入口原来做的事；`managed`（调用方的工具不执行，响应头是 `X-OAA-Client-Tools: ignored`）、`bridge`、`reject`（报 `client_tools_unsupported`）可以显式选择。契约与支持矩阵见 [harness.md](harness.md)。
 
 内核里的入口在 `kernel/harness.ts` 与 `kernel/client-tools.ts`，网关侧在 `gateway/client-tools.ts` 与 `gateway/bridge.ts`。
 

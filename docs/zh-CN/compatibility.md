@@ -48,10 +48,10 @@ Open Agent API 把一个智能体发布成 API，支持四种协议：OpenAI Cha
 | NextChat | main@1d3dc33（最近发布 v2.16.1） | verified | 10 / 0 / 0 |
 | Dify（OpenAI-API-compatible 插件） | 插件 0.0.83、SDK 0.10.2 | verified | 10 / 3 / 0 |
 | n8n（OpenAI 凭据 / Chat Model） | 2.47.7 | verified | 10 / 4 / 0 |
-| Continue | main@5522c6f | verified | 11 / 1 / 0 |
+| Continue | `config.yaml`，`models[]` | `apiBase: http://<主机>:8787/v1` | `model: agent/sample` | 加 `capabilities: [tool_use]` 让 Agent 模式发工具：对内核或 ACP 智能体，工具会交给智能体。Tab 自动补全默认用 `POST /v1/completions`，网关不提供：补全留给别的模型，或设 `useLegacyCompletionsEndpoint: false` 让它改发 chat。 |
 | Cline | main@72b3d71（发布 4.1.26） | verified | 与 Roo Code 共用一个文件：11 / 3 / 0 |
 | Roo Code | b867ec9（2026-05-15 已归档） | verified | （同一个文件） |
-| Zed | main@f0fa51b | verified | 7 / 2 / 0 |
+| Zed | `settings.json`，`language_models.openai_compatible.<名字>` | `api_url: "http://<主机>:8787/v1"` | `available_models[].name: "agent/sample"` | Zed 从不调用 `/models`，所以模型要手工列出。它的智能体配置会发 `tools`；对内核或 ACP 智能体，工具交给智能体。 |
 
 「已核实」指用例来自该客户端在所述修订上的源码；「推断」指来自它所用的库或有文档的默认值；「未核实」指没有找到可靠来源，用例只是协议骨架。
 
@@ -68,7 +68,7 @@ Open Agent API 把一个智能体发布成 API，支持四种协议：OpenAI Cha
 | 协议 | Base URL | 说明 |
 |---|---|---|
 | OpenAI（Chat Completions、Responses） | `http://127.0.0.1:8787/v1` | 客户端自己追加 `/chat/completions`、`/responses`、`/models` |
-| OpenAI，带调用方工具或 JSON 输出格式 | `http://127.0.0.1:8787/v1/compat` | 见「调用方工具与 JSON 输出」 |
+| OpenAI，调用方想自己决定工具怎么处理 | `http://127.0.0.1:8787/v1/compat` | 只在想保留旧行为时需要；见「调用方工具」 |
 | Anthropic | `http://127.0.0.1:8787` | SDK 自己追加 `/v1/messages`；密钥用 `x-api-key` 或 `Authorization: Bearer` |
 | Gemini | `http://127.0.0.1:8787`，API 版本 `v1beta` 或 `v1` | 密钥用 `x-goog-api-key` 或 `?key=` |
 
@@ -85,9 +85,9 @@ Base URL 写错是 404 最常见的原因。网关现在忽略末尾斜杠与重
 | LobeChat | AI 服务商 > OpenAI（或自定义服务商，格式 OpenAI）> API 代理地址 | `http://<主机>:8787/v1` | 拉取模型或手动添加 | 除非需要，保持服务商的「Responses API」开关关闭。LobeChat 会隐藏 id 里含 `embedding`、`tts`、`whisper`、`ada`、`davinci` 等字样的模型（所以名为 `agent/adapter` 的智能体会从列表里消失：改个名字）。「客户端请求模式」从浏览器调用网关：把来源加进 `allowedOrigins`。 |
 | NextChat | 设置 > 自定义接口 > OpenAI 接口地址 | `http://<主机>:8787`，**不带 `/v1`** | 设置 > 自定义模型：`agent/sample` | NextChat 自己追加 `v1/chat/completions`（写成 `.../v1` 会变成 `/v1/v1/...`），而且从不拉取远端模型列表。匹配它视觉模型规则的模型名（`vision`、`vl`、`gpt-4o`、`o3` 等）会被多加 `max_tokens: 4000`。 |
 | Dify | 模型供应商 > OpenAI-API-compatible > 添加模型 | Dify 在 Docker 里时用 `http://host.docker.internal:8787/v1` | 模型名 = 智能体名 | Dify 从不调用 `/models`。它的流解析器要求每个分块都有 `choices` 数组（网关的 usage 分块是 `choices: []`），并忽略 `:` 注释帧。 |
-| n8n | 凭据 > OpenAI | Base URL `http://<主机>:8787/v1` | OpenAI Chat Model：「By ID」或「From List」 | 凭据的 Test 按钮调用 `GET /v1/models`。节点的「Use Responses API」模式（新版本默认开）与 Chat Completions 模式都建立在 LangChain 上；LangChain 的两种模式在实验室里对网关都能用，n8n 的请求形状按回放验证。挂了工具的 AI Agent 节点会发 `tools`：用 `/v1/compat`（见下）。 |
+| n8n | 凭据 > OpenAI | Base URL `http://<主机>:8787/v1` | OpenAI Chat Model：「By ID」或「From List」 | 凭据的 Test 按钮调用 `GET /v1/models`。节点的「Use Responses API」模式（新版本默认开）与 Chat Completions 模式都建立在 LangChain 上；LangChain 的两种模式在实验室里对网关都能用，n8n 的请求形状按回放验证。挂了工具的 AI Agent 节点用同一个 Base URL：智能体能接管工具时（见下）正常工作，否则得到那条清楚的拒绝。 |
 | Continue | `config.yaml`，`models[]` | `apiBase: http://<主机>:8787/v1` | `model: agent/sample` | 只有在使用 compat Base URL 时才加 `capabilities: [tool_use]`。Tab 自动补全默认用 `POST /v1/completions`，网关不提供：补全留给别的模型，或设 `useLegacyCompletionsEndpoint: false` 让它改发 chat。 |
-| Cline / Roo Code | API 提供方「OpenAI Compatible」 | `http://<主机>:8787/v1` | 智能体名 | 两者都总是发 `tools`。默认端点回答一个点明 `/v1/compat` 的清楚的 400；请用 `http://<主机>:8787/v1/compat`，再加自定义头 `X-OAA-Client-Tools: bridge` 让智能体调用编辑器的工具。Roo Code 上游已归档。 |
+| Cline / Roo Code | API 提供方「OpenAI Compatible」 | `http://<主机>:8787/v1` | 智能体名 | 两者都总是发 `tools`。对内核或 ACP 智能体，同一个 Base URL 就能用，工具交给智能体（响应里 `X-OAA-Client-Tools: bridge`）；接管不了的智能体（原生引擎）得到一条点明出路的清楚的 400。Roo Code 上游已归档。 |
 | Zed | `settings.json`，`language_models.openai_compatible.<名字>` | `api_url: "http://<主机>:8787/v1"` | `available_models[].name: "agent/sample"` | Zed 从不调用 `/models`，所以模型要手工列出。它的智能体配置会发 `tools`（用 compat Base URL）。 |
 | Cursor | 设置 > 模型 > 覆盖 OpenAI Base URL | 公网 HTTPS 地址，带 `/v1`（未核实） | 自定义模型名 | 未核实，见上。 |
 
@@ -104,14 +104,18 @@ Base URL 写错是 404 最常见的原因。网关现在忽略末尾斜杠与重
 | OpenAI Agents SDK | `Agent(model=OpenAIResponsesModel(model="agent/sample", openai_client=AsyncOpenAI(base_url=".../v1", api_key=...)))` 或 `OpenAIChatCompletionsModel(...)`。调用 `set_tracing_disabled(True)`，否则 SDK 会把追踪上传给 OpenAI。函数工具需要 compat Base URL |
 | LlamaIndex | `OpenAILike(model="agent/sample", api_base=".../v1", api_key=..., is_chat_model=True)`。`OpenAI` 类在发任何请求之前会按 OpenAI 自己的列表检查模型名，并拒绝智能体名 |
 
-## 调用方工具与 JSON 输出
+## 调用方工具
 
-默认情况下，智能体使用它自己的工具。请求里声明调用方定义的 `tools`（或 `functions`、工具结果消息、assistant 的 `tool_calls`），要求 JSON 输出格式（`response_format` 为 `json_object` / `json_schema`、`text.format`），强制指定工具，或要求 `logprobs`，在默认端点上会被**拒绝**，返回 `400 unsupported_parameter`（Responses 输入里的工具项是 `unsupported_content`）。`error.param` 写明字段，错误信息写明出路：
+请求声明了 `tools` 又没选模式，按 `auto` 处理（见 harness.md）：
 
-* 用 Base URL `http://<主机>:8787/v1/compat`（或带 `X-OAA-Compat: true`）。compat 端点按模式处理 `tools`，模式由请求头 `X-OAA-Client-Tools` 选择：`managed`（默认：智能体继续用自己的工具，响应带 `X-OAA-Client-Tools: ignored`）、`reject`，或 `bridge`（智能体对你的工具的调用以协议的正常形式交回，运行从你回传的结果接着往下做）。JSON 格式作为尽力而为的指令写进智能体的输入；并不约束智能体一定产出合法 JSON。
-* Anthropic 与 Gemini 入口本来就是 compat 入口。
+* 能接管工具的智能体（内核智能体，或 ACP 智能体）拿到它们：它的调用以 `tool_calls` / `function_call` / `tool_use` / `functionCall` 交回，运行从你回传的结果接着做，响应带 `X-OAA-Client-Tools: bridge`。编码代理和智能体框架（Cline、Roo Code、Continue、Zed、OpenAI Agents SDK、LangChain、Vercel AI SDK 等）需要的正是这个，用普通的 Base URL，不用任何请求头。
+* 接管不了的智能体（Codex、Claude Code 这类原生引擎，A2A，HTTP 适配器）照旧。OpenAI 默认端点返回 `400 unsupported_parameter`（`error.param` 是 `tools`；信息给出原因和三条出路：Base URL 用 `http://<主机>:8787/v1/compat`、`X-OAA-Compat: true`、`X-OAA-Client-Tools: managed`）；兼容端点、Claude 与 Gemini 让智能体用自己的工具完成（`X-OAA-Client-Tools: ignored`）。
+* 强制的工具选择（`tool_choice` 为 `required` 或某个函数）网关和上游模型都没法保证做到：默认端点拒绝它，其余入口照旧忽略。
+* `X-OAA-Client-Tools: managed | bridge | reject | auto`（或 `metadata["oaa.client_tools"]`）显式选择，永远不被覆盖；网关设置 `clientTools.default` 改变「什么都没选」的请求得到什么。
 
-选择拒绝而不是忽略的原因：发 `tools` 的客户端期待拿回工具调用，发 `response_format` 的客户端期待拿回 JSON。悄悄丢掉它们，会让编码代理在「你没有调用工具」上循环，也会让解析器稍后以更难懂的错误失败。
+## 结构化输出
+
+`response_format`（`json_object`、`json_schema`）、Responses 的 `text.format`、Gemini 的 `responseMimeType: "application/json"` 加 `responseSchema` / `responseJsonSchema`，以及 Claude 的 `output_config.format` 是一份契约：成功的响应就是能解析、合乎 schema 的 JSON，不合格的答案送回去修正一次，否则运行以 `structured_output_invalid`（422）失败。流式响应扣到答案检查通过，再一次性送出。官方 SDK 的辅助函数都对着它跑过（OpenAI 的 Chat 与 Responses `parse`、Anthropic 的 `messages.parse`、Gemini 的 `response_schema`、Vercel AI SDK 的 `generateObject`、LangChain 的 `with_structured_output`）。不支持：靠强制工具调用拿结构（LangChain 的 `method="function_calling"`，`jsonTool` 模式的 `@ai-sdk/anthropic`）：请用 `method="json_schema"` / `structuredOutputMode: "outputFormat"`。细节见 [structured-output.md](structured-output.md)。
 
 ## 参数策略
 
@@ -119,11 +123,11 @@ Base URL 写错是 404 最常见的原因。网关现在忽略末尾斜杠与重
 
 | 入口 | 生效 | 接受并忽略（列在 `X-OAA-Ignored-Params`） | 拒绝 |
 |---|---|---|---|
-| `/v1/chat/completions` | `model`、`messages`（角色 system、developer、user、assistant；`name` 被丢弃）、`stream`、`stream_options.include_usage`、`max_tokens` / `max_completion_tokens`（只会调低智能体自己的上限）、`metadata`、`reasoning_effort`（路由提示：`high` / `xhigh` 倾向质量路线，`low` / `minimal` 倾向速度路线）、`n` = 1 | `temperature`、`top_p`、`seed`、`stop`（条数不限）、`presence_penalty`、`frequency_penalty`、`logit_bias`、`top_logprobs`、`user`、`store`、`service_tier`、`tool_choice` 为 `auto` / `none`、`parallel_tool_calls`、`verbosity`、`prompt_cache_key`、`safety_identifier`、`prediction`、厂商采样旋钮（`top_k`、`min_p`、`repeat_penalty`、`repetition_penalty`、`repeat_last_n`、`mirostat`、`mirostat_eta`、`mirostat_tau`、`tfs_z`、`typical_p`、`num_ctx`、`num_batch`、`num_keep`、`num_predict`、`keep_alive`、`think`）；无害取值：`logprobs: false`、`modalities: ["text"]`、`tools: []`、`response_format: {type: "text"}`；文本内容块上的多余键（`cache_control`）与 `stream_options` 里的多余键（`include_obfuscation`）被丢弃；可选数值字段允许 `null` | 非空的 `tools` / `functions`，`function_call` 不是 `auto` / `none`，工具结果消息与 assistant 的 `tool_calls`，`tool_choice` 为 `required` 或指定函数，`logprobs: true`，非文本 `modalities`，`response_format` 为 `json_object` / `json_schema`，`n` 大于 1，不带 `stream: true` 的 `stream_options`（与 OpenAI 一致），未知字段（`unsupported_parameter`）；内联图片、音频与未知内容块（`unsupported_content`） |
-| `/v1/responses` | `model`、`input`（字符串，或带或不带 `type: "message"` 的消息项，内容块 `input_text`、`output_text`、`input_file`）、`instructions`、`stream`、`background`、`previous_response_id`、`metadata`、`max_output_tokens`、`reasoning.effort` | `temperature`、`top_p`、`top_logprobs`、`user`、`store`、`service_tier`、`truncation`、`tool_choice` 为 `auto` / `none`、`parallel_tool_calls`、`include`、`max_tool_calls`、`prompt_cache_key`、`safety_identifier`、`stream_options`、`prompt_cache_retention`、`text.format` 为 `text`、`tools: []` | 非空 `tools`、强制的 `tool_choice`、`text.format` 为 `json_object` / `json_schema`、未知字段（`unsupported_parameter`）；消息以外的输入项，如 `function_call` / `function_call_output` / `reasoning`（`unsupported_content`，`error.param` 是 `input.N`）；内联图片与音频 |
-| `/v1/compat/*`、`X-OAA-Compat: true` | 上面所有，加按模式处理的 `tools`、作为指令的 `response_format` / `text.format`、工具消息 | 上面的采样类名字、`logprobs`、`n`、`tool_choice`；未知的额外字段透传 | 内联图片、音频与未知内容块（`unsupported_content`） |
-| `/v1/messages` | `system`（字符串或块，全文）、`messages`、`stream`、`metadata`、`max_tokens`、按模式处理的 `tools` | `temperature`、`top_p`、`top_k`、`stop_sequences`、`tool_choice`、`thinking`、`service_tier`；较新的请求字段（`cache_control`、`inference_geo`、`speed`、`output_config`）被接受 | 内联 base64 / URL 图片与文档、未知块（`unsupported_content`） |
-| `generateContent` | `contents`、`systemInstruction`、`generationConfig.maxOutputTokens`、按模式处理的 `tools` | `generationConfig` 的其余字段、`safetySettings`、`toolConfig`、`cachedContent` | `inlineData` / `fileData` 部分（`unsupported_content`） |
+| `/v1/chat/completions` | `model`、`messages`（角色 system、developer、user、assistant；`name` 被丢弃）、`stream`、`stream_options.include_usage`、`max_tokens` / `max_completion_tokens`（只会调低智能体自己的上限）、`metadata`、`reasoning_effort`（路由提示：`high` / `xhigh` 倾向质量路线，`low` / `minimal` 倾向速度路线）、`tools` 与工具消息（`auto` 模式）、`response_format`（结构化输出）、`n` = 1 | `temperature`、`top_p`、`seed`、`stop`（条数不限）、`presence_penalty`、`frequency_penalty`、`logit_bias`、`top_logprobs`、`user`、`store`、`service_tier`、`tool_choice` 为 `auto` / `none`、`parallel_tool_calls`、`verbosity`、`prompt_cache_key`、`safety_identifier`、`prediction`、厂商采样旋钮（`top_k`、`min_p`、`repeat_penalty`、`repetition_penalty`、`repeat_last_n`、`mirostat`、`mirostat_eta`、`mirostat_tau`、`tfs_z`、`typical_p`、`num_ctx`、`num_batch`、`num_keep`、`num_predict`、`keep_alive`、`think`）；无害取值：`logprobs: false`、`modalities: ["text"]`、`tools: []`、`response_format: {type: "text"}`；文本内容块上的多余键（`cache_control`）与 `stream_options` 里的多余键（`include_obfuscation`）被丢弃；可选数值字段允许 `null` | `functions` / `function_call` 不是 `auto` / `none`（旧式写法），`tool_choice` 为 `required` 或指定函数，`logprobs: true`，非文本 `modalities`，`n` 大于 1，不带 `stream: true` 的 `stream_options`（与 OpenAI 一致），未知字段（`unsupported_parameter`）；内联图片、音频与未知内容块（`unsupported_content`） |
+| `/v1/responses` | `model`、`input`（字符串，或带或不带 `type: "message"` 的消息项，内容块 `input_text`、`output_text`、`input_file`）、`instructions`、`stream`、`background`、`previous_response_id`、`metadata`、`max_output_tokens`、`reasoning.effort`、`tools` 及其调用与结果（`auto` 模式）、`text.format`（结构化输出） | `temperature`、`top_p`、`top_logprobs`、`user`、`store`、`service_tier`、`truncation`、`tool_choice` 为 `auto` / `none`、`parallel_tool_calls`、`include`、`max_tool_calls`、`prompt_cache_key`、`safety_identifier`、`stream_options`、`prompt_cache_retention`、`text.format` 为 `text`、`tools: []` | 强制的 `tool_choice`、未知字段（`unsupported_parameter`）；消息与工具项以外的输入项，如 `reasoning`（`unsupported_content`，`error.param` 是 `input.N`）；内联图片与音频 |
+| `/v1/compat/*`、`X-OAA-Compat: true` | 上面所有，加按模式处理的 `tools`、`response_format` / `text.format`（结构化输出）、工具消息 | 上面的采样类名字、`logprobs`、`n`、`tool_choice`；未知的额外字段透传 | 内联图片、音频与未知内容块（`unsupported_content`） |
+| `/v1/messages` | `system`（字符串或块，全文）、`messages`、`stream`、`metadata`、`max_tokens`、按模式处理的 `tools`、`output_config.format`（结构化输出） | `temperature`、`top_p`、`top_k`、`stop_sequences`、`tool_choice`、`thinking`、`service_tier`；较新的请求字段（`cache_control`、`inference_geo`、`speed`、`output_config`）被接受 | 内联 base64 / URL 图片与文档、未知块（`unsupported_content`） |
+| `generateContent` | `contents`、`systemInstruction`、`generationConfig.maxOutputTokens`、`responseMimeType` / `responseSchema` / `responseJsonSchema`（结构化输出）、按模式处理的 `tools` | `generationConfig` 的其余字段、`safetySettings`、`toolConfig`、`cachedContent` | `inlineData` / `fileData` 部分（`unsupported_content`） |
 
 Gemini 的请求体可以写 camelCase 或 snake_case（`system_instruction`、`generation_config`、`parameters_json_schema` 等）；Google 的 REST 两种都接受，`google-genai` 3.3 就把工具 schema 发成 `parameters_json_schema`。不带 `models/` 的 `POST /v1beta/{agent}:generateContent` 也受理，因为 AI SDK 的 Google provider 把任何含斜杠的模型 id 都当作完整的资源名，不会再补 `models/`。
 
@@ -136,7 +140,7 @@ Gemini 的请求体可以写 camelCase 或 snake_case（`system_instruction`、`
 * **其它 OpenAI 端点**：embeddings、moderations、音频、图片、微调、assistants、`GET /v1/files` 列表、`responses/{id}/input_items`。OpenAI 形状的干净 404。
 * **Anthropic**：`count_tokens` 与批处理返回 Claude 形状的 404（`not_found_error`），SDK 会抛 `NotFoundError`。
 * **Gemini**：`countTokens`、`embedContent`、缓存与文件返回 404。
-* **多个候选**（`n > 1`）、token 概率、强制工具选择：一次智能体运行只返回一个文本答案。
+* **多个候选**（`n > 1`）、token 概率、强制工具选择：一次智能体运行只返回一个文本答案，调用哪个工具由智能体决定。
 * **采样控制**：按设计忽略；由智能体的发布者决定。
 
 ## 值得知道的行为

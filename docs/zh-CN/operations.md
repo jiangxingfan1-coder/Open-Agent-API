@@ -29,7 +29,7 @@
 
 已经有输出或已经执行过步骤的任务不会换人重做，避免把同一件事做两遍。
 
-**调用方自己也是智能体时。** Cursor、Cline、Claude Code 之类的工具把 OAA 当模型来调，还会带上它们自己的 `tools`。兼容接口默认用托管模式：智能体用自己的工具把事情做完，调用方的工具不会被执行，响应头带 `X-OAA-Client-Tools: ignored` 明确告知。需要严格语义时加请求头 `X-OAA-Client-Tools: reject`，传了工具就直接报错。背后是内核智能体或 ACP 外部智能体时，还可以用 `X-OAA-Client-Tools: bridge`（Chat Completions、Responses、Claude Messages、Gemini）：智能体要用调用方的工具时，以标准 `tool_calls` 交回调用方执行，结果回传后同一个运行接着做。三种模式与支持情况见 [docs/harness.md](harness.md)。
+**调用方自己也是智能体时。** Cursor、Cline、Claude Code 之类的工具把 OAA 当模型来调，还会带上它们自己的 `tools`。缺省（`auto` 模式）下，网关把这些工具交给能接管它们的智能体（内核智能体，或 ACP 外部智能体）：智能体要用调用方的工具时，以标准 `tool_calls`（Chat Completions、Responses、Claude Messages、Gemini）交回调用方执行，结果回传后同一个运行接着做；响应头 `X-OAA-Client-Tools: bridge` 会明说。接管不了的智能体（Codex、Claude Code、Antigravity、A2A、HTTP 适配器）照旧：兼容端点、Claude 与 Gemini 让它用自己的工具完成（`X-OAA-Client-Tools: ignored`），OpenAI 默认端点则拒绝，并在信息里写明三条出路。`X-OAA-Client-Tools: managed | bridge | reject | auto` 显式选择，网关设置 `clientTools.default` 改变「什么都没选」的请求得到什么（`managed` 恢复 `auto` 之前的行为）。模式与支持情况见 [docs/harness.md](harness.md)。
 
 **一键启用电脑上已有的智能体。** 控制台「执行机器」页的「支持的智能体」里，已安装的会显示「启用」按钮；点一下就能用，不需要改配置文件，也不需要重启。之后再「发布」成可调用的智能体。
 

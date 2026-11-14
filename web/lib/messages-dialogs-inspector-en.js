@@ -22,6 +22,8 @@ export const enInspector = {
   'insp.usage.tokens': '{n} tokens',
   'insp.usage.partial': ' · partial',
   'insp.usage.none': 'Usage not reported',
+  'insp.contract': 'structured output ({kind})',
+  'insp.contract.repairs': ', corrected {n}×',
   'insp.output_chars': '{n} chars',
   'insp.unavailable': 'Unavailable',
   'insp.output_empty': 'No output yet',

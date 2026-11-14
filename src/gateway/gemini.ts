@@ -35,6 +35,8 @@ const SNAKE_TO_CAMEL: Record<string, string> = {
   system_instruction: 'systemInstruction',
   generation_config: 'generationConfig',
   max_output_tokens: 'maxOutputTokens',
+  response_mime_type: 'responseMimeType',
+  response_schema: 'responseSchema',
   function_declarations: 'functionDeclarations',
   parameters_json_schema: 'parametersJsonSchema',
   response_json_schema: 'responseJsonSchema',
@@ -56,6 +58,7 @@ const OPAQUE = new Set([
   'parameters',
   'parametersJsonSchema',
   'responseJsonSchema',
+  'responseSchema',
 ]);
 
 export function camelizeGeminiBody(value: unknown): unknown {

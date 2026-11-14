@@ -26,7 +26,7 @@ export type ReplayCase = {
   title: string;
   evidence: Evidence;
   request: ReplayRequest;
-  expect: { status: number; code?: string };
+  expect: { status: number; code?: string; message?: string };
   consumes: string[];
   notes?: string;
 };
@@ -273,42 +273,74 @@ const isErrorShape = (json: Json | undefined) => {
   return isObject(e) && str(e.message) && str(e.code);
 };
 
+/** Caller-declared tools, or the calls and results of an earlier tool round (Chat messages / Responses items). */
+export function callerTools(body: Record<string, unknown> | null): boolean {
+  if (!body) return false;
+  if (list(body.tools).length > 0) return true;
+  return [...list(body.messages), ...list(body.input)].some(
+    (m) =>
+      isObject(m) &&
+      (m.role === 'tool' ||
+        m.tool_calls !== undefined ||
+        m.type === 'function_call' ||
+        m.type === 'function_call_output'),
+  );
+}
+
 /**
- * Why a request cannot be served on the default (strict) endpoints by design. Such requests change
- * what the gateway has to do (caller-defined tools need a mode, JSON formats are best-effort), so the
- * default endpoints answer a clear 400 `unsupported_parameter` and the compat endpoints serve them.
+ * Why a request cannot be served on the default (strict) endpoints at all: several choices (`n > 1`), a
+ * forced tool choice and vendor-specific fields. The default endpoints answer a clear 400
+ * `unsupported_parameter` and the compat endpoints serve them.
  */
 export function needsCompat(body: Record<string, unknown> | null): string[] {
   if (!body) return [];
   const reasons: string[] = [];
-  const nonEmpty = (v: unknown) => Array.isArray(v) && v.length > 0;
-  if (nonEmpty(body.tools) || nonEmpty(body.functions)) reasons.push('tools');
-  const format = body.response_format ?? (isObject(body.text) ? body.text.format : undefined);
-  if (isObject(format) && format.type !== 'text') reasons.push('response_format');
   if (body.format !== undefined) reasons.push('format');
-  if (
-    list(body.messages).some(
-      (m) =>
-        isObject(m) &&
-        (m.role === 'tool' || m.tool_calls !== undefined || m.function_call !== undefined),
-    )
-  )
-    reasons.push('tool messages');
+  if (typeof body.n === 'number' && body.n > 1) reasons.push('n > 1');
+  const choice = body.tool_choice;
+  if (choice === 'required' || isObject(choice)) reasons.push('forced tool_choice');
   return reasons;
 }
 
+type Vars = { AGENT: string; KEY: string; NATIVE?: string };
+
 /**
- * Runs one case. Never throws: a failed expectation is a problem entry. A request that needs the
- * compat endpoints is run twice: the default endpoint must refuse it clearly, the compat path must serve it.
+ * Runs one case. Never throws: a failed expectation is a problem entry.
+ * - A request that needs the compat endpoints is run twice: the default endpoint must refuse it
+ *   clearly, the compat path must serve it.
+ * - A request that carries caller tools must be served on the default endpoint by an agent that can
+ *   take the tools over (`AGENT`), and refused with the message that names the way out by one that
+ *   cannot (`NATIVE`, when given).
  */
 export async function runReplayCase(
   c: ReplayCase,
   transport: Transport,
-  vars: { AGENT: string; KEY: string },
+  vars: Vars,
 ): Promise<CaseResult> {
-  const reasons =
-    c.expect.status === 200 && c.request.method === 'POST' ? needsCompat(c.request.body) : [];
-  if (reasons.length === 0) return runOnce(c, transport, vars);
+  const post = c.expect.status === 200 && c.request.method === 'POST';
+  const reasons = post ? needsCompat(c.request.body) : [];
+  if (reasons.length === 0) {
+    const served = await runOnce(c, transport, vars);
+    if (!post || !callerTools(c.request.body) || !vars.NATIVE) return served;
+    const refused = await runOnce(
+      {
+        ...c,
+        expect: {
+          status: 400,
+          code: 'unsupported_parameter',
+          message: 'cannot be handed to this agent',
+        },
+        consumes: [],
+      },
+      transport,
+      { ...vars, AGENT: vars.NATIVE },
+    );
+    const problems = [
+      ...served.problems,
+      ...refused.problems.map((p) => `agent that cannot bridge (must be refused clearly): ${p}`),
+    ];
+    return { ...served, ok: problems.length === 0, problems };
+  }
   const refused = await runOnce(
     { ...c, expect: { status: 400, code: 'unsupported_parameter' }, consumes: [] },
     transport,
@@ -367,6 +399,11 @@ async function runOnce(
       const code = isObject(json?.error) ? (json.error as Json).code : undefined;
       if (c.expect.code && code !== c.expect.code)
         problems.push(`error code "${String(code)}", expected "${c.expect.code}"`);
+      else if (
+        c.expect.message &&
+        !String((json?.error as Json | undefined)?.message ?? '').includes(c.expect.message)
+      )
+        problems.push(`error message does not contain "${c.expect.message}"`);
       else if (!c.expect.code && expected < 400) {
         const e = isObject(json?.error) ? (json.error as Json) : {};
         problems.push(`gateway error ${String(e.code)}: ${String(e.message ?? '').slice(0, 300)}`);
@@ -398,4 +435,64 @@ async function runOnce(
     status: response.status,
     ...(ignored ? { ignored } : {}),
   };
+}
+
+/** The smallest value that fits `schema` (objects get all their properties); enough for the recorded request shapes. */
+export function schemaInstance(schema: unknown, root: unknown = schema, depth = 0): unknown {
+  if (!isObject(schema) || depth > 12) return {};
+  if ('const' in schema) return schema.const;
+  if (list(schema.enum).length) return list(schema.enum)[0];
+  if (typeof schema.$ref === 'string' && schema.$ref.startsWith('#/')) {
+    let target: unknown = root;
+    for (const key of schema.$ref.slice(2).split('/'))
+      target = isObject(target) ? target[key] : undefined;
+    return schemaInstance(target, root, depth + 1);
+  }
+  const alternative = list(schema.anyOf)[0] ?? list(schema.oneOf)[0];
+  if (alternative) return schemaInstance(alternative, root, depth + 1);
+  const type = Array.isArray(schema.type) ? schema.type.find((t) => t !== 'null') : schema.type;
+  if (type === 'object' || (type === undefined && isObject(schema.properties)))
+    return Object.fromEntries(
+      Object.entries(isObject(schema.properties) ? schema.properties : {}).map(([k, v]) => [
+        k,
+        schemaInstance(v, root, depth + 1),
+      ]),
+    );
+  if (type === 'array') {
+    const min = typeof schema.minItems === 'number' ? schema.minItems : 0;
+    return Array.from({ length: min }, () => schemaInstance(schema.items, root, depth + 1));
+  }
+  if (type === 'integer' || type === 'number') {
+    const min = typeof schema.minimum === 'number' ? schema.minimum : -Infinity;
+    const max = typeof schema.maximum === 'number' ? schema.maximum : Infinity;
+    return 1 >= min && 1 <= max ? 1 : min > 1 ? min : max;
+  }
+  if (type === 'boolean') return true;
+  if (type === 'null') return null;
+  const formats: Record<string, string> = {
+    'date-time': '2026-01-01T00:00:00Z',
+    date: '2026-01-01',
+    email: 'a@example.com',
+    uuid: '123e4567-e89b-12d3-a456-426614174000',
+    uri: 'https://example.com/',
+  };
+  const text = typeof schema.format === 'string' ? (formats[schema.format] ?? 'x') : 'x';
+  return typeof schema.minLength === 'number' ? text.padEnd(schema.minLength, 'x') : text;
+}
+
+/**
+ * A deterministic answer for a "[Response Format Requirement ...]" instruction in `prompt` (what the
+ * gateway adds to the agent's input when the caller asked for structured output), or undefined.
+ */
+export function answerForRequirement(prompt: string): string | undefined {
+  if (!prompt.includes('[Response Format Requirement:')) return undefined;
+  const found = /JSON Schema[^\n]*?: (\{.*\})\n/.exec(prompt);
+  if (found) {
+    try {
+      return JSON.stringify(schemaInstance(JSON.parse(found[1]!) as unknown));
+    } catch {
+      // fall through to the generic answer
+    }
+  }
+  return '{"answer":"ok","n":1}';
 }

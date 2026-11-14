@@ -63,11 +63,11 @@ await lab.scenario('generate.max_output_tokens_finish', async () => {
 });
 await lab.scenario('generate.tools_bridge_roundtrip', async () => {
   const config = { tools: [WEATHER] };
-  const first = await bridge.models.generateContent({ model: M, contents: 'CALLTOOL', config });
+  const first = await client.models.generateContent({ model: M, contents: 'CALLTOOL', config });
   const call = first.functionCalls?.[0];
   equal(call?.name, 'get_weather', 'function call');
   equal(call.args.city, 'Paris', 'args');
-  const done = await bridge.models.generateContent({
+  const done = await client.models.generateContent({
     model: M, config,
     contents: [
       { role: 'user', parts: [{ text: 'CALLTOOL' }] },
@@ -114,4 +114,24 @@ await lab.scenario('unsupported.endpoints_are_clean_errors', async () => {
   }
   return results.join('; ');
 });
+await lab.scenario('generate.tools_explicit_bridge_mode', async () => {
+  const r = await bridge.models.generateContent({ model: M, contents: 'CALLTOOL', config: { tools: [WEATHER] } });
+  equal(r.functionCalls?.[0]?.name, 'get_weather', 'function call');
+});
+
+await lab.scenario('structured.response_schema_json_mime_and_correction_round', async () => {
+  const { Type } = mod;
+  const r = await client.models.generateContent({
+    model: M, contents: 'BADJSON who?',
+    config: { responseMimeType: 'application/json', responseSchema: { type: Type.OBJECT, properties: { name: { type: Type.STRING }, age: { type: Type.INTEGER } }, required: ['name', 'age'] } },
+  });
+  equal(JSON.parse(r.text).name, 'x', 'answer');
+  const json = await client.models.generateContent({ model: M, contents: 'who?', config: { responseMimeType: 'application/json', responseJsonSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] } } });
+  equal(JSON.parse(json.text).ok, true, 'responseJsonSchema');
+});
+await lab.scenario('structured.failure_is_a_422', async () => {
+  const e = await rejects(client.models.generateContent({ model: M, contents: 'ALWAYSBAD who?', config: { responseMimeType: 'application/json', responseJsonSchema: { type: 'object', required: ['a'] } } }), 'failure');
+  check(e instanceof ApiError && e.status === 422, `status ${e.status}`);
+});
+
 lab.done();

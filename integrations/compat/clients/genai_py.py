@@ -1,5 +1,6 @@
 """Official `google-genai` Python SDK against the gateway: generateContent."""
 
+import json
 import os
 import sys
 import time
@@ -7,7 +8,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from harness import API_KEY, BASE_URL, FIXTURE, Lab, check, equal, make_key, runs_created, snapshot_runs  # noqa: E402
+from harness import ACP, API_KEY, BASE_URL, FIXTURE, Lab, acp_script, check, equal, make_key, runs_created, snapshot_runs  # noqa: E402
 
 try:
     from google import genai
@@ -137,11 +138,11 @@ def _():
 @lab.scenario("generate.tools_bridge_manual_roundtrip")
 def _():
     config = types.GenerateContentConfig(tools=[WEATHER], automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
-    first = bridge.models.generate_content(model=FIXTURE, contents="CALLTOOL", config=config)
+    first = client.models.generate_content(model=FIXTURE, contents="CALLTOOL", config=config)
     calls = first.function_calls
     check(calls and calls[0].name == "get_weather", "no function call")
     equal(calls[0].args.get("city"), "Paris", "args")
-    done = bridge.models.generate_content(
+    done = client.models.generate_content(
         model=FIXTURE,
         config=config,
         contents=[
@@ -162,9 +163,35 @@ def _():
         seen.append(city)
         return "sunny"
 
-    r = bridge.models.generate_content(model=FIXTURE, contents="CALLTOOL", config=types.GenerateContentConfig(tools=[get_weather]))
+    r = client.models.generate_content(model=FIXTURE, contents="CALLTOOL", config=types.GenerateContentConfig(tools=[get_weather]))
     equal(seen, ["Paris"], "the SDK did not run the Python function")
     check("sunny" in r.text, f"final text: {r.text}")
+
+
+@lab.scenario("generate.tools_explicit_bridge_mode")
+def _():
+    config = types.GenerateContentConfig(tools=[WEATHER], automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
+    first = bridge.models.generate_content(model=FIXTURE, contents="CALLTOOL", config=config)
+    check(first.function_calls and first.function_calls[0].name == "get_weather", "no function call")
+
+
+@lab.scenario("generate.tools_acp_agent_roundtrip")
+def _():
+    config = types.GenerateContentConfig(tools=[WEATHER], automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
+    prompt = acp_script([{"name": "get_weather", "arguments": {"city": "Paris"}}])
+    first = client.models.generate_content(model=ACP, contents=prompt, config=config)
+    calls = first.function_calls
+    check(calls and calls[0].name == "get_weather", "no function call from the ACP agent")
+    done = client.models.generate_content(
+        model=ACP,
+        config=config,
+        contents=[
+            types.Content(role="user", parts=[types.Part(text=prompt)]),
+            first.candidates[0].content,
+            types.Content(role="user", parts=[types.Part.from_function_response(name=calls[0].name, response={"output": "sunny"})]),
+        ],
+    )
+    check("sunny" in done.text, f"the ACP agent did not see the tool result: {done.text[:120]}")
 
 
 @lab.scenario("generate.inline_data_rejected_clearly")
@@ -276,5 +303,60 @@ for name, call in (
         raise AssertionError("served unexpectedly")
 
     lab.scenario(f"unsupported.{name}_is_a_clean_error")(scenario)
+
+
+@lab.scenario("structured.response_schema_pydantic_with_a_correction_round")
+def _():
+    from pydantic import BaseModel
+
+    class Person(BaseModel):
+        name: str
+        age: int
+
+    r = client.models.generate_content(
+        model=FIXTURE,
+        contents="BADJSON who?",
+        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=Person),
+    )
+    equal((r.parsed.name, r.parsed.age), ("x", 1), "parsed")
+
+
+@lab.scenario("structured.response_json_schema_and_plain_json_mime")
+def _():
+    schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+    r = client.models.generate_content(
+        model=FIXTURE, contents="who?", config=types.GenerateContentConfig(response_mime_type="application/json", response_json_schema=schema)
+    )
+    equal(json.loads(r.text), {"ok": True}, "answer")
+    plain = client.models.generate_content(model=FIXTURE, contents="who?", config=types.GenerateContentConfig(response_mime_type="application/json"))
+    check(isinstance(json.loads(plain.text), dict), "plain json mime type")
+
+
+@lab.scenario("structured.stream_holds_the_answer_until_it_is_checked")
+def _():
+    schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+    chunks = list(
+        client.models.generate_content_stream(
+            model=FIXTURE, contents="BADJSON who?", config=types.GenerateContentConfig(response_mime_type="application/json", response_json_schema=schema)
+        )
+    )
+    text = "".join(c.text or "" for c in chunks)
+    equal(json.loads(text), {"ok": True}, "streamed answer")
+    equal(len([c for c in chunks if c.text]), 1, "text chunks")
+
+
+@lab.scenario("structured.failure_is_a_clear_error")
+def _():
+    try:
+        client.models.generate_content(
+            model=FIXTURE,
+            contents="ALWAYSBAD who?",
+            config=types.GenerateContentConfig(response_mime_type="application/json", response_json_schema={"type": "object", "required": ["a"]}),
+        )
+    except errors.ClientError as error:
+        equal(error.code, 422, "status")
+        return
+    raise AssertionError("an answer that does not fit was returned as a success")
+
 
 lab.done()

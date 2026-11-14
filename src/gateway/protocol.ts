@@ -7,7 +7,7 @@ import {
   type RoutingStrategy,
 } from '../kernel/routing.js';
 import { invocationSchema, type Invocation } from '../kernel/invocation.js';
-import { compatInput } from './client-tools.js';
+import { compatInput, type ToolsFallback } from './client-tools.js';
 import { chatFinish, finishOf, runFailure } from './compat-errors.js';
 import {
   applyMaxTokens,
@@ -15,12 +15,13 @@ import {
   attachResolutionMetadata,
   chatChecked,
   chatTolerated,
-  rejectToolMessages,
+  carriesCallerTools,
   rejectUnsatisfiable,
   responsesChecked,
   responsesTolerated,
   unsupportedParameter,
 } from './compat-params.js';
+import { chatContract, instructionFor, responsesContract } from './structured-output.js';
 import {
   rejectNonMessageItems,
   rejectUnsupportedParts,
@@ -139,11 +140,25 @@ export function parseResponse(value: unknown, headers?: Record<string, unknown>)
   if (compatHeader === 'true' || compatHeader === '1') {
     return parseCompatResponse(value, headers);
   }
+  // Caller tools (and their calls and results) are handed to the shared compat path; every other
+  // field is still checked here, so a typo is not swallowed. A request nobody can bridge is refused
+  // there with the message that names the way out.
+  if (carriesCallerTools('responses', value)) {
+    rejectUnsatisfiable('responses', value as Record<string, unknown>, '/v1/responses');
+    strictParse(
+      responsesSchema,
+      { ...(value as object), input: 'x', tools: undefined },
+      '/v1/responses',
+      '/v1/compat/responses',
+    );
+    return parseCompatResponse(value, headers, 'reject');
+  }
   rejectNonMessageItems(value, '/v1/compat/responses');
   rejectUnsupportedParts(value, 'input', STRICT_RESPONSES_PARTS);
   const req = strictParse(responsesSchema, value, '/v1/responses', '/v1/compat/responses');
   rejectUnsatisfiable('responses', value as Record<string, unknown>, '/v1/responses');
   const files: string[] = [];
+  const contract = responsesContract(req.text);
   const system = req.instructions?.trim() ? `[system]\n${req.instructions.trim()}\n\n` : '';
   const rawText =
     system +
@@ -163,7 +178,8 @@ export function parseResponse(value: unknown, headers?: Record<string, unknown>)
                     .join('\n');
             return `[${m.role}]\n${content}`;
           })
-          .join('\n\n'));
+          .join('\n\n')) +
+    (contract ? `\n\n${instructionFor(contract)}` : '');
 
   const directive = extractInlineDirective(rawText);
   const rawMeta = { ...req.metadata };
@@ -182,6 +198,7 @@ export function parseResponse(value: unknown, headers?: Record<string, unknown>)
     previous_response_id: req.previous_response_id,
     agent_version: resolved.agent_version,
     metadata: meta,
+    ...(contract ? { output_contract: contract } : {}),
   });
 }
 
@@ -208,7 +225,11 @@ const compatResponsesSchema = z
   })
   .passthrough();
 
-export function parseCompatResponse(value: unknown, headers?: Record<string, unknown>): Invocation {
+export function parseCompatResponse(
+  value: unknown,
+  headers?: Record<string, unknown>,
+  fallback: ToolsFallback = 'managed',
+): Invocation {
   const req = compatResponsesSchema.parse(value);
   const files: string[] = [];
   const sections: string[] = [];
@@ -247,16 +268,8 @@ export function parseCompatResponse(value: unknown, headers?: Record<string, unk
           .join('\n\n');
   sections.push(inputText);
 
-  const textFormat = req.text?.format as { type?: unknown; schema?: unknown } | null | undefined;
-  if (
-    textFormat &&
-    typeof textFormat === 'object' &&
-    (textFormat.type === 'json_object' || textFormat.type === 'json_schema')
-  ) {
-    sections.push(
-      `[Response Format Requirement: Respond with valid JSON${textFormat.schema ? ` matching schema ${JSON.stringify(textFormat.schema).slice(0, 1500)}` : ''}.]`,
-    );
-  }
+  const contract = responsesContract(req.text);
+  if (contract) sections.push(instructionFor(contract));
 
   const rawMeta: Record<string, string> = {};
   if (req.metadata) {
@@ -280,13 +293,14 @@ export function parseCompatResponse(value: unknown, headers?: Record<string, unk
   return invocationSchema.parse({
     agent: resolved.agent,
     model: resolved.model,
-    ...compatInput('responses', req, headers, meta, directive.cleanedInput),
+    ...compatInput('responses', req, headers, meta, directive.cleanedInput, fallback),
     file_ids: [...new Set(files)],
     stream: req.stream,
     background: req.background,
     previous_response_id: req.previous_response_id,
     agent_version: resolved.agent_version,
     metadata: meta,
+    ...(contract ? { output_contract: contract } : {}),
   });
 }
 
@@ -335,7 +349,16 @@ export function parseChat(value: unknown, headers?: Record<string, unknown>): In
   if (compatHeader === 'true' || compatHeader === '1') {
     return parseCompatChat(value, headers);
   }
-  rejectToolMessages(value, '/v1/chat/completions');
+  if (carriesCallerTools('chat', value)) {
+    rejectUnsatisfiable('chat', value as Record<string, unknown>, '/v1/chat/completions');
+    strictParse(
+      chatSchema,
+      { ...(value as object), messages: [{ role: 'user', content: 'x' }], tools: undefined },
+      '/v1/chat/completions',
+      '/v1/compat/chat/completions',
+    );
+    return parseCompatChat(value, headers, 'reject');
+  }
   rejectUnsupportedParts(value, 'messages', STRICT_CHAT_PARTS);
   const req = strictParse(chatSchema, value, '/v1/chat/completions', '/v1/compat/chat/completions');
   rejectUnsatisfiable('chat', value as Record<string, unknown>, '/v1/chat/completions');
@@ -367,8 +390,10 @@ export function parseChat(value: unknown, headers?: Record<string, unknown>): In
       return `[${m.role}]\n${content}`;
     })
     .join('\n\n');
+  const contract = chatContract(req.response_format);
+  const rawInputWithFormat = contract ? `${rawInput}\n\n${instructionFor(contract)}` : rawInput;
 
-  const directive = extractInlineDirective(rawInput);
+  const directive = extractInlineDirective(rawInputWithFormat);
   const rawMeta = { ...req.metadata };
   applyReasoningEffort(rawMeta, req.reasoning_effort);
   const resolved = resolveModelSelector(req.model, rawMeta, headers, directive);
@@ -383,6 +408,7 @@ export function parseChat(value: unknown, headers?: Record<string, unknown>): In
     stream: req.stream,
     metadata: meta,
     agent_version: resolved.agent_version,
+    ...(contract ? { output_contract: contract } : {}),
   });
 }
 
@@ -431,7 +457,11 @@ const compatChatSchema = z
   })
   .passthrough();
 
-export function parseCompatChat(value: unknown, headers?: Record<string, unknown>): Invocation {
+export function parseCompatChat(
+  value: unknown,
+  headers?: Record<string, unknown>,
+  fallback: ToolsFallback = 'managed',
+): Invocation {
   const req = compatChatSchema.parse(value);
   const files: string[] = [];
   const renderedMessages = req.messages.map((m, i) => {
@@ -459,14 +489,8 @@ export function parseCompatChat(value: unknown, headers?: Record<string, unknown
     return `[${label}]\n${text}`;
   });
 
-  if (
-    req.response_format &&
-    (req.response_format.type === 'json_object' || req.response_format.type === 'json_schema')
-  ) {
-    renderedMessages.push(
-      `[Response Format Requirement: Respond with valid JSON${req.response_format.json_schema ? ` matching schema ${JSON.stringify(req.response_format.json_schema).slice(0, 1500)}` : ''}.]`,
-    );
-  }
+  const contract = chatContract(req.response_format);
+  if (contract) renderedMessages.push(instructionFor(contract));
 
   const rawMeta: Record<string, string> = {};
   if (req.metadata) {
@@ -490,11 +514,12 @@ export function parseCompatChat(value: unknown, headers?: Record<string, unknown
   return invocationSchema.parse({
     agent: resolved.agent,
     model: resolved.model,
-    ...compatInput('chat', req, headers, meta, directive.cleanedInput),
+    ...compatInput('chat', req, headers, meta, directive.cleanedInput, fallback),
     file_ids: [...new Set(files)],
     stream: req.stream,
     metadata: meta,
     agent_version: resolved.agent_version,
+    ...(contract ? { output_contract: contract } : {}),
   });
 }
 

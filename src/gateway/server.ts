@@ -66,7 +66,7 @@ import { geminiQueryKey, sendError, sseRequested, zodFault } from './compat-erro
 import * as http from './compat-http.js';
 import { ignoredParamsHeader, paramFamily } from './compat-params.js';
 import { bridgeDialect, bridgedObject, resumeBridged, waitParkedOrTerminal } from './bridge.js';
-import { flattenClientResults } from './client-tools.js';
+import { clientToolsHeader, submitClientTools } from './client-tools-auto.js';
 import { claudeModelList } from './claude.js';
 import {
   fromGoogleClient,
@@ -116,6 +116,7 @@ export const GATEWAY_FEATURES = [
   'platform-setup-v1',
   'queue-insight-v1',
   'run-timeline-v1',
+  'structured-output-v1',
   'webhooks-v1',
   'workflow-output-v1',
 ].sort();
@@ -157,6 +158,7 @@ export async function createGateway(
     const kernel = new Kernel(store, hub, {
       maxActiveRuns: config.maxActiveRuns,
       approvalTimeoutMs: config.approvalTimeoutMs,
+      structuredRepairs: config.structuredOutput.maxRepairs,
       ...(config.maxActiveRunsPerSubject !== undefined
         ? { maxActiveRunsPerSubject: config.maxActiveRunsPerSubject }
         : {}),
@@ -195,7 +197,6 @@ export async function createGateway(
     };
     const app = Fastify({
       logger: false,
-      // A Base URL typed with a trailing slash makes clients call `/v1//chat/completions`.
       rewriteUrl: (req) => http.rewriteApiUrl(req.url),
       bodyLimit: 24 * 1024 * 1024,
       requestTimeout: config.security.requestTimeoutMs ?? 0,
@@ -1195,11 +1196,13 @@ export async function createGateway(
         resumed = resumeBridged(kernel, store, req.principal, invocation);
         run =
           resumed?.run ??
-          kernel.submit(
+          submitClientTools(
+            kernel,
             req.principal,
-            flattenClientResults(invocation),
+            invocation,
             req.headers['idempotency-key'] as string | undefined,
             providerKeyOf(req),
+            config.clientTools.default,
           );
       } catch (error) {
         release?.();
@@ -1207,8 +1210,8 @@ export async function createGateway(
       }
       reply.header('X-Run-ID', run.id);
       if (responseDialect === 'uap') reply.header('X-UAP-Version', '1.0');
-      if (invocation.metadata['oaa.client_tools_ignored'])
-        reply.header('X-OAA-Client-Tools', 'ignored');
+      const toolsMode = clientToolsHeader(run);
+      if (toolsMode) reply.header('X-OAA-Client-Tools', toolsMode);
       const ignored = ignoredParamsHeader(
         paramFamily(req.url.split('?')[0]!, responseDialect),
         req.body,
@@ -1355,8 +1358,7 @@ export async function createGateway(
     });
 
     registerGeminiModelRoutes(app, auth, cachedAgents);
-    // `/v1beta/{agent}:generateContent` without `models/`: the AI SDK Google provider treats any id
-    // that contains a slash (every agent id does) as a full resource name and does not add it.
+    // `/v1beta/*` also takes `{agent}:generateContent` without `models/` (AI SDK Google provider).
     for (const route of ['/v1beta/models/*', '/v1/models/*', '/v1beta/*'])
       app.post(route, async (req, reply) => {
         const { rawTarget, isStream } = geminiMethod(req);

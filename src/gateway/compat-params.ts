@@ -119,7 +119,12 @@ const IGNORED: Record<ParamFamily, readonly string[]> = {
 };
 
 /** Gemini `generationConfig` 里除 `maxOutputTokens` 之外的字段都不转发。 */
-const GEMINI_APPLIED = new Set(['maxOutputTokens']);
+const GEMINI_APPLIED = new Set([
+  'maxOutputTokens',
+  'responseMimeType',
+  'responseSchema',
+  'responseJsonSchema',
+]);
 
 /** 这次请求里被忽略的参数名（按固定顺序）；不是对象或没有时为空数组。 */
 export function ignoredParams(family: ParamFamily, body: unknown): string[] {
@@ -161,31 +166,27 @@ export function unsupportedParameter(name: string, endpoint: string, hint?: stri
 }
 
 const TOOLS_HINT =
-  'Caller-defined tools need an explicit mode and are accepted only on the compatibility endpoints: use the Base URL <origin>/v1/compat (or send X-OAA-Compat: true). By default the agent keeps using its own tools; add X-OAA-Client-Tools: bridge to have the agent call yours.';
-const FORMAT_HINT =
-  'JSON output formats are applied as a best-effort instruction only on the compatibility endpoints (Base URL <origin>/v1/compat, or X-OAA-Compat: true).';
+  'Legacy function calling (`functions`, `function_call`) is not supported: declare the functions as `tools` instead.';
 
-/** 严格 Chat 端点上的工具往返消息（`role: "tool"`、assistant 的 `tool_calls`）：先于 zod，错误点明哪条消息。 */
-export function rejectToolMessages(body: unknown, endpoint: string): void {
-  const messages = (body as { messages?: unknown } | null)?.messages;
-  if (!Array.isArray(messages)) return;
-  messages.forEach((m, i) => {
-    if (!m || typeof m !== 'object') return;
-    const msg = m as Record<string, unknown>;
-    const what =
-      msg.role === 'tool' || msg.role === 'function'
-        ? 'tool result messages'
-        : msg.tool_calls !== undefined || msg.function_call !== undefined
-          ? 'assistant tool calls'
-          : undefined;
-    if (what)
-      throw new CompatFault(
-        'unsupported_parameter',
-        `messages.${i}: ${what} are not supported on ${endpoint}. ${TOOLS_HINT}`,
-        400,
-        `messages.${i}`,
-      );
-  });
+/**
+ * 请求带了调用方工具、或工具往返（Chat 的 `role: "tool"` 消息与 assistant 的 `tool_calls`，Responses 的
+ * `function_call` / `function_call_output` 输入项）：严格端点把它们交给共用的兼容路径（`auto` 模式：
+ * 智能体能接管就桥接，否则报下面 `submitClientTools` 里那条专门的拒绝）。
+ */
+export function carriesCallerTools(family: 'chat' | 'responses', body: unknown): boolean {
+  const obj = (body ?? {}) as Record<string, unknown>;
+  if (Array.isArray(obj.tools) && obj.tools.length > 0) return true;
+  const items = family === 'chat' ? obj.messages : obj.input;
+  return (
+    Array.isArray(items) &&
+    items.some((m) => {
+      if (!m || typeof m !== 'object') return false;
+      const item = m as Record<string, unknown>;
+      return family === 'chat'
+        ? item.role === 'tool' || item.tool_calls !== undefined
+        : item.type === 'function_call' || item.type === 'function_call_output';
+    })
+  );
 }
 
 /**
@@ -200,8 +201,8 @@ export function rejectUnsatisfiable(
 ): void {
   const nonEmpty = (v: unknown) =>
     v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0);
-  for (const name of family === 'chat' ? ['tools', 'functions'] : ['tools'])
-    if (nonEmpty(body[name])) throw unsupportedParameter(name, endpoint, TOOLS_HINT);
+  if (family === 'chat' && nonEmpty(body.functions))
+    throw unsupportedParameter('functions', endpoint, TOOLS_HINT);
   const choice = body.tool_choice;
   if (choice !== undefined && choice !== null && choice !== 'auto' && choice !== 'none')
     throw unsupportedParameter(
@@ -209,12 +210,7 @@ export function rejectUnsatisfiable(
       endpoint,
       'Forcing a tool call is not possible: the agent decides which tools to use. Use "auto" or omit it.',
     );
-  if (family === 'responses') {
-    const format = (body.text as { format?: { type?: unknown } } | null | undefined)?.format;
-    if (format && typeof format === 'object' && format.type !== undefined && format.type !== 'text')
-      throw unsupportedParameter('text.format', endpoint, FORMAT_HINT);
-    return;
-  }
+  if (family === 'responses') return;
   if (body.logprobs === true)
     throw unsupportedParameter(
       'logprobs',
@@ -226,9 +222,6 @@ export function rejectUnsatisfiable(
   const fc = body.function_call;
   if (fc !== undefined && fc !== null && fc !== 'auto' && fc !== 'none')
     throw unsupportedParameter('function_call', endpoint, TOOLS_HINT);
-  const format = body.response_format;
-  if (format && typeof format === 'object' && (format as { type?: unknown }).type !== 'text')
-    throw unsupportedParameter('response_format', endpoint, FORMAT_HINT);
 }
 
 /**

@@ -6,7 +6,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from harness import API_KEY, BASE_URL, FIXTURE, Lab, check, equal  # noqa: E402
+from harness import API_KEY, BASE_URL, FIXTURE, NATIVE, Lab, check, equal  # noqa: E402
 
 try:
     from importlib.metadata import version
@@ -98,7 +98,7 @@ def _():
 
 @lab.scenario("openai.tools_bridge_roundtrip")
 def _():
-    m = openai_model(base_url=COMPAT, default_headers=BRIDGE).bind_tools([get_weather])
+    m = openai_model().bind_tools([get_weather])
     first = m.invoke("CALLTOOL")
     check(first.tool_calls and first.tool_calls[0]["name"] == "get_weather", f"no tool call: {first}")
     equal(first.tool_calls[0]["args"].get("city"), "Paris", "args")
@@ -108,29 +108,29 @@ def _():
 
 @lab.scenario("openai.tools_bridge_stream")
 def _():
-    m = openai_model(base_url=COMPAT, default_headers=BRIDGE).bind_tools([get_weather])
+    m = openai_model().bind_tools([get_weather])
     merged = None
     for chunk in m.stream("CALLTOOL"):
         merged = chunk if merged is None else merged + chunk
     check(merged.tool_calls and merged.tool_calls[0]["args"].get("city") == "Paris", f"streamed tool call: {merged.tool_calls}")
 
 
-@lab.scenario("openai.tools_on_default_endpoint_error_says_where")
+@lab.scenario("openai.tools_on_an_agent_that_cannot_bridge_is_explicit")
 def _():
-    m = openai_model().bind_tools([get_weather])
+    m = ChatOpenAI(model=NATIVE, base_url=V1, api_key=API_KEY, max_retries=0).bind_tools([get_weather])
     try:
         m.invoke("hi")
     except Exception as error:  # noqa: BLE001
-        check("compat" in str(error), f"the error does not point to /v1/compat: {error}")
+        check("compat" in str(error) and "managed" in str(error), f"the error does not name the way out: {error}")
         return
-    raise AssertionError("tools were silently accepted on the default endpoint")
+    raise AssertionError("tools were silently accepted for an agent that cannot take them over")
 
 
 @lab.scenario("openai.structured_output_json_schema")
 def _():
-    m = openai_model(base_url=COMPAT).with_structured_output(Answer, method="json_schema")
-    r = m.invoke("JSON")
-    equal((r.answer, r.n), ("ok", 1), "parsed")
+    m = openai_model().with_structured_output(Answer, method="json_schema")
+    r = m.invoke("who?")
+    equal((r.answer, r.n), ("x", 1), "parsed")
 
 
 @lab.scenario("openai.responses_api_invoke_and_stream")
@@ -169,11 +169,26 @@ def _():
 
 @lab.scenario("anthropic.tools_bridge_roundtrip")
 def _():
-    m = anthropic_model(default_headers=BRIDGE).bind_tools([get_weather])
+    m = anthropic_model().bind_tools([get_weather])
     first = m.invoke("CALLTOOL")
     check(first.tool_calls and first.tool_calls[0]["name"] == "get_weather", f"no tool call: {first.content}")
     done = m.invoke(["CALLTOOL", first, ToolMessage(content="sunny", tool_call_id=first.tool_calls[0]["id"])])
     equal(done.text, "Tool result: sunny", "final")
+
+
+
+@lab.scenario("structured.with_structured_output_json_schema_and_correction")
+def _():
+    m = openai_model().with_structured_output(Answer, method="json_schema")
+    r = m.invoke("BADJSON who?")
+    equal((r.answer, r.n), ("x", 1), "parsed")
+
+
+@lab.scenario("structured.with_structured_output_json_mode")
+def _():
+    m = openai_model().with_structured_output(Answer, method="json_mode")
+    r = m.invoke("Reply with a JSON object with the keys answer (a string) and n (an integer).")
+    check(r.answer is not None, "parsed")
 
 
 lab.done()

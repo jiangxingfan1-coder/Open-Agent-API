@@ -7,7 +7,7 @@ const version = async (name) => JSON.parse(await readFile(new URL(`../node_modul
 const lab = createLab('vercel-ai-sdk', `ai ${await version('ai')}`);
 const ai = await loadOrSkip(lab, 'ai');
 if (!ai) process.exit(0);
-const { generateText, streamText, tool, isStepCount } = ai;
+const { generateText, generateObject, streamText, tool, isStepCount } = ai;
 const { z } = await import('zod');
 const { createOpenAI } = await import('@ai-sdk/openai');
 const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
@@ -26,15 +26,13 @@ const weather = () =>
 
 // One entry per provider package: how to build a model for the gateway, with and without the tool bridge.
 const providers = {
-  'openai.chat': (headers, base = `${env.baseUrl}/v1`) => createOpenAI({ baseURL: base, apiKey: env.apiKey, headers }).chat(M),
-  'openai.responses': (headers, base = `${env.baseUrl}/v1`) => createOpenAI({ baseURL: base, apiKey: env.apiKey, headers }).responses(M),
-  'openai-compatible': (headers, base = `${env.baseUrl}/v1`) =>
-    createOpenAICompatible({ name: 'oaa', baseURL: base, apiKey: env.apiKey, headers, includeUsage: true }).chatModel(M),
+  'openai.chat': (headers) => createOpenAI({ baseURL: `${env.baseUrl}/v1`, apiKey: env.apiKey, headers }).chat(M),
+  'openai.responses': (headers) => createOpenAI({ baseURL: `${env.baseUrl}/v1`, apiKey: env.apiKey, headers }).responses(M),
+  'openai-compatible': (headers) =>
+    createOpenAICompatible({ name: 'oaa', baseURL: `${env.baseUrl}/v1`, apiKey: env.apiKey, headers, includeUsage: true, supportsStructuredOutputs: true }).chatModel(M),
   anthropic: (headers) => createAnthropic({ baseURL: `${env.baseUrl}/v1`, apiKey: env.apiKey, headers })(M),
   google: (headers) => createGoogleGenerativeAI({ baseURL: `${env.baseUrl}/v1beta`, apiKey: env.apiKey, headers })(M),
 };
-// Caller tools need the compat mode on the OpenAI routes; Anthropic and Gemini entries are compat already.
-const toolBase = { 'openai.chat': `${env.baseUrl}/v1/compat`, 'openai.responses': `${env.baseUrl}/v1/compat`, 'openai-compatible': `${env.baseUrl}/v1/compat` };
 
 for (const [name, build] of Object.entries(providers)) {
   await lab.scenario(`${name}.generateText`, async () => {
@@ -74,9 +72,9 @@ for (const [name, build] of Object.entries(providers)) {
     });
     for (const mark of ['SYSTEM_MARK', 'first question', 'first answer']) check(r.text.includes(mark), `${mark} lost: ${r.text.slice(0, 120)}`);
   });
-  await lab.scenario(`${name}.tool_loop_via_bridge`, async () => {
+  await lab.scenario(`${name}.tool_loop_without_any_header`, async () => {
     const r = await generateText({
-      model: build(BRIDGE, toolBase[name]),
+      model: build(),
       prompt: 'CALLTOOL',
       tools: { get_weather: weather() },
       stopWhen: isStepCount(4),
@@ -86,4 +84,18 @@ for (const [name, build] of Object.entries(providers)) {
     check(r.text.startsWith('Tool result:') && r.text.includes('sunny in Paris'), `final text: ${r.text}`);
   });
 }
+
+for (const [name, build] of Object.entries(providers)) {
+  await lab.scenario(`${name}.generateObject`, async () => {
+    // @ai-sdk/anthropic would default to a forced JSON tool; its native output format goes through output_config.
+    const { object } = await generateObject({
+      model: build(),
+      schema: z.object({ name: z.string(), age: z.number().int() }),
+      prompt: 'BADJSON who?',
+      providerOptions: { anthropic: { structuredOutputMode: 'outputFormat' } },
+    });
+    equal(`${object.name}/${object.age}`, 'x/1', 'object');
+  });
+}
+
 lab.done();

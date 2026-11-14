@@ -21,6 +21,7 @@ Find documents by "I want to…". Every document is available in English (this f
 - Switch automatically to another agent on failure, or hand a session over to another agent: [protocol.md, "Agent fallback on failure"](protocol.md#agent-fallback-on-failure-oaaagent_fallback-2026-11-10) and ["Agent handoff"](protocol.md#agent-handoff-handoff-2026-11-10)
 - Call through MCP: [operations.md, "MCP and plugin entry"](operations.md#mcp-and-plugin-entry) and the [MCP skill description](../integrations/open-agent-api/SKILL.md)
 - Which SDKs and frameworks were run live, which chat clients were replayed from their request shapes, how to configure each, which parameters are ignored or refused: [compatibility.md](compatibility.md)
+- Get JSON that is guaranteed to fit a schema (`response_format`, `text.format`, `responseSchema`, `output_config.format`), correction rounds, streaming behaviour and limits: [structured-output.md](structured-output.md)
 
 ## I want to publish an agent
 
@@ -42,7 +43,7 @@ Find documents by "I want to…". Every document is available in English (this f
 
 ## I want the caller's tools to take part
 
-- The managed / bridge / reject modes and the support matrix: [harness.md](harness.md)
+- The auto / managed / bridge / reject modes for caller tools and the support matrix: [harness.md](harness.md)
 - How to use bridging: [harness.md, "Using bridge (kernel agents)"](harness.md#using-bridge-kernel-agents) and ["Responses, Claude Messages, and Gemini"](harness.md#responses-claude-messages-and-gemini)
 
 ## I want to deploy to the public internet or add more execution machines

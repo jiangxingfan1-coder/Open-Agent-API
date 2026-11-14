@@ -307,6 +307,20 @@ const gatewayObject = z
     /** Optional per-caller cap on stored file bytes (uploads and artifacts). Unset: unlimited. */
     maxStoredBytesPerSubject: z.number().int().min(1).optional(),
     approvalTimeoutMs: z.number().int().min(50).max(86_400_000).default(600_000),
+    /**
+     * What a request that declares caller tools gets when it does not choose a mode itself
+     * (X-OAA-Client-Tools / metadata): `auto` bridges them when the agent can take them over and
+     * falls back to the entry's older behaviour otherwise; `managed`, `bridge`, `reject` apply to every request.
+     */
+    /** Structured output (response_format and friends): how often a wrong answer is sent back for correction. */
+    structuredOutput: z
+      .object({ maxRepairs: z.number().int().min(0).max(3).default(1) })
+      .strict()
+      .default({ maxRepairs: 1 }),
+    clientTools: z
+      .object({ default: z.enum(['auto', 'managed', 'bridge', 'reject']).default('auto') })
+      .strict()
+      .default({ default: 'auto' }),
     leaseMs: z.number().int().min(100).max(120_000).default(15_000),
     /** Developer platform (accounts, account keys, listings, credits). Unset: nothing changes. */
     platform: platformSchema.optional(),

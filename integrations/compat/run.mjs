@@ -55,6 +55,8 @@ function runScript(client, gateway) {
         OAA_API_KEY: gateway.apiKey,
         OAA_AGENT_FIXTURE: gateway.agents.fixture,
         OAA_AGENT_SAMPLE: gateway.agents.sample,
+        OAA_AGENT_NATIVE: gateway.agents.native,
+        OAA_AGENT_ACP: gateway.agents.acp,
         PYTHONUNBUFFERED: '1',
         PYTHONDONTWRITEBYTECODE: '1',
       },
@@ -161,7 +163,11 @@ async function replayClients(replay, files, gateway) {
         continue;
       }
       try {
-        const r = await replay.runReplayCase(c, transport, { AGENT: gateway.agents.fixture, KEY: gateway.apiKey });
+        const r = await replay.runReplayCase(c, transport, {
+          AGENT: gateway.agents.fixture,
+          NATIVE: gateway.agents.native,
+          KEY: gateway.apiKey,
+        });
         scenarios[c.id] = {
           status: r.ok ? 'pass' : 'fail',
           detail: r.ok ? (r.ignored ? `ignored params: ${r.ignored}` : '') : r.problems.join('; '),

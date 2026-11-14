@@ -7,6 +7,8 @@ export type KernelLimits = {
   approvalTimeoutMs: number;
   /** Unfinished requests one caller subject may hold; the owner-wide cap (LIMITS.ownerActiveRuns, 32) still applies. */
   maxActiveRunsPerSubject?: number;
+  /** Correction rounds a run with structured output gets when its answer does not fit (default 1). */
+  structuredRepairs?: number;
 };
 
 export type ExecutionSlice = {

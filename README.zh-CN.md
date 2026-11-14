@@ -204,7 +204,7 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 - 能力差异在「交互深度」，不在「能不能接入」。四类接入方式都可以把智能体发布成 Agent API。
 - 外部智能体的权限是继承的，网关不对它做沙箱隔离：一次调用可以读取或修改宿主运行时允许的任何内容。调用方的密钥需要具备 `host` 执行等级才能调用外部智能体；对外分发时请阅读[公网部署](docs/zh-CN/deploy-public.md)里的建议。
 - 发布外部智能体时可以把权限请求设为自动批准（`--approvals auto`）。这等于让调用方以你在这台机器上的权限驱动它，只对你信任的调用方开放，风险说明见 [docs/zh-CN/protocol.md](docs/zh-CN/protocol.md#approval-policy-for-external-agents-approval-policy-v1)。
-- 调用方自己也是智能体（Cursor、Cline、Claude Code 之类）时，它传来的 `tools` 有三种处理方式：托管（默认，智能体用自己的工具）、桥接（工具交回调用方执行，结果回传后同一个任务接着做）、拒绝。见 [docs/zh-CN/harness.md](docs/zh-CN/harness.md)。
+- 调用方自己也是智能体（Cursor、Cline、Claude Code 之类）时，它传来的 `tools` 会交给能接管它们的智能体（调用以标准 `tool_calls` 交回调用方执行，结果回传后同一个任务接着做）；接管不了的智能体照旧用自己的工具。也可以显式选 `managed`、`bridge`、`reject`、`auto`。见 [docs/zh-CN/harness.md](docs/zh-CN/harness.md)。
 - 调用方也可以经 MCP 入口发现并调用智能体：`npm run oaa -- mcp --url … --token-file …` 或 `npm run oaa -- integration` 生成启动配置，见[操作手册](docs/zh-CN/operations.md)。出于安全考虑，MCP 入口刻意不提供批准审批的工具。
 
 ## 兼容的协议与 SDK

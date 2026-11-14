@@ -870,7 +870,6 @@ test('/v1/compat/* and X-OAA-Compat accept third-party OpenAI SDK fields, tool h
       reasoning_effort: 'high',
       tools: [{ type: 'function', function: { name: 'dummy', parameters: {} } }],
       tool_choice: 'auto',
-      response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You are a coding assistant.' },
         {
@@ -893,7 +892,6 @@ test('/v1/compat/* and X-OAA-Compat accept third-party OpenAI SDK fields, tool h
     // Because reasoning_effort='high' maps to strategy='quality', it routes to 'claude-opus-pro'!
     assert.match(chatBody.choices[0].message.content, /Compat reply from claude-opus-pro/);
     assert.match(chatBody.choices[0].message.content, /\[tool:call_1\]/);
-    assert.match(chatBody.choices[0].message.content, /Response Format Requirement/);
 
     // 3. /v1/chat/completions with X-OAA-Compat: true also accepts extra OpenAI fields
     const headerCompatRes = await s.app.inject({

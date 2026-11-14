@@ -21,21 +21,31 @@ Inner harness (the published agent: the kernel loop, or the loop of a Codex / Cl
 
 Each layer has its own set of tools. If the outer `tools` were silently dropped, lines in the outer system prompt such as "you must call edit_file" would reach the inner agent unchanged, and the inner agent has no such tool, so it tends to invent a tool call in its text. That is why OAA lets the caller choose explicitly what happens to the outer tools.
 
-## Three modes
+## The modes
 
 | Mode | Meaning | Who runs the tools | When to use |
 | --- | --- | --- | --- |
-| `managed` (default) | The inner agent completes the task on its own. The tools passed by the outer layer are not run, and this is stated explicitly: the response header `X-OAA-Client-Tools: ignored`; in addition, a fixed note is appended to the input given to the agent (external tools are not available here; complete the task with your own tools and give the result directly, and do not write tool calls in the text) | The inner agent | Plugging an OAA agent into existing tooling as a "model that does the work itself" |
+| `auto` (default) | The gateway decides when the agent is known: when the agent can take the caller's tools over it behaves as `bridge`, otherwise it does what the entry did before (see "What auto does") | As in the mode it picks | Almost always: callers do not have to know which kind of agent is behind the name |
+| `managed` | The inner agent completes the task on its own. The tools passed by the outer layer are not run, and this is stated explicitly: the response header `X-OAA-Client-Tools: ignored`; in addition, a fixed note is appended to the input given to the agent (external tools are not available here; complete the task with your own tools and give the result directly, and do not write tool calls in the text) | The inner agent | Wiring an OAA agent into an existing tool as "a model that does the work by itself", or keeping the behaviour of versions before `auto` |
 | `bridge` | The outer tools are projected to the inner agent; when the inner agent calls one, the run parks and returns it to the caller as standard `tool_calls`; the caller runs it and sends the result back, and the same run carries on | The caller (initiated by the inner agent) | The tool must run on the caller's machine (for example editing files in the caller's workspace) |
 | `reject` | Any request that passes tools fails with `client_tools_unsupported`, with no fallback | — | Callers that need strict semantics and do not accept tools being ignored |
 
-> **Bridge is available for built-in kernel agents, and supports Chat Completions, Responses, Claude Messages, and Gemini `generateContent`.** Requesting `bridge` for an external agent that cannot bridge returns `client_tools_bridge_unsupported` (400), and UAP/1 does not accept a `tools` field; in these cases no run is created.
+> **Bridge is available for built-in kernel agents and ACP external agents, and supports Chat Completions, Responses, Claude Messages, and Gemini `generateContent`.** Requesting `bridge` for an external agent that cannot bridge returns `client_tools_bridge_unsupported` (400), and UAP/1 does not accept a `tools` field; in these cases no run is created.
+
+## What auto does
+
+A request that declares tools and chooses no mode gets `auto` (the gateway configuration `clientTools.default` can change that default to `managed`, `bridge` or `reject`; an explicit `auto` in the header beats the configuration). The rule, with the agent known at submit time:
+
+1. The agent can take the tools over (kernel agent, or an ACP agent with an online execution machine that declared `client-tools-v1` for it), the tools are plain functions with names that do not collide with the agent's own, and no tool choice is forced: the request is handled as `bridge`. The response carries `X-OAA-Client-Tools: bridge`; the agent's calls come back as `tool_calls` / `function_call` / `tool_use` / `functionCall`.
+2. Anything else gets what the entry did before. OpenAI's default endpoints (`/v1/chat/completions`, `/v1/responses` without `X-OAA-Compat`) refuse with 400 `unsupported_parameter` (`error.param` `tools`): the message says this agent cannot take the tools over, gives the reason (a native engine that runs its own tool loop, no execution machine for client tools, a name collision, tools that are not functions, a forced tool choice), and names the three ways out: the Base URL `<origin>/v1/compat`, `X-OAA-Compat: true`, `X-OAA-Client-Tools: managed`. The compatibility endpoints, Claude Messages and Gemini continue as `managed` (the agent finishes with its own tools; `X-OAA-Client-Tools: ignored`).
+
+So only two situations changed: a request to an agent that can bridge now bridges (on the default OpenAI endpoints it used to be a 400; elsewhere it used to be `managed`). Agents that cannot bridge (Codex, Claude Code, Antigravity, A2A, HTTP adapters) behave on every entry exactly as before. Forced tool choices cannot be honoured by the gateway or the upstream model, so they never bridge; on the default endpoints a forced `tool_choice` is refused (`unsupported_parameter`, `error.param` `tool_choice`) and elsewhere it is ignored as before. The permission of an external agent's own approval requests in a bridged turn is unchanged (see "How bridging works for external agents"): `auto` does not widen what is auto-approved.
 
 Modes apply only when `tools` in the request is a **non-empty array**. With no `tools`, or with `tools: []`, behavior is exactly as before and the mode header has no effect.
 
 ## How to choose
 
-- When in doubt, use the default `managed`: the caller gets the final result as usual, and the response header tells you the tools were ignored.
+- When in doubt, keep the default `auto`: an agent that can use your tools gets them, any other agent works as it did before, and the response header (`bridge` or `ignored`) says which happened.
 - When the caller must know that "the tools were not run" and change its behavior accordingly (for example switch to another model), use `reject` and branch on the error code.
 - When the agent must call tools on your machine to finish the task, and what is behind it is a kernel agent or an ACP external agent, use `bridge`. For other external agents, you can first publish those tools as the OAA agent's own tools (MCP import or node tools) and then use `managed`.
 
@@ -43,10 +53,10 @@ Modes apply only when `tools` in the request is a **non-empty array**. With no `
 
 There are two ways, and the header wins:
 
-1. The request header `X-OAA-Client-Tools: managed | bridge | reject` (case-insensitive).
+1. The request header `X-OAA-Client-Tools: auto | managed | bridge | reject` (case-insensitive).
 2. The request body `metadata["oaa.client_tools"]`, with the same values.
 
-Any other value returns `invalid_request` (400), and the message lists the three valid values.
+Any other value returns `invalid_request` (400), and the message lists the valid values.
 
 Chat Completions (compatibility mode), with the header:
 
@@ -81,15 +91,16 @@ Responses (`/v1/compat/responses`) and Gemini (`tools[].functionDeclarations`) w
 
 | Case | Response header |
 | --- | --- |
-| `managed`, and the request did carry tools | `X-OAA-Client-Tools: ignored` (both streaming and non-streaming) |
+| The agent keeps its own tools and the request did carry tools (`managed`, or `auto` falling back) | `X-OAA-Client-Tools: ignored` (both streaming and non-streaming) |
+| The tools were handed to the agent (`bridge`, or `auto` choosing it) | `X-OAA-Client-Tools: bridge` |
 | No tools carried | Absent; the set of response headers is the same as before |
 | The request has parameters that are accepted but not forwarded (`temperature` and so on; see "Parameters, errors and finish reasons of the compatibility endpoints" in protocol.md) | `X-OAA-Ignored-Params: <parameter name, …>`; absent when there are none |
 
-The run record's `metadata` also shows `oaa.client_tools: "managed"` and `oaa.client_tools_ignored: "<number of tools>"`.
+The run record's `metadata` also shows the mode that was used: `oaa.client_tools: "managed"` with `oaa.client_tools_ignored: "<number of tools>"`, or `oaa.client_tools: "bridge"`.
 
 ## Current support matrix
 
-Agent connection type × mode (the agent profile's `conversion.client_tools` gives each agent's value: `bridge` for kernel and ACP, `managed` for the rest):
+Agent connection type × mode (the agent profile's `conversion.client_tools` gives each agent's value: `bridge` for kernel and ACP, `managed` for the rest; `auto` picks the one in that column):
 
 | Agent connection type | `managed` | `reject` | `bridge` |
 | --- | --- | --- | --- |
@@ -108,10 +119,10 @@ External protocol × mode:
 | Responses (`X-OAA-Compat: true` or `/v1/compat/responses`) | Supported | Supported | Supported (kernel and ACP agents; only `type: "function"` tools are accepted) |
 | Claude Messages (`/v1/messages`, `/v1/compat/messages`) | Supported | Supported | Supported (kernel and ACP agents; server tools that carry a `type` are rejected) |
 | Gemini `generateContent` / `streamGenerateContent` (`/v1beta` and `/v1`) | Supported | Supported | Supported (kernel and ACP agents; only `functionDeclarations` are accepted, and built-in tools such as `googleSearch` are rejected) |
-| Strict endpoints (`/v1/chat/completions` and `/v1/responses` without `X-OAA-Compat`) | — | — | — |
+| Strict endpoints (`/v1/chat/completions` and `/v1/responses` without `X-OAA-Compat`) | Supported (explicit header) | Supported (explicit header) | Supported (kernel and ACP agents); with no mode chosen an agent that cannot bridge is refused (see "What auto does") |
 | UAP/1 (`/v1/uap`) | — | — | — |
 
-Modes do not affect the strict endpoints and UAP/1. A strict endpoint refuses a non-empty `tools` (also `functions`, tool-result messages and assistant `tool_calls`) with `unsupported_parameter` (`error.param: "tools"`, or `messages.N`; the message points to the Base URL `<origin>/v1/compat` and to `X-OAA-Client-Tools: bridge`), and accepts an empty `tools: []` as no tools. UAP/1 returns `invalid_request` for the unknown field.
+The strict endpoints take part in the modes like the others; what is different is only the fallback of `auto` (a refusal instead of `managed`). `functions` / `function_call` (legacy) stay refused there, and an empty `tools: []` is accepted as no tools. UAP/1 does not take part: it returns `invalid_request` for a `tools` field.
 
 ## How this differs from human approval
 

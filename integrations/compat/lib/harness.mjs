@@ -15,6 +15,8 @@ export const env = {
   apiKey: process.env.OAA_API_KEY ?? '',
   fixture: process.env.OAA_AGENT_FIXTURE ?? 'agent/fixture',
   sample: process.env.OAA_AGENT_SAMPLE ?? 'agent/sample',
+  native: process.env.OAA_AGENT_NATIVE ?? 'agent/native',
+  acp: process.env.OAA_AGENT_ACP ?? 'agent/acp',
 };
 
 const emit = (record) => process.stdout.write(`@@COMPAT ${JSON.stringify(record)}\n`);
@@ -111,3 +113,6 @@ export async function loadOrSkip(lab, specifier) {
     return undefined;
   }
 }
+
+/** Prompt for the ACP stand-in agent: it calls the named caller tools (in parallel groups, one group after another). */
+export const acpScript = (...groups) => `Do the task.\nSCRIPT:${JSON.stringify({ groups })}`;

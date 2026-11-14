@@ -52,7 +52,8 @@ export function responseObject(run: Run): Record<string, unknown> {
     parallel_tool_calls: true,
     tool_choice: 'auto',
     tools: [],
-    text: { format: { type: 'text' } },
+    // A structured-output run echoes the caller's own format object (docs/structured-output.md).
+    text: { format: run.checkpoint.outputContract?.format ?? { type: 'text' } },
     store: true,
   };
 }

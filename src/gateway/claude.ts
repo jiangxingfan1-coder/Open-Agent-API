@@ -8,6 +8,7 @@ import type { Run } from '../core/contracts.js';
 import { extractInlineDirective, resolveModelSelector } from '../kernel/routing.js';
 import { invocationSchema, type Invocation } from '../kernel/invocation.js';
 import { compatInput } from './client-tools.js';
+import { claudeContract, instructionFor } from './structured-output.js';
 import { CompatFault, claudeStop, finishOf, runFailure } from './compat-errors.js';
 import { applyMaxTokens, attachResolutionMetadata } from './compat-params.js';
 
@@ -134,6 +135,8 @@ export function parseClaudeMessages(value: unknown, headers?: Record<string, unk
       )
     : undefined;
 
+  const contract = claudeContract((req as { output_config?: unknown }).output_config);
+  if (contract) parts.push(instructionFor(contract));
   const directive = extractInlineDirective(parts.join('\n\n'));
   const resolved = resolveModelSelector(req.model, stringMeta, headers, directive);
   const meta = attachResolutionMetadata(stringMeta, resolved);
@@ -147,6 +150,7 @@ export function parseClaudeMessages(value: unknown, headers?: Record<string, unk
     stream: req.stream,
     metadata: meta,
     agent_version: resolved.agent_version,
+    ...(contract ? { output_contract: contract } : {}),
   });
 }
 

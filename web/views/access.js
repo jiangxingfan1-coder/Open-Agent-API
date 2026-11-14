@@ -123,6 +123,7 @@ function callerToolsPanel(e, base, sample) {
       { text: t('access.colMeaning'), min: 240 },
     ],
     [
+      [t('access.modeAuto'), t('access.modeAutoText')],
       [t('access.modeManaged'), t('access.modeManagedText')],
       [t('access.modeBridge'), t('access.modeBridgeText')],
       [t('access.modeReject'), t('access.modeRejectText')],
