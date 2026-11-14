@@ -32,7 +32,7 @@
 <p align="center">
   <img src="docs/assets/demo-en.gif" alt="Demo: the same OpenAI SDK code with only base_url and model changed, calling the Antigravity agent on this machine and getting an answer (recorded for real; the wait is sped up)" width="100%" />
   <br />
-  <sub>Recorded for real: the call goes to the Antigravity agent on this machine. Actual time 8.5 s; the wait is sped up.</sub>
+  <sub>Recorded for real: the call goes to the Antigravity agent on this machine. Actual time 6.2 s; the wait is sped up.</sub>
 </p>
 
 ## Thirty seconds

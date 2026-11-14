@@ -175,7 +175,7 @@ const TEXT = {
     placeholder: PATH_PLACEHOLDER,
   },
   en: {
-    task: 'Turn this into a P1/P2/P3 list, one item per line, no explanations: order coffee beans; send the quote by Friday; fix the login page bug',
+    task: 'Reply in text only, no tools. Label these three to-dos P1, P2 and P3, one per line, no explanations: order coffee beans; send the quote by Friday; fix the login page bug',
     shortPrompt: 'Introduce yourself in one sentence, under 12 words.',
     approvalPrompt: `Create a file named note.txt in the current working directory, containing exactly one line: ${APPROVAL_LINE}. Do nothing else, and reply with just DONE when you are finished.`,
     placeholderName: 'Placeholder agent',
