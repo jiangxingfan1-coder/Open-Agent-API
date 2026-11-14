@@ -116,13 +116,24 @@ await lab.scenario('chat.response_format_via_compat', async () => {
   const r = await compat.chat.completions.create(say('JSON', { response_format: { type: 'json_object' } }));
   equal(JSON.parse(text(r)).answer, 'ok', 'json');
 });
-await lab.scenario('chat.image_part_rejected_clearly', async () => {
+const IMAGE = `data:image/png;base64,${env.png}`;
+await lab.scenario('chat.image_input_data_url', async () => {
+  const r = await client.chat.completions.create({ model: M, messages: [{ role: 'user', content: [{ type: 'text', text: 'SHOW_IMAGES' }, { type: 'image_url', image_url: { url: IMAGE, detail: 'low' } }] }] });
+  check(/^Images: 1 \[image\/png:\d+\]$/.test(text(r)), `reply: ${text(r)}`);
+});
+await lab.scenario('responses.input_image_url_and_file', async () => {
+  const file = await client.files.create({ file: new File([Buffer.from(env.png, 'base64')], 'shot.png', { type: 'image/png' }), purpose: 'user_data' });
+  const r = await client.responses.create({ model: M, input: [{ role: 'user', content: [{ type: 'input_text', text: 'SHOW_IMAGES' }, { type: 'input_image', image_url: 'https://img.example/a.png', detail: 'auto' }, { type: 'input_image', file_id: file.id, detail: 'auto' }] }] });
+  check(/Images: 2 \[url:https:\/\/img\.example\/a\.png, image\/png:\d+\]/.test(r.output_text), `reply: ${r.output_text}`);
+});
+await lab.scenario('chat.image_to_text_only_agent_rejected_clearly', async () => {
   const e = await rejects(
-    client.chat.completions.create({ model: M, messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }] }] }),
+    client.chat.completions.create({ model: env.textOnly, messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }, { type: 'image_url', image_url: { url: IMAGE } }] }] }),
     OpenAI.BadRequestError, 'image',
   );
   equal(e.code, 'unsupported_content', 'code');
   equal(e.param, 'messages.0.content.1', 'param');
+  check(/does not accept images/.test(e.message), `message: ${e.message}`);
 });
 await lab.scenario('errors.class_mapping', async () => {
   await rejects(make({ apiKey: 'sk-oaa-wrong' }).chat.completions.create(say('hi')), OpenAI.AuthenticationError, '401');

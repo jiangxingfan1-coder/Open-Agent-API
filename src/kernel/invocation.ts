@@ -10,6 +10,29 @@ export const outputContractSchema = z
     format: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
+/**
+ * One image of a request, in the normalized form every entry produces: inline base64 `data`
+ * (with the declared media type), an `https` `url`, or a stored `file_id`. `param` names the
+ * content part it came from (for `error.param`); `mime` is set by the gateway after sniffing.
+ */
+export const imageInputSchema = z.union([
+  z
+    .object({
+      data: z.string().max(24 * 1024 * 1024),
+      media_type: z.string().max(120).optional(),
+      param: z.string().max(200).optional(),
+    })
+    .strict(),
+  z.object({ url: z.string().min(1).max(8192), param: z.string().max(200).optional() }).strict(),
+  z
+    .object({
+      file_id: z.string().min(1).max(120),
+      mime: z.string().max(120).optional(),
+      param: z.string().max(200).optional(),
+    })
+    .strict(),
+]);
+export type ImageInput = z.infer<typeof imageInputSchema>;
 
 export const invocationSchema = z
   .object({
@@ -18,6 +41,8 @@ export const invocationSchema = z
     model: z.string().min(1).max(200).default('auto'),
     input: z.string().min(1).max(200_000),
     file_ids: z.array(z.string()).max(20).default([]),
+    /** Image inputs (docs/images.md); `data` is stored as an input file before submission. */
+    images: z.array(imageInputSchema).max(20).optional(),
     previous_response_id: z.string().optional(),
     agent_version: z
       .string()

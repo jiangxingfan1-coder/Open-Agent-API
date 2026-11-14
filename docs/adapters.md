@@ -80,8 +80,9 @@ The MCP bridge offering no approve/deny tool is a deliberate security boundary: 
 | `artifacts` | Whether files under `outputs/` are exported as artifacts |
 | `model_selection` | `route`, `declared`, `agent-confirmed`, `allowlist` |
 | `client_tools` | How tools that the caller passes on a compatibility endpoint are handled (see [harness.md](harness.md)): `managed` (the agent finishes with its own tools and the caller's tools are not run), `bridge` (the caller's tools are handed back to the caller to run). `bridge` for the kernel and ACP agents (Chat Completions, Responses, Claude Messages, and Gemini), `managed` for the other external agents |
+| `image_input` | How images reach the agent ([images.md](images.md)): `route` (kernel; per model route, `providers.*.imageInput`), `native` (Codex `localImage`, Claude Code image blocks, an ACP agent whose handshake declared `promptCapabilities.image`), `agent-declared` (ACP before a handshake check: image blocks if declared, else workspace files), `workspace-file` (image files under `inputs/` named in the input: Antigravity, DSH, stdio `oaa/1` adapters, ACP without image support), `none` (refused: A2A, HTTP adapters, `imageFiles: false`) |
 
-The profile is derived from static configuration only and does not change within a process, so it does not invalidate the overview ETag. A handshake check triggered by the owner only refines the entries in `/v1/local/backends`: if the ACP handshake declares `loadSession` or `resume`, `resume` becomes `native`; if neither is declared, it is `none`.
+The profile is derived from static configuration only and does not change within a process, so it does not invalidate the overview ETag. A handshake check triggered by the owner only refines the entries in `/v1/local/backends`: if the ACP handshake declares `loadSession` or `resume`, `resume` becomes `native`; if neither is declared, it is `none`. Likewise `image_input` becomes `native` when the handshake declares `promptCapabilities.image`, and `workspace-file` (or `none` with `imageFiles: false`) when it does not.
 
 ### Entry constraints for external agent events (2026-11-11)
 
@@ -333,7 +334,7 @@ The presets were ported from the author's own Possibility project (see the file 
 ### Boundaries not yet verified
 
 - Ordinary tests use only local fake agents (`test/fixtures/acp-agent.mjs`; the conversion contract matrix additionally uses `native-full.mjs`, `claude-code.mjs`, `stream-adapter.mjs`, and in-process HTTP/A2A fake remotes), covering the handshake, streaming output, session resume, approval approve/deny, cancellation and forced termination, model confirmation, and the various failures; **no real ACP or A2A agent has been tested end to end yet**, and differences between vendor implementations (authentication flows, `session/resume` support, how an explicit model is selected, A2A 1.0/0.3 implementation details, and so on) must be confirmed one by one.
-- Vendor extension methods (such as Cursor's Q&A/plan or Kiro extensions) are not bridged and are handled as unsupported with `-32601`; non-text output such as images/audio only records progress and is not written to the output.
+- Vendor extension methods (such as Cursor's Q&A/plan or Kiro extensions) are not bridged and are handled as unsupported with `-32601`; non-text output such as images/audio only records progress and is not written to the output. Image **input** is supported: see [images.md](images.md).
 - Verified only on macOS; process-group termination and PATH discovery on Windows are untested.
 - A remote worker forwards streaming text and approvals through the same `oaa/1` protocol, but the end-to-end path of ACP on a remote node has not been tested separately.
 

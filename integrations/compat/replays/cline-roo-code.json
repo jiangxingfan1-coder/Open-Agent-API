@@ -525,13 +525,12 @@
         }
       },
       "expect": {
-        "status": 400,
-        "code": "unsupported_content"
+        "status": 200
       },
       "consumes": [
         "stream.content_deltas_present"
       ],
-      "notes": "Audio would be {type:'input_audio'}, PDFs {type:'file'}, video {type:'video_url'} (converter L76-L136) - same 400 expectation applies."
+      "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
     {
       "id": "roo-models-list",
@@ -1013,13 +1012,12 @@
         }
       },
       "expect": {
-        "status": 400,
-        "code": "unsupported_content"
+        "status": 200
       },
       "consumes": [
         "stream.content_deltas_present"
       ],
-      "notes": ""
+      "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
     {
       "id": "roo-developer-role-o-family-name",

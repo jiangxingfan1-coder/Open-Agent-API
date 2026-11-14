@@ -12,6 +12,7 @@ import { observeAuthorization, revalidateObservation } from './streams.js';
 import { etagMatches } from './overview.js';
 import { streamSlots } from './stream-slots.js';
 import { buildTimeline } from './timeline.js';
+import { runImageSummary } from './image-summary.js';
 import { Fault, faultOf } from '../core/util.js';
 
 // Request schemas are built once: constructing a zod schema costs far more than parsing with it.
@@ -94,10 +95,12 @@ export function registerRunRoutes(app: FastifyInstance, context: RunRouteContext
     const state = store.runState(run.id, run.owner);
     const queue = kernel.queueInsight(run.id, run.owner, state.status);
     const contract = outputContractOf(store, run.id);
+    const images = runImageSummary(store, run.id);
     return {
       ...state,
       ...(contract ? { output_contract: contract } : {}),
       ...(queue ? { queue } : {}),
+      ...(images.length ? { images } : {}),
     };
   });
   // Derived from durable events, steps and checkpoint marks; never calls a model or tool.
@@ -107,7 +110,9 @@ export function registerRunRoutes(app: FastifyInstance, context: RunRouteContext
     const etag = `W/"tl.${lastEventId}.${run.status}"`;
     reply.header('ETag', etag);
     if (etagMatches(req.headers['if-none-match'], etag)) return reply.code(304).send();
-    return buildTimeline({ ...store.timelineSource(run.id, run.owner), now: Date.now() });
+    const images = runImageSummary(store, run.id);
+    const timeline = buildTimeline({ ...store.timelineSource(run.id, run.owner), now: Date.now() });
+    return images.length ? { ...timeline, images } : timeline;
   });
   app.get('/v1/runs/:id/steps', async (req) => {
     const run = ownedIdentity(req);

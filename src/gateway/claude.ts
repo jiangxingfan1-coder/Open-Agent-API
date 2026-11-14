@@ -6,7 +6,8 @@ import { claudeModelInfo } from './compat-models.js';
 import { z } from 'zod';
 import type { Run } from '../core/contracts.js';
 import { extractInlineDirective, resolveModelSelector } from '../kernel/routing.js';
-import { invocationSchema, type Invocation } from '../kernel/invocation.js';
+import { invocationSchema, type ImageInput, type Invocation } from '../kernel/invocation.js';
+import { claudeImage } from './image-parts.js';
 import { compatInput } from './client-tools.js';
 import { claudeContract, instructionFor } from './structured-output.js';
 import { CompatFault, claudeStop, finishOf, runFailure } from './compat-errors.js';
@@ -35,7 +36,7 @@ type Block = Record<string, unknown>;
 const unsupported = (param: string, what: string) =>
   new CompatFault(
     'unsupported_content',
-    `${param}: ${what} The agent receives text and files only: upload the file with POST /v1/files and reference it as {"type":"image"|"document","source":{"type":"file","file_id":"…"}}.`,
+    `${param}: ${what} The agent receives text, images (base64, url or file sources) and files: upload other files with POST /v1/files and reference them as {"type":"document","source":{"type":"file","file_id":"…"}}.`,
     400,
     param,
   );
@@ -61,13 +62,21 @@ function toolResultText(content: unknown, param: string): string {
 }
 
 /**
- * 一个内容块渲染成交给智能体的文本：text 原样；`source.type: "file"` 的 image / document 作为附件；
+ * 一个内容块渲染成交给智能体的文本：text 原样；image 块（base64 / url / file）走图片通道（docs/images.md）；
+ * `source.type: "file"` 的 document 作为附件；
  * tool_use / tool_result 用与 Responses 兼容入口相同的标注写法；thinking 块是模型自己的推理，
- * 不交给智能体；其余（base64 或 URL 图片、未知类型）明确拒绝，不把原始 JSON 塞进提示词。
+ * 不交给智能体；其余（base64 / URL 文档、未知类型）明确拒绝，不把原始 JSON 塞进提示词。
  */
-function renderBlock(b: Block, param: string, files: string[]): string | undefined {
+function renderBlock(
+  b: Block,
+  param: string,
+  files: string[],
+  images: ImageInput[],
+): string | undefined {
   if (b.type === 'text' && typeof b.text === 'string') return b.text;
-  if (b.type === 'image' || b.type === 'document') {
+  const image = claudeImage(b, param, images);
+  if (image !== undefined) return image;
+  if (b.type === 'document') {
     const source = (b.source ?? {}) as Block;
     if (source.type === 'file' && typeof source.file_id === 'string') {
       files.push(source.file_id);
@@ -92,6 +101,7 @@ export function parseClaudeMessages(value: unknown, headers?: Record<string, unk
   const req = claudeMessagesSchema.parse(value);
   const parts: string[] = [];
   const files: string[] = [];
+  const images: ImageInput[] = [];
 
   // system 不截断、不丢弃；整体长度受 invocation 的输入上限约束，
   // 超限时报 invalid_request，与其它入口一致。
@@ -118,7 +128,7 @@ export function parseClaudeMessages(value: unknown, headers?: Record<string, unk
       contentText = m.content;
     } else if (Array.isArray(m.content)) {
       contentText = m.content
-        .map((p, j) => renderBlock(p, `messages.${i}.content.${j}`, files))
+        .map((p, j) => renderBlock(p, `messages.${i}.content.${j}`, files, images))
         .filter((t): t is string => t !== undefined)
         .join('\n');
     }
@@ -147,6 +157,7 @@ export function parseClaudeMessages(value: unknown, headers?: Record<string, unk
     model: resolved.model,
     ...compatInput('claude', req, headers, meta, directive.cleanedInput),
     ...(files.length ? { file_ids: [...new Set(files)] } : {}),
+    ...(images.length ? { images } : {}),
     stream: req.stream,
     metadata: meta,
     agent_version: resolved.agent_version,

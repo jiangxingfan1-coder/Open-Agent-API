@@ -1,9 +1,12 @@
 /**
  * OpenAI 两个入口（Chat Completions、Responses）的内容块处理，与 Claude、Gemini 入口同一规则：
- * 文本照常；引用已上传文件的块走附件通道；工具调用与工具结果用标注文本；内联图片、音频与其它不认识的块明确拒绝（400 `unsupported_content`），
+ * 文本照常；引用已上传文件的块走附件通道；图片（`image_url`、`input_image`）走图片通道（docs/images.md）；
+ * 工具调用与工具结果用标注文本；音频与其它不认识的块明确拒绝（400 `unsupported_content`），
  * 不把 base64 或原始 JSON 塞进提示词。
  */
 import { CompatFault } from './compat-errors.js';
+import type { ImageInput } from '../kernel/invocation.js';
+import { openAIImage } from './image-parts.js';
 
 type Part = Record<string, unknown>;
 
@@ -12,7 +15,7 @@ const TEXT_TYPES = new Set(['text', 'input_text', 'output_text']);
 export function unsupportedContent(param: string, what: string): CompatFault {
   return new CompatFault(
     'unsupported_content',
-    `${param}: ${what} This endpoint does not accept inline images or audio; the agent receives text and files only. Upload the file with POST /v1/files and reference it as {"type":"input_file","file_id":"…"} (Responses) or {"type":"file","file":{"file_id":"…"}} (Chat).`,
+    `${param}: ${what} The agent receives text, files and images (image_url / input_image); audio is not accepted. Upload other files with POST /v1/files and reference them as {"type":"input_file","file_id":"…"} (Responses) or {"type":"file","file":{"file_id":"…"}} (Chat).`,
     400,
     param,
   );
@@ -23,8 +26,13 @@ const describe = (p: unknown) =>
     ? `content parts of type "${String((p as Part).type)}" are not supported.`
     : `content parts of JSON type "${p === null ? 'null' : typeof p}" are not supported.`;
 
-/** 一个内容块渲染成文本；文件引用记入 `files`；其余拒绝。 */
-export function renderOpenAIPart(p: unknown, param: string, files: string[]): string {
+/** 一个内容块渲染成文本；文件引用记入 `files`，图片记入 `images`（不传时图片也拒绝）；其余拒绝。 */
+export function renderOpenAIPart(
+  p: unknown,
+  param: string,
+  files: string[],
+  images?: ImageInput[],
+): string {
   if (typeof p === 'string') return p;
   if (!p || typeof p !== 'object') throw unsupportedContent(param, describe(p));
   const part = p as Part;
@@ -38,6 +46,8 @@ export function renderOpenAIPart(p: unknown, param: string, files: string[]): st
     files.push(file.file_id);
     return `[Attached file ${file.file_id}]`;
   }
+  const image = images ? openAIImage(part, param, images) : undefined;
+  if (image !== undefined) return image;
   throw unsupportedContent(param, describe(p));
 }
 

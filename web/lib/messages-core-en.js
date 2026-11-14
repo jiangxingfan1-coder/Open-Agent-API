@@ -147,6 +147,7 @@ export const en = {
   'feature.error-codes-v1': 'Stable error codes',
   'feature.harness-bridge-acp-v1': 'External agent tool bridge',
   'feature.harness-bridge-v1': 'Caller tool bridge',
+  'feature.image-input-v1': 'Image input',
   'feature.local-backends-v1': 'Local external agents',
   'feature.oaa-lang-roundtrip-v1': 'OAA-Lang round-trip check',
   'feature.overview-activity-v1': 'Activity statistics',

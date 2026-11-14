@@ -41,6 +41,10 @@ Find documents by "I want to…". Every document is available in English (this f
 
 - Push run events (completed, failed, waiting for approval…) to your own HTTPS endpoint, signed, with retries; route approvals into your own system: [webhooks.md](webhooks.md)
 
+## I want to send screenshots and other images
+
+- Image parts on every entry, limits, storage, URL policy and how each agent receives them: [images.md](images.md)
+
 ## I want the caller's tools to take part
 
 - The auto / managed / bridge / reject modes for caller tools and the support matrix: [harness.md](harness.md)

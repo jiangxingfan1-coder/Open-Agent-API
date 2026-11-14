@@ -10,6 +10,11 @@
 //   JSON          answers with a JSON object {"answer":"ok","n":1}
 //   SHOW_PROMPT   answers with every message the agent received as "role: content" lines
 //   CALLTOOL      calls the caller-declared tools (bridge mode): the first one, or every one with PARALLEL
+//   SHOW_IMAGES   answers "Images: <n> [<type>:<bytes>|url:<url>, ...]" for the images it received
+//
+// The fixture declares image input (`imageInput = 'url'`, docs/images.md), so images sent by a
+// client reach it as the provider-neutral image list (bytes for inline / uploaded images).
+// `TextOnlyModel` is the same model without image input, for the refusal scenarios.
 //
 // Structured output: when the request carries a "[Response Format Requirement ...]" instruction (the
 // gateway adds it for response_format / text.format / responseSchema / output_config.format), the answer
@@ -52,6 +57,7 @@ function argumentsFor(schema) {
 }
 
 export class FixtureModel {
+  imageInput = 'url';
   calls = 0;
   /** (prompt text) => a JSON answer for a response-format instruction, or undefined. */
   constructor(answerFor = () => undefined) {
@@ -99,6 +105,13 @@ export class FixtureModel {
       return finish(answer);
     }
     if (/\bJSON\b/.test(prompt)) return finish('{"answer":"ok","n":1}');
+    if (/\bSHOW_IMAGES\b/.test(prompt)) {
+      const images = messages.flatMap((m) => m.images ?? []);
+      const list = images.map((i) =>
+        i.kind === 'url' ? `url:${i.url}` : `${i.mime}:${Buffer.from(i.data ?? '', 'base64').length}`,
+      );
+      return finish(`Images: ${images.length} [${list.join(', ')}]`);
+    }
     if (/\bSHOW_PROMPT\b/.test(prompt))
       return finish(messages.map((m) => `${m.role}: ${m.content}`).join('\n'));
     if (/\bCALLTOOL\b/.test(prompt)) {
@@ -116,4 +129,9 @@ export class FixtureModel {
     }
     return finish('Hello world from the fixture.');
   }
+}
+
+/** The fixture without image input: images sent to its agent are refused before a run exists. */
+export class TextOnlyModel extends FixtureModel {
+  imageInput = 'none';
 }

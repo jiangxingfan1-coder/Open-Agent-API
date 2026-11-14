@@ -80,8 +80,9 @@ MCP 不提供批准/拒绝工具是有意的安全边界：调用方往往本身
 | `artifacts` | `outputs/` 下的文件是否导出为产物 |
 | `model_selection` | `route`、`declared`、`agent-confirmed`、`allowlist` |
 | `client_tools` | 调用方在兼容接口里传入的工具怎么处理（见 [harness.md](harness.md)）：`managed`（智能体用自己的工具完成，调用方工具不执行）、`bridge`（调用方工具交回调用方执行）。内核与 ACP 智能体为 `bridge`（Chat Completions、Responses、Claude Messages 与 Gemini 均可），其余外部智能体为 `managed` |
+| `image_input` | 图片怎样到达智能体（[images.md](images.md)）：`route`（内核；按模型线路，`providers.*.imageInput`）、`native`（Codex 的 `localImage`、Claude Code 的图片块、握手声明了 `promptCapabilities.image` 的 ACP 智能体）、`agent-declared`（握手检查之前的 ACP：声明了就发图片块，否则用工作目录文件）、`workspace-file`（图片文件放在 `inputs/` 下并在输入里写明路径：Antigravity、DSH、stdio `oaa/1` 适配器、不支持图片的 ACP）、`none`（拒绝：A2A、HTTP 适配器、`imageFiles: false`） |
 
-画像只由静态配置推导，同一进程内不变，所以不会让概览 ETag 失效。owner 触发的握手检查只细化 `/v1/local/backends` 中的条目：ACP 握手若声明了 `loadSession` 或 `resume`，`resume` 变为 `native`，都未声明则为 `none`。
+画像只由静态配置推导，同一进程内不变，所以不会让概览 ETag 失效。owner 触发的握手检查只细化 `/v1/local/backends` 中的条目：ACP 握手若声明了 `loadSession` 或 `resume`，`resume` 变为 `native`，都未声明则为 `none`。同理，握手声明了 `promptCapabilities.image` 时 `image_input` 变为 `native`，未声明时为 `workspace-file`（设了 `imageFiles: false` 则为 `none`）。
 
 ### 外部智能体事件的入口约束（2026-11-11）
 
@@ -333,7 +334,7 @@ worker 配置：
 ### 尚未验证的边界
 
 - 普通测试只使用本地假智能体（`test/fixtures/acp-agent.mjs`；转换契约矩阵另用 `native-full.mjs`、`claude-code.mjs`、`stream-adapter.mjs` 与进程内 HTTP/A2A 假远端），覆盖握手、流式输出、会话续接、审批批准/拒绝、取消与强制终止、模型确认和各类失败；**尚未对任何真实 ACP 或 A2A 智能体做过联调**，各厂商实现差异（认证流程、`session/resume` 支持、显式模型选择方式、A2A 1.0/0.3 实现细节等）需要逐一确认。
-- 厂商扩展方法（如 Cursor 的问答/计划、Kiro 扩展）不桥接，按 `-32601` 不支持处理；图片/音频等非文本输出只记进度、不写入输出。
+- 厂商扩展方法（如 Cursor 的问答/计划、Kiro 扩展）不桥接，按 `-32601` 不支持处理；图片/音频等非文本输出只记进度、不写入输出。图片**输入**是支持的，见 [images.md](images.md)。
 - 只在 macOS 上验证；Windows 的进程组终止与 PATH 发现尚未测试。
 - 远程 worker 通过同一 `oaa/1` 协议转发流式文本与审批，但 ACP 在远程节点上的端到端路径尚未单独测试。
 

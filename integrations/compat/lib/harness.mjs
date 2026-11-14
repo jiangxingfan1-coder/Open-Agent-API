@@ -17,6 +17,9 @@ export const env = {
   sample: process.env.OAA_AGENT_SAMPLE ?? 'agent/sample',
   native: process.env.OAA_AGENT_NATIVE ?? 'agent/native',
   acp: process.env.OAA_AGENT_ACP ?? 'agent/acp',
+  textOnly: process.env.OAA_AGENT_TEXT ?? 'agent/text-only',
+  /** A real 1x1 PNG for the image scenarios (docs/images.md). */
+  png: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
 };
 
 const emit = (record) => process.stdout.write(`@@COMPAT ${JSON.stringify(record)}\n`);

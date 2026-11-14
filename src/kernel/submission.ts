@@ -1,5 +1,5 @@
 /** 提交与预检：授权、续接与交接检查、执行级别检查、幂等、限额、建运行。 */
-import type { AgentDefinition, Principal, Run } from '../core/contracts.js';
+import type { AgentDefinition, Principal, Run, RunImage } from '../core/contracts.js';
 import {
   allowedExecution,
   executionFor,
@@ -20,6 +20,7 @@ import { agentFallbackChain, routeInspector, toTopologyHint } from './fallback.j
 import { buildHandoffBrief, conversationOf } from './handoff.js';
 import type { KernelRuntime } from './runtime.js';
 import * as clientTools from './client-tools.js';
+import { assertImagesPlaced, imageDemand, modelImages, runImages } from './images.js';
 
 /** A caller-supplied provider key: 1-4096 visible ASCII characters (header-safe, no spaces). */
 export function checkProviderKey(key: string): void {
@@ -50,6 +51,7 @@ export function prepare(
   scope: 'read' | 'invoke',
   byok = false,
   bridging = false,
+  images: readonly RunImage[] = [],
 ) {
   authorize(principal, invocation.agent, scope);
   const previous = invocation.previous_response_id
@@ -122,6 +124,13 @@ export function prepare(
     sandbox: executionFor(principal, bundle.agent.id) === 'sandbox',
     providerState: pinned?.checkpoint.messages.some((m) => !!m.providerState) ?? false,
     clientTools: bridging,
+    // Kernel history images are sent again on every turn (by reference), so they count too.
+    images: imageDemand([
+      ...images,
+      ...(bundle.agent.engine === 'kernel' && !handoff
+        ? (previous?.checkpoint.messages.flatMap((m) => m.images ?? []) ?? [])
+        : []),
+    ]),
   });
   return { bundle, previous, pinned, handoff, fileIds, inspect };
 }
@@ -258,13 +267,18 @@ export function submit(
     authorize(principal, fallback, 'invoke');
     checkExecution(rt, principal, rt.store.bundle(principal.owner, fallback).agent);
   }
+  const images = runImages(rt.store, principal.owner, visibleSubject(principal), invocation);
+  const imageFiles = images.flatMap((i) => (i.kind === 'file' ? [i.fileId] : []));
   const { bundle, previous, pinned, handoff, fileIds, inspect } = prepare(
     rt,
     principal,
-    invocation,
+    imageFiles.length
+      ? { ...invocation, file_ids: [...invocation.file_ids, ...imageFiles] }
+      : invocation,
     'invoke',
     providerKey !== undefined,
     clientTools.bridgeRequested(invocation),
+    images,
   );
   const bridge = clientTools.prepareBridge(bundle.agent, invocation);
   const topology = (p: string, m: string) => toTopologyHint(inspect(p, m));
@@ -287,8 +301,9 @@ export function submit(
     route = select();
   } catch (error) {
     // 桥接运行没有可用线路，而原因是执行机器没有声明 client-tools-v1：报 400 而不是 503。
-    if (bridge)
-      clientTools.assertBridgePlaced(inspect(bundle.agent.provider, bundle.agent.model).reasons);
+    const primary = inspect(bundle.agent.provider, bundle.agent.model).reasons;
+    if (bridge) clientTools.assertBridgePlaced(primary);
+    assertImagesPlaced(bundle.agent, images, primary);
     throw explainUnavailable(rt, bundle.agent, error);
   }
   if (
@@ -303,6 +318,7 @@ export function submit(
     );
   const placed = inspect(route.provider, route.model);
   if (!placed.available && bridge) clientTools.assertBridgePlaced(placed.reasons);
+  if (!placed.available) assertImagesPlaced(bundle.agent, images, placed.reasons);
   if (!placed.available)
     throw explainUnavailable(
       rt,
@@ -353,6 +369,7 @@ export function submit(
     updatedAt: Date.now(),
     input: invocation.input,
     fileIds,
+    ...(images.length ? { images } : {}),
     output: [],
     usage: null,
     error: null,
@@ -365,7 +382,13 @@ export function submit(
     checkpoint: {
       messages: [
         ...(conversation ?? previous?.checkpoint.messages ?? []),
-        { role: 'user', content: inputMessage },
+        {
+          role: 'user',
+          content: inputMessage,
+          ...(bundle.agent.engine === 'kernel' && images.length
+            ? { images: modelImages(images) }
+            : {}),
+        },
       ],
       ...(pinned?.checkpoint.modelInstructions !== undefined
         ? { modelInstructions: pinned.checkpoint.modelInstructions }

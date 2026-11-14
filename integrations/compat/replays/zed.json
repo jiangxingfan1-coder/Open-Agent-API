@@ -531,13 +531,12 @@
         }
       },
       "expect": {
-        "status": 400,
-        "code": "unsupported_content"
+        "status": 200
       },
       "consumes": [
         "stream.content_deltas_present"
       ],
-      "notes": "Part order follows the message's content order (image before text shown here is illustrative). Tool results containing images are also emitted as image_url parts inside the tool message content array."
+      "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
     {
       "id": "edit-prediction-completions",

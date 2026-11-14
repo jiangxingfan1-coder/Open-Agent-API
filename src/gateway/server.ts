@@ -37,6 +37,7 @@ import { principalSubject, visibleSubject } from '../core/contracts.js';
 import { Fault, canonical, faultOf, relativeName, secret, sha } from '../core/util.js';
 import { Catalog, type CatalogEntry } from './catalog.js';
 import { conversionProfile } from '../engines/conformance.js';
+import { acceptsImages, discardNewImages, materializeImages } from './image-input.js';
 import { openEventStream, observeAuthorization, revalidateObservation } from './streams.js';
 import {
   directoryQuery,
@@ -108,6 +109,7 @@ export const GATEWAY_FEATURES = [
   'error-codes-v1',
   'harness-bridge-acp-v1',
   'harness-bridge-v1',
+  'image-input-v1',
   'local-backends-v1',
   'oaa-lang-roundtrip-v1',
   'overview-activity-v1',
@@ -494,6 +496,7 @@ export async function createGateway(
           ...(b.agent.delegates?.length ? { delegates: b.agent.delegates } : {}),
           ...(b.agent.approvals === 'auto' ? { approvals: 'auto' as const } : {}),
           routes,
+          image_input: acceptsImages(hub, p.owner, b, routes),
           ready: chosen?.placement.ready ?? false,
           dispatchable: !!chosen,
           status:
@@ -609,6 +612,7 @@ export async function createGateway(
             object: 'model',
             created: 0,
             owned_by: 'open-agent-api',
+            image_input: a.image_input,
           })),
         };
       }
@@ -1193,6 +1197,7 @@ export async function createGateway(
       let run: Run;
       let resumed: ReturnType<typeof resumeBridged>;
       try {
+        invocation = await materializeImages(store, config, req.principal, invocation);
         resumed = resumeBridged(kernel, store, req.principal, invocation);
         run =
           resumed?.run ??
@@ -1206,6 +1211,7 @@ export async function createGateway(
           );
       } catch (error) {
         release?.();
+        await discardNewImages(store, req.principal.owner, invocation);
         throw error;
       }
       reply.header('X-Run-ID', run.id);

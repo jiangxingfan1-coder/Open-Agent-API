@@ -37,7 +37,11 @@ export type A2AProbe = Awaited<ReturnType<typeof probeA2A>>;
 export type HandshakeRecord = { identity: string; checked_at: string; result: AcpProbe | A2AProbe };
 const evidenceOf = (result: AcpProbe | A2AProbe): HandshakeEvidence =>
   'load_session' in result
-    ? { load_session: result.load_session, resume_session: result.resume_session }
+    ? {
+        load_session: result.load_session,
+        resume_session: result.resume_session,
+        image: result.prompt_capabilities.image,
+      }
     : { streaming: result.streaming };
 
 export function parseBackendEngine(raw: string): BackendTarget {

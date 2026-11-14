@@ -6,7 +6,8 @@ import {
   resolveModelSelector,
   type RoutingStrategy,
 } from '../kernel/routing.js';
-import { invocationSchema, type Invocation } from '../kernel/invocation.js';
+import { invocationSchema, type ImageInput, type Invocation } from '../kernel/invocation.js';
+import { openAIImage } from './image-parts.js';
 import { compatInput, type ToolsFallback } from './client-tools.js';
 import { chatFinish, finishOf, runFailure } from './compat-errors.js';
 import {
@@ -78,10 +79,16 @@ const inputPart = z.discriminatedUnion('type', [
   z.object({ type: z.literal('input_text'), text: z.string().max(200_000) }),
   z.object({ type: z.literal('output_text'), text: z.string().max(200_000) }),
   z.object({ type: z.literal('input_file'), file_id: z.string() }),
+  z.object({
+    type: z.literal('input_image'),
+    image_url: z.string().nullish(),
+    file_id: z.string().nullish(),
+    detail: z.enum(['auto', 'low', 'high']).nullish(),
+  }),
 ]);
 
-const STRICT_RESPONSES_PARTS = new Set(['input_text', 'output_text', 'input_file']);
-const STRICT_CHAT_PARTS = new Set(['text', 'input_text', 'file']);
+const STRICT_RESPONSES_PARTS = new Set(['input_text', 'output_text', 'input_file', 'input_image']);
+const STRICT_CHAT_PARTS = new Set(['text', 'input_text', 'file', 'image_url']);
 
 const responsesSchema = z
   .object({
@@ -159,18 +166,21 @@ export function parseResponse(value: unknown, headers?: Record<string, unknown>)
   rejectUnsatisfiable('responses', value as Record<string, unknown>, '/v1/responses');
   const files: string[] = [];
   const contract = responsesContract(req.text);
+  const images: ImageInput[] = [];
   const system = req.instructions?.trim() ? `[system]\n${req.instructions.trim()}\n\n` : '';
   const rawText =
     system +
     (typeof req.input === 'string'
       ? req.input
       : req.input
-          .map((m) => {
+          .map((m, i) => {
             const content =
               typeof m.content === 'string'
                 ? m.content
                 : m.content
-                    .map((p) => {
+                    .map((p, j) => {
+                      if (p.type === 'input_image')
+                        return openAIImage(p, `input.${i}.content.${j}`, images)!;
                       if (p.type !== 'input_file') return p.text;
                       files.push(p.file_id);
                       return `[Attached file ${p.file_id}]`;
@@ -193,6 +203,7 @@ export function parseResponse(value: unknown, headers?: Record<string, unknown>)
     model: resolved.model,
     input: directive.cleanedInput,
     file_ids: [...new Set(files)],
+    ...(images.length ? { images } : {}),
     stream: req.stream,
     background: req.background,
     previous_response_id: req.previous_response_id,
@@ -232,6 +243,7 @@ export function parseCompatResponse(
 ): Invocation {
   const req = compatResponsesSchema.parse(value);
   const files: string[] = [];
+  const images: ImageInput[] = [];
   const sections: string[] = [];
   if (req.instructions && req.instructions.trim()) {
     sections.push(`[system]\n${req.instructions.trim()}`);
@@ -261,7 +273,7 @@ export function parseCompatResponse(
                 'message content must be a string or an array of content parts.',
               );
             const rendered = rawContent
-              .map((p, j) => renderOpenAIPart(p, `input.${i}.content.${j}`, files))
+              .map((p, j) => renderOpenAIPart(p, `input.${i}.content.${j}`, files, images))
               .join('\n');
             return `[${role}]\n${rendered}`;
           })
@@ -295,6 +307,7 @@ export function parseCompatResponse(
     model: resolved.model,
     ...compatInput('responses', req, headers, meta, directive.cleanedInput, fallback),
     file_ids: [...new Set(files)],
+    ...(images.length ? { images } : {}),
     stream: req.stream,
     background: req.background,
     previous_response_id: req.previous_response_id,
@@ -309,6 +322,10 @@ const chatContentPart = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string().max(200_000) }),
   z.object({ type: z.literal('input_text'), text: z.string().max(200_000) }),
   z.object({ type: z.literal('file'), file: z.object({ file_id: z.string() }) }),
+  z.object({
+    type: z.literal('image_url'),
+    image_url: z.object({ url: z.string(), detail: z.enum(['auto', 'low', 'high']).nullish() }),
+  }),
 ]);
 
 const chatSchema = z
@@ -373,13 +390,16 @@ export function parseChat(value: unknown, headers?: Record<string, unknown>): In
     throw new Fault('invalid_request', 'stream_options requires stream=true.');
 
   const files: string[] = [];
+  const images: ImageInput[] = [];
   const rawInput = req.messages
-    .map((m) => {
+    .map((m, i) => {
       const content =
         typeof m.content === 'string'
           ? m.content
           : m.content
-              .map((p) => {
+              .map((p, j) => {
+                if (p.type === 'image_url')
+                  return openAIImage(p, `messages.${i}.content.${j}`, images)!;
                 if (p.type === 'file') {
                   files.push(p.file.file_id);
                   return `[Attached file ${p.file.file_id}]`;
@@ -405,6 +425,7 @@ export function parseChat(value: unknown, headers?: Record<string, unknown>): In
     model: resolved.model,
     input: directive.cleanedInput,
     file_ids: [...new Set(files)],
+    ...(images.length ? { images } : {}),
     stream: req.stream,
     metadata: meta,
     agent_version: resolved.agent_version,
@@ -464,13 +485,14 @@ export function parseCompatChat(
 ): Invocation {
   const req = compatChatSchema.parse(value);
   const files: string[] = [];
+  const images: ImageInput[] = [];
   const renderedMessages = req.messages.map((m, i) => {
     let text = '';
     if (typeof m.content === 'string') {
       text = m.content;
     } else if (Array.isArray(m.content)) {
       text = m.content
-        .map((p, j) => renderOpenAIPart(p, `messages.${i}.content.${j}`, files))
+        .map((p, j) => renderOpenAIPart(p, `messages.${i}.content.${j}`, files, images))
         .join('\n');
     }
     if (Array.isArray(m.tool_calls) && m.tool_calls.length) {
@@ -516,6 +538,7 @@ export function parseCompatChat(
     model: resolved.model,
     ...compatInput('chat', req, headers, meta, directive.cleanedInput, fallback),
     file_ids: [...new Set(files)],
+    ...(images.length ? { images } : {}),
     stream: req.stream,
     metadata: meta,
     agent_version: resolved.agent_version,

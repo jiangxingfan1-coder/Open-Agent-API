@@ -91,9 +91,14 @@ await lab.scenario('errors.mapping_and_no_default_retry', async () => {
   await rejects(retrying.models.generateContent({ model: M, contents: 'FAIL' }), 'failed run (retryOptions)');
   equal((await runsCreated(before2)), 1, 'runs created with retryOptions');
 });
-await lab.scenario('errors.inline_data_rejected_clearly', async () => {
-  const e = await rejects(client.models.generateContent({ model: M, contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'image/png', data: 'AAAA' } }] }] }), 'inlineData');
+await lab.scenario('generate.inline_data_image', async () => {
+  const r = await client.models.generateContent({ model: M, contents: [{ role: 'user', parts: [{ text: 'SHOW_IMAGES' }, { inlineData: { mimeType: 'image/png', data: env.png } }] }] });
+  check(/^Images: 1 \[image\/png:\d+\]$/.test(r.text ?? ''), `reply: ${r.text}`);
+});
+await lab.scenario('errors.inline_data_to_text_only_agent_rejected_clearly', async () => {
+  const e = await rejects(client.models.generateContent({ model: env.textOnly, contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'image/png', data: env.png } }] }] }), 'inlineData');
   check(e instanceof ApiError && e.status === 400, `inlineData: ${e}`);
+  check(/does not accept images/.test(e.message), `message: ${e.message}`);
 });
 await lab.scenario('models.get_and_list', async () => {
   const m = await client.models.get({ model: M });

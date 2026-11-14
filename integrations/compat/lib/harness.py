@@ -25,6 +25,9 @@ FIXTURE = os.environ.get("OAA_AGENT_FIXTURE", "agent/fixture")
 SAMPLE = os.environ.get("OAA_AGENT_SAMPLE", "agent/sample")
 NATIVE = os.environ.get("OAA_AGENT_NATIVE", "agent/native")
 ACP = os.environ.get("OAA_AGENT_ACP", "agent/acp")
+TEXT_ONLY = os.environ.get("OAA_AGENT_TEXT", "agent/text-only")
+# A real 1x1 PNG for the image scenarios (docs/images.md).
+PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 
 
 class NotApplicable(Exception):

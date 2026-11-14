@@ -136,6 +136,7 @@ export const zh = {
   'feature.error-codes-v1': '稳定错误码',
   'feature.harness-bridge-acp-v1': '外部智能体工具桥接',
   'feature.harness-bridge-v1': '调用方工具桥接',
+  'feature.image-input-v1': '图片输入',
   'feature.local-backends-v1': '本机外部智能体',
   'feature.oaa-lang-roundtrip-v1': 'OAA-Lang 往返校验',
   'feature.overview-activity-v1': '活动统计',

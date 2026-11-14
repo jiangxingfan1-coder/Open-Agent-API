@@ -382,11 +382,12 @@
         }
       },
       "expect": {
-        "status": 400,
-        "code": "unsupported_content"
+        "status": 200
       },
-      "consumes": [],
-      "notes": "LangChain turns a 400 whose message mentions tool_calls into INVALID_TOOL_RESULTS and 404 into MODEL_NOT_FOUND; other 400s are shown to the user as the raw error message. Use the standard OpenAI error body."
+      "consumes": [
+        "stream.content_deltas_present"
+      ],
+      "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
     {
       "id": "assistant-tool-calls-history",

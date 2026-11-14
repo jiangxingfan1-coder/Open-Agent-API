@@ -417,11 +417,12 @@
         }
       },
       "expect": {
-        "status": 400,
-        "code": "unsupported_content"
+        "status": 200
       },
-      "consumes": [],
-      "notes": "Cherry only sends images natively if the model is flagged vision-capable in its registry; for an unknown agent name images may instead be dropped or converted to text, so this case may never trigger unless the user marks the model as vision-capable."
+      "consumes": [
+        "stream.content_deltas_present"
+      ],
+      "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
     {
       "id": "assistant-tool-calls-history",

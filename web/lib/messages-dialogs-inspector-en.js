@@ -131,6 +131,8 @@ export const enInspector = {
   'insp.sec.not_dispatched': 'Not dispatched',
   'insp.sec.reconciled': 'Outcome confirmed manually',
   'insp.sec.no_steps': 'No matching steps',
+  'insp.sec.images': 'This task came with {n} image(s)',
+  'insp.sec.image_url': 'Image URL ({host}, read by the model provider)',
   'insp.sec.no_artifacts': 'No output files yet',
   'insp.sec.download_artifact': 'Download output file',
   'insp.sec.files_scope': 'Requires the file download permission (files)',

@@ -280,7 +280,7 @@ test('gemini bridge: built-in tools are refused; bad declarations are invalid; t
   }
 });
 
-test('gemini: managed mode is unchanged by bridging; inlineData stays unsupported', async () => {
+test('gemini: managed mode is unchanged by bridging; an image for a text-only agent is refused', async () => {
   const s = await bridgeSetup(new FixtureModel(() => ({ text: 'Done.' })));
   try {
     const managed = await gemini(
@@ -301,7 +301,17 @@ test('gemini: managed mode is unchanged by bridging; inlineData stays unsupporte
     assert.equal(builtinManaged.statusCode, 200, 'managed still ignores built-in tools');
     const inline = await gemini(s, {
       contents: [
-        { role: 'user', parts: [{ inlineData: { mimeType: 'image/png', data: 'AA==' } }] },
+        {
+          role: 'user',
+          parts: [
+            {
+              inlineData: {
+                mimeType: 'image/png',
+                data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+              },
+            },
+          ],
+        },
       ],
     });
     assert.equal(inline.statusCode, 400);

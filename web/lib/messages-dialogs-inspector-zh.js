@@ -120,6 +120,8 @@ export const zhInspector = {
   'insp.sec.not_dispatched': '未派发',
   'insp.sec.reconciled': '已人工确认结果',
   'insp.sec.no_steps': '没有匹配的步骤',
+  'insp.sec.images': '这次任务带了 {n} 张图片',
+  'insp.sec.image_url': '图片链接（{host}，由模型提供方读取）',
   'insp.sec.no_artifacts': '暂无生成的文件',
   'insp.sec.download_artifact': '下载生成的文件',
   'insp.sec.files_scope': '需要文件下载权限（files）',

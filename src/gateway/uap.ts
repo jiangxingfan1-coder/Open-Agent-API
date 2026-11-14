@@ -19,17 +19,27 @@ import { CompatFault, finishOf, geminiFinish, runFailure } from './compat-errors
 import { applyMaxTokens } from './compat-params.js';
 import { camelizeGeminiBody } from './gemini.js';
 import { geminiContract, instructionFor } from './structured-output.js';
+import type { ImageInput } from '../kernel/invocation.js';
+import { geminiImage, nativeImage } from './image-parts.js';
 
 type GeminiPart = z.infer<typeof geminiPartSchema>;
 
 /**
- * Gemini 的一个 part 渲染成文本：text 原样；`fileData`（`oaa://files/<id>` 或文件 ID）作为附件；
+ * Gemini 的一个 part 渲染成文本：text 原样；图片（`inlineData`、image/* 的 `fileData`）走图片通道；
+ * 其余 `fileData`（`oaa://files/<id>` 或文件 ID）作为附件；
  * functionCall / functionResponse 用与 Responses 兼容入口相同的标注写法；`thought` 部分不交给
- * 智能体；`inlineData` 等其它内容明确拒绝，不把 base64 塞进提示词。
+ * 智能体；其它内容明确拒绝，不把 base64 塞进提示词。
  */
-function renderGeminiPart(p: GeminiPart, param: string, files: string[]): string | undefined {
+function renderGeminiPart(
+  p: GeminiPart,
+  param: string,
+  files: string[],
+  images: ImageInput[],
+): string | undefined {
   if (p.thought === true) return undefined;
   if (typeof p.text === 'string') return p.text;
+  const image = geminiImage(p, param, images);
+  if (image !== undefined) return image;
   if (p.fileData?.fileUri) {
     const uri = p.fileData.fileUri.replace(/^oaa:\/\/files\//, '');
     files.push(uri);
@@ -44,7 +54,7 @@ function renderGeminiPart(p: GeminiPart, param: string, files: string[]): string
   const kind = Object.keys(p)[0] ?? 'empty';
   throw new CompatFault(
     'unsupported_content',
-    `${param}: parts with "${kind}" are not supported. The agent receives text and files only: upload the file with POST /v1/files and reference it as {"fileData":{"fileUri":"oaa://files/<file_id>"}}.`,
+    `${param}: parts with "${kind}" are not supported. The agent receives text, images (inlineData / fileData with an image mimeType) and files: upload other files with POST /v1/files and reference them as {"fileData":{"fileUri":"oaa://files/<file_id>"}}.`,
     400,
     param,
   );
@@ -54,11 +64,22 @@ function renderGeminiPart(p: GeminiPart, param: string, files: string[]): string
 // 1. UAP/1 (Unified Agent Protocol v1.0) Schema, Parser & Wire Codec
 // ---------------------------------------------------------------------------
 
+const uapImageFields = {
+  file_id: z.string().min(1).max(120).optional(),
+  data: z
+    .string()
+    .max(24 * 1024 * 1024)
+    .optional(),
+  media_type: z.string().max(120).optional(),
+  url: z.string().max(8192).optional(),
+};
 const uapContentBlock = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string().max(200_000) }).strict(),
   z.object({ type: z.literal('input_text'), text: z.string().max(200_000) }).strict(),
   z.object({ type: z.literal('file'), file_id: z.string().min(1).max(120) }).strict(),
   z.object({ type: z.literal('input_file'), file_id: z.string().min(1).max(120) }).strict(),
+  z.object({ type: z.literal('image'), ...uapImageFields }).strict(),
+  z.object({ type: z.literal('input_image'), ...uapImageFields }).strict(),
 ]);
 
 const uapMessageSchema = z
@@ -129,6 +150,7 @@ export function parseUapRequest(
   }
 
   const files: string[] = [...(req.files ?? [])];
+  const images: ImageInput[] = [];
   const segments: string[] = [];
 
   if (req.system) {
@@ -139,16 +161,19 @@ export function parseUapRequest(
   if (typeof req.input === 'string') {
     segments.push(req.input);
   } else if (msgList) {
-    for (const m of msgList) {
+    const field = Array.isArray(req.input) ? 'input' : 'messages';
+    for (const [i, m] of msgList.entries()) {
       const text =
         typeof m.content === 'string'
           ? m.content
           : m.content
-              .map((b) => {
+              .map((b, j) => {
                 if (b.type === 'file' || b.type === 'input_file') {
                   files.push(b.file_id);
                   return `[Attached file ${b.file_id}]`;
                 }
+                if (b.type === 'image' || b.type === 'input_image')
+                  return nativeImage(b, `${field}.${i}.content.${j}`, images);
                 return b.text;
               })
               .join('\n');
@@ -213,6 +238,7 @@ export function parseUapRequest(
     model: resolved.model,
     input: directive.cleanedInput,
     file_ids: [...new Set(files)],
+    ...(images.length ? { images } : {}),
     previous_response_id: req.session?.previous_id,
     agent_version: finalVersion,
     background: req.delivery?.background ?? req.background ?? false,
@@ -317,6 +343,7 @@ export function parseGeminiGenerateContent(
 
   const segments: string[] = [];
   const files: string[] = [];
+  const images: ImageInput[] = [];
 
   if (req.systemInstruction) {
     const sysText =
@@ -333,7 +360,7 @@ export function parseGeminiGenerateContent(
   contents.forEach((item, i) => {
     const role = item.role === 'model' ? 'assistant' : (item.role ?? 'user');
     const text = item.parts
-      .map((p, j) => renderGeminiPart(p, `contents.${i}.parts.${j}`, files))
+      .map((p, j) => renderGeminiPart(p, `contents.${i}.parts.${j}`, files, images))
       .filter((t): t is string => t !== undefined)
       .join('\n');
     segments.push(`[${role}]\n${text}`);
@@ -365,6 +392,7 @@ export function parseGeminiGenerateContent(
     input,
     ...bridgeFieldsOrFallback(meta, () => geminiBridgeFields(req.tools, contents, meta)),
     file_ids: [...new Set(files)],
+    ...(images.length ? { images } : {}),
     stream,
     metadata: meta,
     agent_version: resolved.agent_version,

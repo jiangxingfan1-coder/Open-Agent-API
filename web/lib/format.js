@@ -209,6 +209,7 @@ const FEATURE_LABELS = {
   'error-codes-v1': t('feature.error-codes-v1'),
   'harness-bridge-acp-v1': t('feature.harness-bridge-acp-v1'),
   'harness-bridge-v1': t('feature.harness-bridge-v1'),
+  'image-input-v1': t('feature.image-input-v1'),
   'local-backends-v1': t('feature.local-backends-v1'),
   'structured-output-v1': t('feature.structured-output-v1'),
   'oaa-lang-roundtrip-v1': t('feature.oaa-lang-roundtrip-v1'),

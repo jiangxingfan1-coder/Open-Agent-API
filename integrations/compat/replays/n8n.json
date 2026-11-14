@@ -679,11 +679,13 @@
         }
       },
       "expect": {
-        "status": 400,
-        "code": "unsupported_content"
+        "status": 200
       },
-      "consumes": [],
-      "notes": "A 400 is surfaced by n8n's error handler as a node error containing the response message."
+      "consumes": [
+        "chat.choices_nonempty",
+        "chat.message_content_string"
+      ],
+      "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
     {
       "id": "chat-multimodal-array-text-only",

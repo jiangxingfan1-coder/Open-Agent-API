@@ -72,6 +72,14 @@ for (const [name, build] of Object.entries(providers)) {
     });
     for (const mark of ['SYSTEM_MARK', 'first question', 'first answer']) check(r.text.includes(mark), `${mark} lost: ${r.text.slice(0, 120)}`);
   });
+  // Image input (docs/images.md): an image part (bytes) in each provider's own wire shape.
+  await lab.scenario(`${name}.image_input`, async () => {
+    const r = await generateText({
+      model: build(),
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'SHOW_IMAGES' }, { type: 'image', image: Buffer.from(env.png, 'base64'), mediaType: 'image/png' }] }],
+    });
+    check(/^Images: 1 \[image\/png:\d+\]$/.test(r.text), `reply: ${r.text}`);
+  });
   await lab.scenario(`${name}.tool_loop_without_any_header`, async () => {
     const r = await generateText({
       model: build(),

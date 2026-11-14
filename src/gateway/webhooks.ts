@@ -10,8 +10,7 @@
  */
 import http from 'node:http';
 import https from 'node:https';
-import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
-import type { LookupFunction } from 'node:net';
+import { checkedLookup } from './checked-lookup.js';
 import type { Store } from '../store/store.js';
 import { faultOf, id } from '../core/util.js';
 import { GATEWAY_VERSION } from './endpoints.js';
@@ -306,18 +305,7 @@ function post(
   o: { headers: Record<string, string>; policy: TargetPolicy; signal: AbortSignal },
 ): Promise<number> {
   const url = new URL(target);
-  const lookup: LookupFunction = (hostname, options, callback) => {
-    dnsLookup(hostname, { ...options, all: true }, (err, addresses: LookupAddress[]) => {
-      if (err) return callback(err, '', 0);
-      try {
-        for (const a of addresses) checkTarget(a.address, o.policy);
-      } catch (denied) {
-        return callback(denied as NodeJS.ErrnoException, '', 0);
-      }
-      if (options.all) return callback(null, addresses);
-      callback(null, addresses[0]!.address, addresses[0]!.family);
-    });
-  };
+  const lookup = checkedLookup(o.policy);
   checkTarget(url.hostname, o.policy);
   const client = url.protocol === 'https:' ? https : http;
   return new Promise((resolve, reject) => {

@@ -1,12 +1,12 @@
 // Starts an isolated Open Agent API gateway for the compatibility lab: 127.0.0.1 on a random port,
-// a throw-away data directory, two published agents and one caller key. It calls no model service:
+// a throw-away data directory, three published agents and one caller key. It calls no model service:
 // `agent/sample` is the offline sample agent and `agent/fixture` is driven by the deterministic
 // fixture model. Needs `npm run build` first (it imports the compiled gateway from dist/).
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { FixtureModel } from './fixture-model.mjs';
+import { FixtureModel, TextOnlyModel } from './fixture-model.mjs';
 
 // COMPAT_GATEWAY_ROOT: run the lab against another build of the gateway (for example an older
 // release, to see which findings a fix closed). Default: this checkout.
@@ -53,7 +53,14 @@ export async function startLabGateway(options = {}) {
       },
     },
   });
-  const runtime = new WorkerRuntime(workerConfig, new Map(), new Map([['fixture', model]]));
+  const runtime = new WorkerRuntime(
+    workerConfig,
+    new Map(),
+    new Map([
+      ['fixture', model],
+      ['fixture-text', new TextOnlyModel()],
+    ]),
+  );
   const config = gatewaySchema.parse({
     dataDir: path.join(dir, 'gateway'),
     host: '127.0.0.1',
@@ -135,13 +142,25 @@ export async function startLabGateway(options = {}) {
       }),
     ),
   );
+  store.publish(
+    'owner',
+    bundle.makeBundle(
+      contracts.agentSchema.parse({
+        id: 'agent/text-only',
+        description: 'Fixture agent without image input (images are refused clearly).',
+        instructions: 'You are the compatibility lab text-only fixture agent.',
+        model: 'fixture',
+        provider: 'fixture-text',
+      }),
+    ),
+  );
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   return {
     baseUrl: `http://127.0.0.1:${port}`,
     apiKey: token,
-    agents: { sample: 'agent/sample', fixture: 'agent/fixture', native: 'agent/native', acp: 'agent/acp' },
+    agents: { sample: 'agent/sample', fixture: 'agent/fixture', native: 'agent/native', acp: 'agent/acp', textOnly: 'agent/text-only' },
     store,
     model,
     async stop() {

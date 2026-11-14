@@ -15,6 +15,8 @@ import type { ProviderConfig } from '../config/config.js';
 import { validateEndpoint } from '../config/config.js';
 import { Fault, checkAbort } from '../core/util.js';
 import { readSseStream } from './http-stream.js';
+import * as imageWire from './image-wire.js';
+import type { ProviderImageInput } from './image-wire.js';
 import {
   captureProviderState,
   checkProviderStateProtocol,
@@ -110,6 +112,8 @@ export const graphTool = {
 
 export interface ModelDriver {
   readonly providerStateVersion?: 1;
+  /** Image input of a driver that has no provider config (docs/images.md); unset: `none`. */
+  readonly imageInput?: ProviderImageInput;
   call(
     agent: AgentDefinition,
     messages: ModelMessage[],
@@ -402,7 +406,8 @@ export class OpenAIModel implements ModelDriver {
         }
         input.push(...replayable);
       } else {
-        if (m.content) input.push({ role: m.role, content: m.content });
+        if (m.content || m.images?.length)
+          input.push({ role: m.role, content: imageWire.responsesUserContent(m) });
         for (const c of m.tool_calls ?? [])
           input.push({
             type: 'function_call',
@@ -499,7 +504,7 @@ export class OpenAIModel implements ModelDriver {
         ? { role: 'tool', content: m.content, tool_call_id: m.tool_call_id! }
         : {
             role: m.role,
-            content: m.content,
+            content: imageWire.chatUserContent(m),
             ...(m.tool_calls?.length
               ? {
                   tool_calls: m.tool_calls.map((c) => ({
@@ -652,7 +657,7 @@ export class AnthropicModel implements ModelDriver {
         }
         pushMerged('assistant', blocks);
       } else {
-        pushMerged('user', [{ type: 'text', text: m.content }]);
+        pushMerged('user', imageWire.anthropicUserBlocks(m));
       }
     }
 
@@ -1034,7 +1039,7 @@ export class GeminiModel implements ModelDriver {
           },
         ]);
       } else {
-        pushContent('user', [{ text: m.content }]);
+        pushContent('user', imageWire.geminiUserParts(m));
       }
     }
 

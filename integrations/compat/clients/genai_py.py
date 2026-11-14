@@ -8,7 +8,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from harness import ACP, API_KEY, BASE_URL, FIXTURE, Lab, acp_script, check, equal, make_key, runs_created, snapshot_runs  # noqa: E402
+from harness import ACP, API_KEY, BASE_URL, FIXTURE, Lab, acp_script, check, equal, make_key, runs_created, snapshot_runs, PNG_B64  # noqa: E402
 
 try:
     from google import genai
@@ -194,7 +194,19 @@ def _():
     check("sunny" in done.text, f"the ACP agent did not see the tool result: {done.text[:120]}")
 
 
-@lab.scenario("generate.inline_data_rejected_clearly")
+@lab.scenario("generate.inline_data_image")
+def _():
+    import base64
+
+    png = base64.b64decode(PNG_B64)
+    r = client.models.generate_content(
+        model=FIXTURE,
+        contents=[types.Content(role="user", parts=[types.Part(text="SHOW_IMAGES"), types.Part.from_bytes(data=png, mime_type="image/png")])],
+    )
+    check((r.text or "").startswith("Images: 1 [image/png:"), f"reply: {r.text}")
+
+
+@lab.scenario("generate.inline_data_not_an_image_rejected_clearly")
 def _():
     try:
         client.models.generate_content(
@@ -204,7 +216,7 @@ def _():
     except errors.ClientError as error:
         equal(error.code, 400, "status")
         return
-    raise AssertionError("inline data was accepted")
+    raise AssertionError("a truncated image was accepted")
 
 
 @lab.scenario("errors.authentication")

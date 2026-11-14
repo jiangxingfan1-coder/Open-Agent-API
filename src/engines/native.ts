@@ -1,8 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AgentDefinition, WorkEvent, Usage, ArtifactPayload } from '../core/contracts.js';
 import type { WorkerConfig } from '../config/config.js';
-import { mkdir } from 'node:fs/promises';
-import path from 'node:path';
 import { directExecutable } from './win-spawn.js';
 import {
   DeferredProcess,
@@ -13,58 +11,16 @@ import {
   spawnSandboxed,
   terminateOwned,
 } from './process.js';
-import {
-  cliLaunch,
-  nativeSandboxProfiles,
-  type SandboxLauncher,
-  type SandboxNativeEngine,
-  type SandboxPolicy,
-} from './sandbox.js';
+import type { SandboxLauncher, SandboxNativeEngine } from './sandbox.js';
+import { claudePrompt, codexInput, imageDeliveryHint, type EngineImages } from './image-blocks.js';
 import { Fault, id, redact } from '../core/util.js';
 import { agentFailure, safeEmit, type Emit } from './shared.js';
 import { loadClaudeSdk } from './claude-sdk.js';
 import { CODEX_TOOL_ITEMS, DENIAL, errorText } from './native-signals.js';
 import { PRODUCT_VERSION } from '../core/version.js';
 
-/** How a sandboxed native run is started (docs/sandbox-design.md §4.1). */
-export type NativeSandbox = {
-  launcher: SandboxLauncher;
-  /** The caller's provider key, injected as the engine's key variable inside the sandbox. */
-  apiKey: string;
-  allowedDomains: string[];
-  cpuSeconds: number;
-};
-/**
- * Isolated launch plan for one sandboxed native run: HOME and the CLI's state directory live in
- * the session workspace (`.oaa-home`, so a session can be continued), only the CLI install is
- * readable besides the workspace, and the environment holds nothing but basics and the caller key.
- */
-async function sandboxPlan(
-  engine: SandboxNativeEngine,
-  executable: string,
-  cwd: string,
-  box: NativeSandbox,
-) {
-  const profile = nativeSandboxProfiles[engine];
-  const home = path.join(cwd, '.oaa-home');
-  const state = path.join(home, profile.homeDir);
-  await mkdir(state, { recursive: true, mode: 0o700 });
-  const launch = await cliLaunch(executable);
-  const env: Record<string, string> = {
-    PATH: process.env.PATH ?? '/usr/bin:/bin',
-    LANG: 'en_US.UTF-8',
-    HOME: home,
-    [profile.homeVar]: state,
-    [profile.keyVar]: box.apiKey,
-  };
-  const policy: SandboxPolicy = {
-    workspace: cwd,
-    readOnly: launch.readOnly,
-    allowedDomains: box.allowedDomains,
-    cpuSeconds: box.cpuSeconds,
-  };
-  return { launch, env, policy, profile };
-}
+import { sandboxPlan, type NativeSandbox } from './native-sandbox.js';
+export type { NativeSandbox } from './native-sandbox.js';
 
 export type NativeResult = {
   text: string;
@@ -81,6 +37,7 @@ export async function runNative(
   emit: Emit,
   state?: Record<string, unknown>,
   sandbox?: NativeSandbox,
+  images?: EngineImages,
 ): Promise<NativeResult> {
   const kind = agent.engine;
   if (kind !== 'codex' && kind !== 'claude' && kind !== 'antigravity' && kind !== 'dsh')
@@ -103,7 +60,7 @@ export async function runNative(
     let usage: Usage | null = null;
     let completed = false;
     const q = query({
-      prompt: input,
+      prompt: await claudePrompt(input, cwd, images),
       options: {
         pathToClaudeCodeExecutable: plan
           ? settings.executable
@@ -197,6 +154,8 @@ export async function runNative(
       }
       if (!completed) throw new Fault('native_truncated', 'Claude ended without a result.', 502);
       return { text, nativeState: { sessionId: session }, usage };
+    } catch (error) {
+      throw imageDeliveryHint(error, 'Claude Code', 'Agent SDK image blocks', images);
     } finally {
       signal.removeEventListener('abort', abort);
       q.close();
@@ -421,13 +380,15 @@ export async function runNative(
     settings.args,
     agent,
     cwd,
-    input,
+    codexInput(input, cwd, images),
     signal,
     emit,
     state,
     plan ? plan.env : nativeEnvironment(config.nativeEnv),
     plan ? { launcher: sandbox!.launcher, plan } : undefined,
-  );
+  ).catch((error: unknown) => {
+    throw imageDeliveryHint(error, 'Codex', 'turn/start localImage items', images);
+  });
 }
 
 /**
@@ -454,7 +415,7 @@ async function codex(
   args: string[],
   agent: AgentDefinition,
   cwd: string,
-  input: string,
+  input: ReturnType<typeof codexInput>,
   signal: AbortSignal,
   emit: Emit,
   state: Record<string, unknown> | undefined,
@@ -644,7 +605,7 @@ async function codex(
           ? await request('thread/resume', { ...params, threadId: state.threadId })
           : await request('thread/start', params);
       threadId = String((start.thread as Record<string, unknown>).id);
-      await request('turn/start', { threadId, input: [{ type: 'text', text: input }] });
+      await request('turn/start', { threadId, input });
     })().catch(fail);
   });
 }

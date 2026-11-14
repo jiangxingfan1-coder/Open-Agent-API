@@ -90,7 +90,7 @@ async function handle(message) {
       protocolVersion: mode === 'version2' ? 2 : 1,
       agentCapabilities: {
         loadSession: mode !== 'noload',
-        promptCapabilities: { image: false, audio: false, embeddedContext: true },
+        promptCapabilities: { image: mode === 'images', audio: false, embeddedContext: true },
       },
       authMethods: [{ id: 'fixture-login', name: 'Fixture login' }],
       agentInfo: { name: 'oaa-acp-fixture', version: '1.0.0' },
@@ -237,6 +237,15 @@ async function prompt(id, params) {
     sessionUpdate: 'plan',
     entries: [{ content: 'Answer', priority: 'high', status: 'completed' }],
   });
+  // Image inputs (docs/images.md): report image blocks and which named workspace files exist.
+  const imageBlocks = params.prompt.filter((block) => block.type === 'image');
+  for (const block of imageBlocks) log(`image:${block.mimeType}:${block.data?.length ?? 0}`);
+  if (input.includes('ECHO-IMAGES')) {
+    const named = [...input.matchAll(/(inputs\/\S+)/g)].map((m) => m[1]);
+    const present = named.filter((file) => existsSync(file));
+    say(sessionId, `images=${imageBlocks.length};files=${present.length}/${named.length}`);
+    return reply({ stopReason: 'end_turn' });
+  }
   const marker = /MARKER:(\S+)/.exec(input)?.[1] ?? 'none';
   const parts = [
     `ACP fixture turn ${history.length + 1}`,

@@ -82,12 +82,17 @@ await lab.scenario('messages.tools_bridge_roundtrip', async () => {
   const streamed = await client.messages.stream({ model: M, max_tokens: 64, tools: [TOOL], messages: [{ role: 'user', content: 'CALLTOOL' }] }).finalMessage();
   equal(streamed.content.find((b) => b.type === 'tool_use')?.input?.city, 'Paris', 'streamed input_json_delta');
 });
-await lab.scenario('messages.image_rejected_clearly', async () => {
+await lab.scenario('messages.image_base64_and_url', async () => {
+  const r = await ask([{ type: 'text', text: 'SHOW_IMAGES' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: env.png } }, { type: 'image', source: { type: 'url', url: 'https://img.example/b.png' } }]);
+  check(/^Images: 2 \[image\/png:\d+, url:https:\/\/img\.example\/b\.png\]$/.test(text(r)), `reply: ${text(r)}`);
+});
+await lab.scenario('messages.image_to_text_only_agent_rejected_clearly', async () => {
   const e = await rejects(
-    ask([{ type: 'text', text: 'x' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } }]),
+    client.messages.create({ model: env.textOnly, max_tokens: 8, messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: env.png } }] }] }),
     Anthropic.BadRequestError, 'image',
   );
   equal(e.error?.error?.type, 'invalid_request_error', 'error.type');
+  equal(e.error?.error?.code, 'unsupported_content', 'error.code');
 });
 await lab.scenario('errors.class_mapping', async () => {
   await rejects(ask('hi', {}, make({ apiKey: 'sk-oaa-wrong' })), Anthropic.AuthenticationError, '401');

@@ -6,7 +6,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from harness import ACP, API_KEY, BASE_URL, FIXTURE, Lab, acp_script, check, equal, make_key, runs_created, snapshot_runs  # noqa: E402
+from harness import ACP, API_KEY, BASE_URL, FIXTURE, Lab, acp_script, check, equal, make_key, runs_created, snapshot_runs, PNG_B64, TEXT_ONLY  # noqa: E402
 
 try:
     import anthropic
@@ -196,20 +196,32 @@ def _():
     check("sunny" in text_of(done), f"the ACP agent did not see the tool result: {text_of(done)[:120]}")
 
 
-@lab.scenario("messages.image_rejected_clearly")
+@lab.scenario("messages.image_base64")
+def _():
+    r = client.messages.create(
+        model=MODEL,
+        max_tokens=64,
+        messages=[{"role": "user", "content": [{"type": "text", "text": "SHOW_IMAGES"}, {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": PNG_B64}}]}],
+    )
+    reply = "".join(b.text for b in r.content if b.type == "text")
+    check(reply.startswith("Images: 1 [image/png:"), f"reply: {reply}")
+
+
+@lab.scenario("messages.image_to_text_only_agent_rejected_clearly")
 def _():
     try:
         client.messages.create(
-            model=MODEL,
+            model=TEXT_ONLY,
             max_tokens=64,
-            messages=[{"role": "user", "content": [{"type": "text", "text": "what"}, {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"}}]}],
+            messages=[{"role": "user", "content": [{"type": "text", "text": "what"}, {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": PNG_B64}}]}],
         )
     except anthropic.BadRequestError as error:
         body = error.body or {}
         equal(body.get("type"), "error", "error envelope")
         equal((body.get("error") or {}).get("type"), "invalid_request_error", "error.type")
+        equal((body.get("error") or {}).get("code"), "unsupported_content", "error.code")
         return
-    raise AssertionError("an image block was accepted")
+    raise AssertionError("an image for a text-only agent was accepted")
 
 
 @lab.scenario("errors.authentication")

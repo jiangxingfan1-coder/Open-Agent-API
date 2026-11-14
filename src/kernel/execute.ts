@@ -21,6 +21,7 @@ import { runModelTurn } from './model-turn.js';
 import { nativeStepId, runNativeAgent } from './native-turn.js';
 import { settleStructuredOutput } from './structured-output.js';
 import { runToolPhase } from './tool-phase.js';
+import { imageDemand } from './images.js';
 import { releaseRun } from './lifecycle.js';
 
 export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run): Promise<void> {
@@ -346,6 +347,7 @@ export function fallBackToNextAgent(rt: KernelRuntime, run: Run, fault: Fault): 
         sandbox: executionFor(principal, candidate) === 'sandbox',
         providerState: false,
         clientTools: !!run.checkpoint.bridge,
+        images: imageDemand(run.images),
       });
       const route = rt.router.select(run.owner, bundle.digest, bundle.agent, 'auto', (p, m) =>
         toTopologyHint(inspect(p, m)),

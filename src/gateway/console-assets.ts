@@ -7,7 +7,7 @@ import { Fault } from '../core/util.js';
 
 /** 控制台页面与脚本的 CSP：没有内联脚本与内联样式；门户沿用同一条。 */
 export const CONSOLE_CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+  "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 /** 智能体图标（SVG）的 CSP：不加载任何东西，只允许图里自带的样式。 */
 export const AGENT_ICON_CSP =
   "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'";

@@ -1,12 +1,13 @@
 """Official `openai` Python SDK against the gateway: Chat Completions and Responses."""
 
 import json
+import re
 import os
 import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from harness import ACP, API_KEY, BASE_URL, FIXTURE, NATIVE, SAMPLE, Lab, NotApplicable, acp_script, check, equal, cancel_active_runs, make_key, runs_created, snapshot_runs  # noqa: E402
+from harness import ACP, API_KEY, BASE_URL, FIXTURE, NATIVE, SAMPLE, Lab, NotApplicable, acp_script, check, equal, cancel_active_runs, make_key, runs_created, snapshot_runs, PNG_B64, TEXT_ONLY  # noqa: E402
 
 try:
     import openai
@@ -252,18 +253,27 @@ def _():
     equal(json.loads(text_of(r)).get("answer"), "ok", "parsed JSON")
 
 
-@lab.scenario("chat.image_part_rejected_clearly")
+@lab.scenario("chat.image_input_data_url")
+def _():
+    r = client.chat.completions.create(
+        model=FIXTURE,
+        messages=[{"role": "user", "content": [{"type": "text", "text": "SHOW_IMAGES"}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{PNG_B64}", "detail": "high"}}]}],
+    )
+    check(re.match(r"^Images: 1 \[image/png:\d+\]$", text_of(r)), f"reply: {text_of(r)}")
+
+
+@lab.scenario("chat.image_to_text_only_agent_rejected_clearly")
 def _():
     try:
         client.chat.completions.create(
-            model=FIXTURE,
-            messages=[{"role": "user", "content": [{"type": "text", "text": "what is this"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}]}],
+            model=TEXT_ONLY,
+            messages=[{"role": "user", "content": [{"type": "text", "text": "what is this"}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{PNG_B64}"}}]}],
         )
     except openai.BadRequestError as error:
         equal((error.body or {}).get("code"), "unsupported_content", "error code")
         equal((error.body or {}).get("param"), "messages.0.content.1", "error param")
         return
-    raise AssertionError("an image part was accepted")
+    raise AssertionError("an image for a text-only agent was accepted")
 
 
 @lab.scenario("chat.concurrent_requests")
@@ -547,17 +557,33 @@ def _():
     return f"status failed, error.code={r.error.code}"
 
 
-@lab.scenario("responses.unsupported_input_image")
+@lab.scenario("responses.input_image_data_and_file")
+def _():
+    import base64
+
+    uploaded = client.files.create(file=("shot.png", base64.b64decode(PNG_B64), "image/png"), purpose="user_data")
+    r = client.responses.create(
+        model=FIXTURE,
+        input=[{"role": "user", "content": [
+            {"type": "input_text", "text": "SHOW_IMAGES"},
+            {"type": "input_image", "image_url": f"data:image/png;base64,{PNG_B64}", "detail": "auto"},
+            {"type": "input_image", "file_id": uploaded.id, "detail": "auto"},
+        ]}],
+    )
+    check(re.search(r"Images: 2 \[image/png:\d+, image/png:\d+\]", r.output_text), f"reply: {r.output_text}")
+
+
+@lab.scenario("responses.input_image_bad_type_rejected_clearly")
 def _():
     try:
         client.responses.create(
             model=FIXTURE,
-            input=[{"role": "user", "content": [{"type": "input_text", "text": "look"}, {"type": "input_image", "image_url": "data:image/png;base64,AAAA"}]}],
+            input=[{"role": "user", "content": [{"type": "input_text", "text": "look"}, {"type": "input_image", "image_url": f"data:image/gif;base64,{PNG_B64}"}]}],
         )
     except openai.BadRequestError as error:
-        equal((error.body or {}).get("code"), "unsupported_content", "error code")
+        equal((error.body or {}).get("code"), "image_invalid", "error code")
         return
-    raise AssertionError("an image part was accepted")
+    raise AssertionError("a mislabelled image was accepted")
 
 
 @lab.scenario("responses.input_items_list")

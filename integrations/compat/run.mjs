@@ -57,6 +57,7 @@ function runScript(client, gateway) {
         OAA_AGENT_SAMPLE: gateway.agents.sample,
         OAA_AGENT_NATIVE: gateway.agents.native,
         OAA_AGENT_ACP: gateway.agents.acp,
+        OAA_AGENT_TEXT: gateway.agents.textOnly,
         PYTHONUNBUFFERED: '1',
         PYTHONDONTWRITEBYTECODE: '1',
       },

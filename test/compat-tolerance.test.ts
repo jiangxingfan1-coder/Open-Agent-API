@@ -398,10 +398,21 @@ test('Gemini bodies written in snake_case (REST reference style, google-genai 3.
     assert.deepEqual(schemas.at(-1), [
       { type: 'object', properties: { user_id: { type: 'string' } }, required: ['user_id'] },
     ]);
-    // Inline data under its snake_case name is still refused clearly, not sent to the agent.
+    // Inline data under its snake_case name is understood as an image; the fixture agent has no
+    // image-capable route, so it is refused clearly and nothing reaches the agent.
     const image = await s.request('POST', '/v1beta/models/agent/test:generateContent', {
       contents: [
-        { role: 'user', parts: [{ inline_data: { mime_type: 'image/png', data: 'AAAA' } }] },
+        {
+          role: 'user',
+          parts: [
+            {
+              inline_data: {
+                mime_type: 'image/png',
+                data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+              },
+            },
+          ],
+        },
       ],
     });
     assert.equal(image.statusCode, 400);

@@ -216,9 +216,13 @@ export const providerStateSchema = z
   })
   .strict();
 export type ProviderTurnState = z.infer<typeof providerStateSchema>;
+import type { ModelImage, RunImage } from './images.js';
+import type { ExecutionCapabilities } from './execution-capabilities.js';
+export type { ImageMode, ModelImage, RunImage } from './images.js';
 export type ModelMessage = {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  images?: ModelImage[];
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   providerItems?: unknown[];
@@ -339,6 +343,8 @@ export type Run = {
   updatedAt: number;
   input: string;
   fileIds: string[];
+  /** Image inputs (docs/images.md); stored images are also listed in `fileIds`. */
+  images?: RunImage[];
   output: OutputMessage[];
   usage: Usage | null;
   checkpoint: Checkpoint;
@@ -474,48 +480,18 @@ export type NodeAdvertisement = {
   concurrency: number;
   execution?: ExecutionCapabilities;
 };
-export const executionCapabilitiesSchema = z
-  .object({
-    builtins: z.array(z.string()).max(100),
-    scripts: z.array(z.enum(['node', 'python3'])).max(2),
-    toolSelection: z.boolean(),
-    nativeModels: z.record(
-      z.string(),
-      z.discriminatedUnion('mode', [
-        z.object({ mode: z.literal('declared') }).strict(),
-        z.object({ mode: z.literal('allowlist'), models: z.array(z.string()).max(100) }).strict(),
-      ]),
-    ),
-    /** Providers that accept a caller-supplied key; sent only after `byok-v1` negotiation. */
-    byokProviders: z.array(z.string()).max(100).optional(),
-    /** Providers preserving native turn state; sent only after provider-turn-v1 negotiation. */
-    providerStateProviders: z.array(z.string()).max(100).optional(),
-    /**
-     * Engines that can bridge caller tools (docs/harness.md): `kernel` and ACP `adapter/<name>`.
-     * Sent only after `client-tools-v1` negotiation.
-     */
-    clientTools: z
-      .object({ native: z.array(z.string().max(200)).max(100) })
-      .strict()
-      .optional(),
-    /** Verified OS sandbox; sent only after `sandbox-v1` negotiation. */
-    sandbox: z
-      .object({
-        backend: z.enum(['srt']),
-        version: z.string().max(64),
-        kinds: z.array(z.string().max(64)).max(32),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict();
-export type ExecutionCapabilities = z.infer<typeof executionCapabilitiesSchema>;
+export {
+  executionCapabilitiesSchema,
+  type ExecutionCapabilities,
+} from './execution-capabilities.js';
 export type WorkContext = {
   runId: string;
   sessionId: string;
   owner: string;
   digest: string;
   files: FilePayload[];
+  /** This turn's stored image inputs (bytes are in `files`); external engines read them here. */
+  images?: { fileId: string; mime: string; workspacePath: string }[];
 };
 export type Work =
   | {

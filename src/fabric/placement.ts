@@ -1,6 +1,7 @@
 import type {
   AgentDefinition,
   FilePayload,
+  ImageMode,
   NodeAdvertisement,
   NodeCredential,
   ToolBinding,
@@ -30,7 +31,8 @@ export type PlacementCode =
   | 'byok_unsupported'
   | 'provider_state_unsupported'
   | 'sandbox_unavailable'
-  | 'client_tools_unsupported';
+  | 'client_tools_unsupported'
+  | 'image_input_unsupported';
 export type PlacementReason = { code: PlacementCode; message: string };
 export type PlacementNode = { credential: NodeCredential; advertisement: NodeAdvertisement };
 export type PlacementRequest = {
@@ -45,7 +47,21 @@ export type PlacementRequest = {
   providerState?: boolean;
   /** Caller tools are bridged (docs/harness.md): only workers declaring `clientTools` qualify. */
   clientTools?: boolean;
+  /** The work carries images (docs/images.md): `url` when any of them is a URL. */
+  images?: ImageMode;
 };
+/** Whether a worker's image-input-v1 declaration covers `demand` for this agent. */
+export function imagesSupported(
+  advert: NodeAdvertisement,
+  agent: AgentDefinition,
+  demand: ImageMode,
+): boolean {
+  const caps = advert.execution?.imageInput;
+  if (!caps) return false;
+  if (agent.engine !== 'kernel') return demand === 'inline' && !!caps.native[agent.engine];
+  const mode = caps.providers[agent.provider];
+  return mode === 'url' || (mode === 'inline' && demand === 'inline');
+}
 export const permits = (patterns: string[], value: string) =>
   patterns.includes('*') || patterns.includes(value);
 const reason = (code: PlacementCode, message: string): PlacementReason => ({ code, message });
@@ -78,6 +94,15 @@ export function modelPlacement(
   const reasons = commonPlacement(request, node);
   const a = request.agent;
   const advert = node.advertisement;
+  if (request.images && !imagesSupported(advert, a, request.images))
+    reasons.push(
+      reason(
+        'image_input_unsupported',
+        request.images === 'url'
+          ? 'Worker cannot hand image URLs to this provider or engine (image-input-v1).'
+          : 'Worker has not declared image input (image-input-v1) for this provider or engine.',
+      ),
+    );
   if (request.clientTools && !advert.execution?.clientTools?.native.includes(a.engine))
     reasons.push(
       reason(
@@ -217,10 +242,18 @@ export function workPlacement(
     clientTools:
       (work.kind === 'native' && !!work.clientTools?.length) ||
       (work.kind === 'model' && work.agent.tools.length > agent.tools.length),
+    images: workImageDemand(work),
   };
   return work.kind === 'tool'
     ? toolPlacement(request, node, work.binding)
     : modelPlacement(request, node, work.kind === 'model' ? work.toolNames : undefined);
+}
+function workImageDemand(work: Work): ImageMode | undefined {
+  if (work.kind === 'native') return work.context.images?.length ? 'inline' : undefined;
+  if (work.kind !== 'model') return undefined;
+  const images = work.messages.flatMap((m) => m.images ?? []);
+  if (!images.length) return undefined;
+  return images.some((i) => i.kind === 'url') ? 'url' : 'inline';
 }
 export function workTarget(work: Work): string {
   if (work.kind === 'tool')

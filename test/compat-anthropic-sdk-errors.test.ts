@@ -11,6 +11,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Anthropic from '@anthropic-ai/sdk';
 import { principal } from './helpers.js';
+
+const PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 import { gateway, runCount, user } from './anthropic-sdk-gateway.js';
 
 type Body = {
@@ -76,7 +79,8 @@ test('anthropic sdk: auth, permission, not-found and bad-request errors map to t
           {
             role: 'user',
             content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+              // A valid PNG: the fixture agent has no image-capable route, so it is refused.
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } },
             ],
           },
         ],
@@ -84,7 +88,7 @@ test('anthropic sdk: auth, permission, not-found and bad-request errors map to t
       (e: InstanceType<typeof Anthropic.APIError>) => {
         assert.ok(e instanceof Anthropic.BadRequestError, String(e));
         assert.equal(body(e).error.code, 'unsupported_content');
-        assert.match(body(e).error.message, /POST \/v1\/files/);
+        assert.match(body(e).error.message, /does not accept images/);
         return true;
       },
     );

@@ -23,6 +23,7 @@ import { ACP_TEXT } from './acp-text.js';
 import { AGENT_IO_LIMITS, bounded, record, safeEmit, type Emit } from './shared.js';
 import { callerToolPermission, openCallerRelay, type CallerRelay } from './caller-relay.js';
 import { PRODUCT_VERSION } from '../core/version.js';
+import { acpImageBlocks, type EngineImages } from './image-blocks.js';
 
 export const ACP_PROTOCOL_VERSION = 1;
 const MAX_FRAME_BYTES = AGENT_IO_LIMITS.frameBytes;
@@ -363,6 +364,7 @@ export async function runAcp(
   state?: Record<string, unknown>,
   timings: AcpTimings = {},
   clientTools?: ClientTool[],
+  images?: EngineImages,
 ): Promise<NativeResult> {
   const name = agent.engine.startsWith('adapter/') ? agent.engine.slice('adapter/'.length) : '';
   const adapter = config.adapters[name];
@@ -644,10 +646,11 @@ export async function runAcp(
         );
     }
     checkAbort(signal);
+    const imageBlocks = await acpImageBlocks(capabilities, adapter.imageFiles, cwd, images);
     phase = 'prompting';
     const promptRequest = peer.call('session/prompt', {
       sessionId,
-      prompt: [{ type: 'text', text: prompt }],
+      prompt: [{ type: 'text', text: prompt }, ...imageBlocks],
     });
     promptSettled = promptRequest;
     const response = record(await Promise.race([promptRequest, cancelledRun]));

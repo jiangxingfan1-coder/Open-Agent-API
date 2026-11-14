@@ -79,7 +79,7 @@ export function createRunInspector({ onChanged, onClosed, onSelected, onContinue
     refresh,
     onChanged,
   });
-  const { renderSteps, renderArtifacts } = createSections({
+  const { renderSteps, renderArtifacts, renderImages } = createSections({
     $,
     bytes,
     download,
@@ -226,6 +226,7 @@ export function createRunInspector({ onChanged, onClosed, onSelected, onContinue
       $('output-count').textContent = t('insp.output_chars', { n: num(data.output.characters) });
       renderQueue(data);
       notes.render(data);
+      renderImages(v, data.images);
       if (!v.filterChosen && !v.steps && data.steps.uncertain) {
         v.stepFilter = 'uncertain';
         $('step-filter').value = 'uncertain';

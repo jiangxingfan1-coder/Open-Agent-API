@@ -48,11 +48,15 @@ test('replays: every file is well-formed and honest about its evidence', () => {
 
 for (const file of files) {
   test(`replay ${file.client}: ${file.cases.filter((c) => !outOfScope(c)).length} request shapes are accepted and answered in a form the client parses`, async () => {
-    const model = new FixtureModel((_agent, messages) => ({
-      text:
-        answerForRequirement(messages.map((m) => m.content).join('\n')) ??
-        'Hello world from fixture.',
-    }));
+    // Declares image input like the lab fixture, so the recorded image parts are served.
+    const model = Object.assign(
+      new FixtureModel((_agent, messages) => ({
+        text:
+          answerForRequirement(messages.map((m) => m.content).join('\n')) ??
+          'Hello world from fixture.',
+      })),
+      { imageInput: 'url' as const },
+    );
     const s = await setup(model, { allowedOrigins: replayOrigins(files) });
     s.store.publish('owner', makeBundle(agent()));
     // An agent that runs its own tool loop (never started here): refuses caller tools clearly.

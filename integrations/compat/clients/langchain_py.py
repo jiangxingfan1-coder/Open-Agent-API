@@ -6,7 +6,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from harness import API_KEY, BASE_URL, FIXTURE, NATIVE, Lab, check, equal  # noqa: E402
+from harness import API_KEY, BASE_URL, FIXTURE, NATIVE, Lab, check, equal, PNG_B64  # noqa: E402
 
 try:
     from importlib.metadata import version
@@ -69,6 +69,16 @@ def _():
         if c.usage_metadata:
             total = c.usage_metadata["total_tokens"]
     check(total and total > 0, "stream usage_metadata with stream_usage=True")
+
+
+@lab.scenario("openai.image_input")
+def _():
+    message = HumanMessage(content=[
+        {"type": "text", "text": "SHOW_IMAGES"},
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{PNG_B64}"}},
+    ])
+    r = openai_model().invoke([message])
+    check(r.content.startswith("Images: 1 [image/png:"), f"reply: {r.content}")
 
 
 @lab.scenario("openai.messages_history")

@@ -51,6 +51,10 @@ const inspectionQueries: Record<string, Record<string, Record<string, unknown>>>
   },
 };
 /** Caller-defined tools on compatibility endpoints (docs/harness.md). */
+/** Image input (docs/images.md), appended to every invocation entry. */
+const IMAGES_NOTE =
+  '. Image parts are accepted (PNG, JPEG, GIF, WebP as base64 / data: URL, https URL or uploaded ' +
+  'file id); an agent without image input answers 400 unsupported_content (see image_input in GET /v1/models)';
 const CLIENT_TOOLS_NOTE =
   '. A non-empty `tools` array is handled by the X-OAA-Client-Tools request header or ' +
   'metadata["oaa.client_tools"] (managed | bridge | reject; default managed; bridge: kernel ' +
@@ -112,14 +116,15 @@ export const openapi = {
       [
         '/v1/uap',
         'post',
-        'Execute a Unified Agent Protocol (UAP/1) envelope with JSON, SSE, or compact NDJSON delivery',
+        'Execute a Unified Agent Protocol (UAP/1) envelope with JSON, SSE, or compact NDJSON delivery' +
+          IMAGES_NOTE,
       ],
       [
         '/v1/universal',
         'post',
         'Auto-detect and execute any supported protocol dialect (UAP/1, OAA/1, OpenAI, Claude, Gemini); X-OAA-Protocol names it explicitly, an undecidable Chat/Claude body answers 400 protocol_undetected',
       ],
-      ['/v1/responses', 'post', 'Responses-compatible execution'],
+      ['/v1/responses', 'post', 'Responses-compatible execution' + IMAGES_NOTE],
       [
         '/v1/responses/{id}',
         'get',
@@ -129,13 +134,19 @@ export const openapi = {
       [
         '/v1/chat/completions',
         'post',
-        'Chat Completions compatibility (a created run that did not finish answers 422 with x-should-retry: false)',
+        'Chat Completions compatibility (a created run that did not finish answers 422 with x-should-retry: false)' +
+          IMAGES_NOTE,
       ],
-      ['/v1/messages', 'post', 'Anthropic Claude Messages API compatibility' + CLIENT_TOOLS_NOTE],
+      [
+        '/v1/messages',
+        'post',
+        'Anthropic Claude Messages API compatibility' + IMAGES_NOTE + CLIENT_TOOLS_NOTE,
+      ],
       [
         '/v1beta/models/*',
         'post',
         'Google Gemini generateContent and streamGenerateContent API compatibility' +
+          IMAGES_NOTE +
           CLIENT_TOOLS_NOTE,
       ],
       [
@@ -157,7 +168,7 @@ export const openapi = {
         'get',
         'List callable agent model aliases and optional expanded route pools (OpenAI list by default; ' +
           'with anthropic-version an Anthropic ModelInfo list; with x-goog-api-client a Google Model list; ' +
-          'expand ignores both headers)',
+          'expand ignores both headers); each OpenAI entry carries image_input (whether the agent accepts images)',
       ],
       ['/v1/nodes', 'get', 'Inspect node capabilities and health'],
       [
@@ -215,12 +226,12 @@ export const openapi = {
       [
         '/v1/runs/{id}/state',
         'get',
-        'Bounded run state; queued or node-waiting runs include queue insight',
+        'Bounded run state; queued or node-waiting runs include queue insight; images lists image inputs (no bytes)',
       ],
       [
         '/v1/runs/{id}/timeline',
         'get',
-        'Derived run timeline: spans, lanes, critical path and time breakdown (ETag/304)',
+        'Derived run timeline: spans, lanes, critical path and time breakdown (ETag/304); images lists image inputs',
       ],
       ['/v1/errors', 'get', 'Error code catalog: status, category, retryable, zh (ETag/304)'],
       ['/v1/overview', 'get', 'Console overview with revision ETag and If-None-Match 304'],
@@ -321,6 +332,7 @@ export const openapi = {
           '403': { description: 'Required scope or agent grant missing' },
           '404': { description: 'Requested resource is not owned or does not exist' },
           '409': { description: 'Requested mutation conflicts with the current execution state' },
+          '413': { description: 'Request, file or image exceeds its size limit' },
           '429': { description: 'Request or subscription capacity exceeded' },
         },
       };

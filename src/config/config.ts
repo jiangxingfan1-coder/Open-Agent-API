@@ -30,9 +30,37 @@ export const providerSchema = z
       .enum(['max_tokens', 'max_completion_tokens'])
       .default('max_completion_tokens'),
     anthropicVersion: z.string().min(1).max(64).optional(),
+    /**
+     * Image input (docs/images.md): `none`, `inline` (base64 bytes) or `url` (bytes and https
+     * URLs the provider fetches itself). Unset: by kind (providerImageInput).
+     */
+    imageInput: z.enum(['none', 'inline', 'url']).optional(),
   })
   .strict();
 export type ProviderConfig = z.infer<typeof providerSchema>;
+const MIB = 1024 * 1024;
+export const imageConfigSchema = z
+  .object({
+    maxImageBytes: z
+      .number()
+      .int()
+      .min(1024)
+      .max(8 * MIB)
+      .default(5 * MIB),
+    maxImagesPerRequest: z.number().int().min(1).max(20).default(10),
+    maxTotalBytes: z
+      .number()
+      .int()
+      .min(1024)
+      .max(8 * MIB)
+      .default(8 * MIB),
+    /** Let the gateway fetch https image URLs itself (off: URLs reach URL-capable providers only). */
+    fetchRemote: z.boolean().default(false),
+    fetchTimeoutMs: z.number().int().min(500).max(60_000).default(10_000),
+  })
+  .strict()
+  .prefault({});
+export type ImageConfig = z.infer<typeof imageConfigSchema>;
 const mcpSchema = z.discriminatedUnion('transport', [
   z
     .object({
@@ -173,6 +201,8 @@ export const workerSchema = z
                * Absent means `oaa/1`.
                */
               protocol: z.enum(['oaa/1', 'oaa/1-stream']).optional(),
+              /** Image inputs as workspace files (docs/images.md); false refuses images. */
+              imageFiles: z.boolean().optional(),
             })
             .strict(),
           z
@@ -212,6 +242,8 @@ export const workerSchema = z
                 .string()
                 .regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
                 .optional(),
+              /** Image inputs as workspace files when the agent declares no image support. */
+              imageFiles: z.boolean().optional(),
             })
             .strict(),
         ]),
@@ -324,6 +356,8 @@ const gatewayObject = z
     leaseMs: z.number().int().min(100).max(120_000).default(15_000),
     /** Developer platform (accounts, account keys, listings, credits). Unset: nothing changes. */
     platform: platformSchema.optional(),
+    /** Image input limits and the remote-image fetch switch (docs/images.md). */
+    images: imageConfigSchema,
     /** `public` fills stricter defaults for unset settings (security-profile.ts). */
     security: z
       .object({
