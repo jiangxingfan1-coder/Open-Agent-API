@@ -25,7 +25,7 @@ jobs:
           node-version: '24'
       - run: npm ci --omit=optional --ignore-scripts
       - run: npm run build
-      # TAP prints each failure's details inline, so a later hang cannot hide them.
-      - run: node scripts/test-offline.mjs --all
+      # One process per test file (3 min each) so a hang cannot hide later files; TAP shows details inline.
+      - run: node scripts/test-offline.mjs --all --isolate
         env:
           NODE_OPTIONS: --test-reporter=tap
