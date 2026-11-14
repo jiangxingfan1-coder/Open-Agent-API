@@ -58,6 +58,7 @@ import { registerLocalBackendRoutes } from './local-backend-routes.js';
 import { publishWarning, publishedNative } from '../fabric/runnability.js';
 import { registerMemoryRoutes } from './memory-routes.js';
 import { registerKeyRoutes } from './key-routes.js';
+import { registerShutdownRoute } from './shutdown-route.js';
 import { ERROR_CATALOG, ERROR_CATALOG_REVISION, ERROR_CATEGORIES } from '../core/errors.js';
 import { registerRunRoutes } from './run-routes.js';
 import { registerConsoleAssets } from './console-assets.js';
@@ -961,6 +962,7 @@ export async function createGateway(
       return { node_id: body.node_id, token: result.token };
     });
     registerKeyRoutes(app, { auth, audit, config });
+    registerShutdownRoute(app, auth);
     app.get('/v1/me', async (req) => {
       const usage = req.principal.keyId
         ? auth.keyUsage(req.principal.keyId)

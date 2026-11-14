@@ -12,6 +12,7 @@ import { initialize, loadConfig, type GatewayConfig } from '../config/config.js'
 import { agentSchema } from '../core/contracts.js';
 import { bi, pick, processLocale, type Locale } from '../core/locale.js';
 import { Fault, executableExists } from '../core/util.js';
+import { whichSync } from '../core/which.js';
 import { makeBundle } from '../lang/bundle.js';
 import { GatewayClient } from './client.js';
 import {
@@ -88,11 +89,7 @@ export function syncConfig(
 }
 
 function findOnPath(binary: string, pathEnv: string): string | undefined {
-  for (const dir of pathEnv.split(path.delimiter).filter(Boolean)) {
-    const candidate = path.join(dir, binary);
-    if (executableExists(candidate)) return candidate;
-  }
-  return undefined;
+  return whichSync(binary, pathEnv);
 }
 
 /** 端口上有没有别的程序在监听（只发起连接，不监听）。 */

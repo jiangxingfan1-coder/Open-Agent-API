@@ -1,4 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { resolveWindowsCommand } from './which.js';
+import { restrictToOwner } from './win-acl.js';
+import { windowsUnsafeSegment } from './win-path.js';
 import { constants, accessSync, statSync } from 'node:fs';
 import { mkdir, lstat, realpath, readFile, open } from 'node:fs/promises';
 import path from 'node:path';
@@ -110,20 +113,11 @@ export function executableExists(command: string, options: { fresh?: boolean } =
   return ok;
 }
 function probeExecutable(command: string, pathLike: boolean): boolean {
+  // Windows: PATHEXT applies to bare names and extension-less paths alike (`codex` -> `codex.cmd`).
+  if (process.platform === 'win32') return resolveWindowsCommand(command) !== undefined;
   const candidates = pathLike
     ? [command]
-    : (process.env.PATH ?? '')
-        .split(path.delimiter)
-        .flatMap((dir) =>
-          process.platform === 'win32'
-            ? [
-                path.join(dir, command),
-                ...(process.env.PATHEXT ?? '.EXE;.CMD')
-                  .split(';')
-                  .map((ext) => path.join(dir, command + ext)),
-              ]
-            : [path.join(dir, command)],
-        );
+    : (process.env.PATH ?? '').split(path.delimiter).map((dir) => path.join(dir, command));
   return candidates.some((candidate) => {
     try {
       accessSync(candidate, constants.X_OK);
@@ -179,7 +173,8 @@ export function relativeName(name: string): string {
     name.includes('\\') ||
     /[\x00-\x1f]/.test(name) ||
     path.posix.isAbsolute(name) ||
-    name.split('/').some((p) => !p || p === '.' || p === '..')
+    name.split('/').some((p) => !p || p === '.' || p === '..') ||
+    (process.platform === 'win32' && name.split('/').some(windowsUnsafeSegment))
   ) {
     throw new Fault('invalid_path', 'Expected a bounded relative path without traversal.');
   }
@@ -224,6 +219,8 @@ export async function writePrivate(
   } finally {
     await handle.close();
   }
+  // Mode bits mean nothing on Windows; narrow the ACL to the current user (best effort).
+  if (process.platform === 'win32') await restrictToOwner(target);
 }
 export async function readBounded(
   root: string,

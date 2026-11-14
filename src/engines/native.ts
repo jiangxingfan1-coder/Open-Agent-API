@@ -3,6 +3,7 @@ import type { AgentDefinition, WorkEvent, Usage, ArtifactPayload } from '../core
 import type { WorkerConfig } from '../config/config.js';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { directExecutable } from './win-spawn.js';
 import {
   DeferredProcess,
   ownedProcess,
@@ -104,7 +105,9 @@ export async function runNative(
     const q = query({
       prompt: input,
       options: {
-        pathToClaudeCodeExecutable: settings.executable,
+        pathToClaudeCodeExecutable: plan
+          ? settings.executable
+          : directExecutable(settings.executable),
         cwd,
         model: agent.model === 'default' ? undefined : agent.model,
         resume: typeof state?.sessionId === 'string' ? state.sessionId : undefined,

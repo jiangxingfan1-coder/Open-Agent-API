@@ -66,7 +66,8 @@ test('key create: writes a private caller key that can call the agent', async (t
   assert.match(result.try, /chat\/completions/);
   const key = (await readFile(out, 'utf8')).trim();
   assert.match(key, /^sk-oaa-/);
-  assert.equal((await stat(out)).mode & 0o777, 0o600);
+  // Mode bits exist only on POSIX; Windows relies on the ACL (docs/windows.md).
+  if (process.platform !== 'win32') assert.equal((await stat(out)).mode & 0o777, 0o600);
   const listed = await ctx.request('GET', '/v1/models', undefined, key);
   assert.equal(listed.statusCode, 200);
   assert.deepEqual(

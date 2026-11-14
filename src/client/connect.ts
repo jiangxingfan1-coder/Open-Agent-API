@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { bi, pick, processLocale, type Locale } from '../core/locale.js';
 import { Fault, executableExists } from '../core/util.js';
+import { whichSync } from '../core/which.js';
 import { isNativeEngine } from '../config/agent-presets.js';
 import type { GatewayClient } from './client.js';
 import { createCallerKey } from './onboarding.js';
@@ -47,11 +48,7 @@ export function engineFor(name: string): string {
 }
 
 function onPath(binary: string, pathEnv: string): string | undefined {
-  for (const dir of pathEnv.split(path.delimiter).filter(Boolean)) {
-    const candidate = path.join(dir, binary);
-    if (executableExists(candidate)) return candidate;
-  }
-  return undefined;
+  return whichSync(binary, pathEnv);
 }
 
 export async function connectAgent(client: GatewayClient, options: ConnectOptions): Promise<void> {

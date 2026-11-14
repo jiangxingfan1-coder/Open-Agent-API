@@ -92,7 +92,12 @@ export async function openCallerRelay(
     dir = await mkdtemp(path.join(os.tmpdir(), 'oaa-r-'));
   else await mkdir(dir, { mode: 0o700 });
   await chmod(dir, 0o700);
-  const socketPath = path.join(dir, 'relay.sock');
+  // Windows has no Unix-domain socket files here: use a named pipe with an unguessable name. The
+  // per-run token (file in the 0700 directory) is what authenticates either way.
+  const socketPath =
+    process.platform === 'win32'
+      ? `\\\\.\\pipe\\oaa-relay-${randomBytes(16).toString('hex')}`
+      : path.join(dir, 'relay.sock');
   const tokenPath = path.join(dir, 'token');
   const token = randomBytes(32).toString('hex');
   await writeFile(tokenPath, token, { mode: 0o600, flag: 'wx' });
@@ -187,7 +192,7 @@ export async function openCallerRelay(
         resolve();
       });
     });
-    await chmod(socketPath, 0o600);
+    if (process.platform !== 'win32') await chmod(socketPath, 0o600);
   } catch (error) {
     server.close();
     await rm(dir, { recursive: true, force: true });

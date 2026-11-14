@@ -32,6 +32,7 @@ import {
   healthPid,
   startDetached,
   stopDetachedGateway,
+  adminShutdown,
 } from './client/onboarding.js';
 import { commandPrefix, quickstart } from './client/quickstart.js';
 import { connectAgent } from './client/connect.js';
@@ -149,7 +150,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   if (command === 'stop') {
     const config = await loadConfig(file);
-    print(await stopDetachedGateway(config.dataDir, gatewayUrl(config)));
+    const url = gatewayUrl(config);
+    const graceful = process.platform === 'win32' ? adminShutdown(config, url) : undefined;
+    print(await stopDetachedGateway(config.dataDir, url, undefined, undefined, graceful));
     return;
   }
   if (command === 'connect') {
@@ -659,6 +662,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       cwd: process.cwd(),
       detached: Boolean(values.detach),
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     });
     const publicUrl = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -847,7 +851,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       const child = spawn(
         process.execPath,
         [fileURLToPath(import.meta.url), 'node', 'join', '--config', workerFile],
-        { cwd: process.cwd(), detached: true, stdio: ['ignore', log, log] },
+        { cwd: process.cwd(), detached: true, windowsHide: true, stdio: ['ignore', log, log] },
       );
       closeSync(log);
       child.unref();

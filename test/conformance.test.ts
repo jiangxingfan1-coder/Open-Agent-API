@@ -459,7 +459,11 @@ const CASES: Case[] = [
     install: async (s) => {
       // DSH is started as `<dsh> --profile headless ... -- <prompt>`, which node itself would
       // reject, so a generated launcher stands in for the installed binary.
-      const launcher = path.join(s.dir, 'dsh-fixture');
+      // Windows has no shebangs: a `.mjs` launcher is started through node by the product.
+      const launcher = path.join(
+        s.dir,
+        process.platform === 'win32' ? 'dsh-fixture.mjs' : 'dsh-fixture',
+      );
       await writeFile(
         launcher,
         `#!${process.execPath}\nimport(${JSON.stringify(pathToFileURL(fixtures.native).href)});\n`,

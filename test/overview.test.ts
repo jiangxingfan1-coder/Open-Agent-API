@@ -490,9 +490,16 @@ test('executable checks are memoized briefly and refreshed for explicit owner ac
   const dir = await mkdtemp(path.join(os.tmpdir(), 'oaa-exec-'));
   try {
     const file = path.join(dir, 'tool');
-    await writeFile(file, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+    if (process.platform !== 'win32') {
+      // POSIX only: a file without the execute bit is not executable (Windows has no mode bits).
+      await writeFile(file, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+      forgetExecutableChecks();
+      assert.equal(executableExists(file), false);
+      await rm(file);
+    }
     forgetExecutableChecks();
-    assert.equal(executableExists(file), false);
+    assert.equal(executableExists(file), false, 'missing');
+    await writeFile(file, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     await chmod(file, 0o755);
     assert.equal(executableExists(file), false, 'cached within the TTL');
     assert.equal(executableExists(file, { fresh: true }), true, 'owner actions re-check');

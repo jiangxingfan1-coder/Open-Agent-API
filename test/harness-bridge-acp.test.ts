@@ -154,9 +154,14 @@ test('acp bridge: a single call becomes tool_calls; the reply reaches the agent 
     assert.deepEqual(server.args.slice(1, 3), ['mcp-relay', '--socket']);
     assert.equal(server.args[4], '--token-file');
     assert.deepEqual(server.env, []);
-    assert.equal(statSync(server.args[3]).mode & 0o777, 0o600, 'socket 0600');
-    assert.equal(statSync(server.args[5]).mode & 0o777, 0o600, 'token 0600');
-    assert.equal(statSync(path.dirname(server.args[3])).mode & 0o777, 0o700, 'dir 0700');
+    if (process.platform === 'win32') {
+      // Windows: a named pipe (no file, no mode bits); the token file is what authenticates.
+      assert.match(server.args[3], /^\\\\\.\\pipe\\oaa-relay-[0-9a-f]{32}$/);
+    } else {
+      assert.equal(statSync(server.args[3]).mode & 0o777, 0o600, 'socket 0600');
+      assert.equal(statSync(server.args[5]).mode & 0o777, 0o600, 'token 0600');
+      assert.equal(statSync(path.dirname(server.args[3])).mode & 0o777, 0o700, 'dir 0700');
+    }
     const tools = JSON.parse(lines.find((l) => l.startsWith('tools:'))!.slice(6));
     assert.deepEqual(tools, [
       { name: 'edit-file', description: 'Edit a file.', inputSchema: EDIT_SCHEMA },

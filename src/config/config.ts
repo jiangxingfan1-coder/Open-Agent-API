@@ -10,6 +10,7 @@ import {
   keyQuotaSchema,
 } from '../core/contracts.js';
 import { Fault, writePrivate } from '../core/util.js';
+import { whichSync } from '../core/which.js';
 import { discoverAcpAgents, discoveredAdapterEntry, nativeEngines } from './agent-presets.js';
 
 const tokenRef = { tokenEnv: z.string().optional(), tokenFile: z.string().optional() };
@@ -364,16 +365,9 @@ export async function initialize(root: string): Promise<string> {
     antigravity: 'agy',
     dsh: 'dsh',
   })) {
-    for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-      const candidate = path.join(dir, command);
-      try {
-        await access(candidate, constants.X_OK);
-        native[engine] = { executable: candidate, enabled: false, args: [] };
-        break;
-      } catch {
-        // Not executable here; try the next candidate.
-      }
-    }
+    // PATHEXT-aware on Windows (`codex` -> `codex.cmd`); the resolved file is recorded.
+    const candidate = whichSync(command);
+    if (candidate) native[engine] = { executable: candidate, enabled: false, args: [] };
   }
   // ACP agents found on PATH are recorded disabled; nothing is executed or enabled here.
   const adapters = Object.fromEntries(
