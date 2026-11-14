@@ -87,7 +87,7 @@ function openaiCompatible(strict = false): Handler {
 }
 
 /** A gateway in this process that "restarts" by reloading the configuration file. */
-function inProcessGateway(t: TestContext) {
+function inProcessGateway() {
   let current: { close: () => Promise<void>; url: string; file: string } | undefined;
   const states: string[] = [];
   const start = async (file: string) => {
@@ -100,7 +100,6 @@ function inProcessGateway(t: TestContext) {
       file,
     };
   };
-  t.after(async () => current?.close());
   const control: GatewayControl = {
     async ensure(file: string, _config: GatewayConfig, changed: boolean) {
       if (!current) {
@@ -118,12 +117,18 @@ function inProcessGateway(t: TestContext) {
       return { url: current!.url, state: 'restarted' };
     },
   };
-  return { control, states, url: () => current!.url };
+  return { control, states, url: () => current!.url, close: async () => current?.close() };
 }
 
 async function dataDir(t: TestContext) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'oaa-model-connect-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  const gw = inProcessGateway();
+  // One hook, in order: close the gateway (it holds state.sqlite open) before removing its data
+  // directory. Windows refuses to delete open files (EBUSY), which used to leave the test hanging.
+  t.after(async () => {
+    await gw.close();
+    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  });
   const admin = path.join(dir, 'admin.token');
   await writeFile(admin, 'test-admin-token-not-a-provider-credential-0001\n', { mode: 0o600 });
   await writeFile(
@@ -144,15 +149,14 @@ async function dataDir(t: TestContext) {
     }),
     { mode: 0o600 },
   );
-  return dir;
+  return { dir, gw };
 }
 
 const cli = path.resolve('dist/src/cli.js');
 
 test('connect ollama: probe, provider, publish, key, curl; idempotent; --test goes through the gateway', async (t) => {
   const svc = await fakeService(t, openaiCompatible());
-  const dir = await dataDir(t);
-  const gw = inProcessGateway(t);
+  const { dir, gw } = await dataDir(t);
   const run = async (
     extra: Partial<Parameters<typeof connectModel>[0]> = {},
     locale: 'en' | 'zh' = 'en',
@@ -257,8 +261,7 @@ test('connect ollama: probe, provider, publish, key, curl; idempotent; --test go
 
 test('connect with a key file: only the reference is stored, the gateway reads it per call', async (t) => {
   const svc = await fakeService(t, openaiCompatible(true));
-  const dir = await dataDir(t);
-  const gw = inProcessGateway(t);
+  const { dir, gw } = await dataDir(t);
   const keyFile = path.join(dir, 'deepseek.key');
   await writeFile(keyFile, 'sk-fake-file-key-0001\n', { mode: 0o600 });
   await chmod(keyFile, 0o600);
@@ -292,7 +295,7 @@ test('connect with a key file: only the reference is stored, the gateway reads i
 });
 
 test('connect: clear errors for an unreachable local service, a missing model and bad key arguments', async (t) => {
-  const dir = await dataDir(t);
+  const { dir, gw } = await dataDir(t);
   const closed = await fakeService(t, () => {});
   const svc = await fakeService(t, openaiCompatible());
   // A port that no longer answers: start a service, read its port, close it first.
@@ -307,7 +310,7 @@ test('connect: clear errors for an unreachable local service, a missing model an
     prefix: 'oaa',
     locale: 'en' as const,
     out: () => {},
-    gateway: inProcessGateway(t).control,
+    gateway: gw.control,
   };
   await assert.rejects(
     connectModel({ ...base, preset: 'lmstudio', baseUrl: `http://127.0.0.1:${port}/v1` }),

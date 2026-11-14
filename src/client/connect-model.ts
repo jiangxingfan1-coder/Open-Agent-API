@@ -19,7 +19,13 @@ import {
 import { isLoopbackUrl, probeProvider } from '../providers/provider-status.js';
 import { GatewayClient } from './client.js';
 import { callLines, ensureCallerKey } from './connect.js';
-import { gatewayUrl, healthPid, startDetached, stopDetachedGateway } from './onboarding.js';
+import {
+  adminShutdown,
+  gatewayUrl,
+  healthPid,
+  startDetached,
+  stopDetachedGateway,
+} from './onboarding.js';
 
 export const PLACEHOLDER = 'default/"configure-your-model"';
 export const DEFAULT_AGENT = 'agent/assistant';
@@ -70,7 +76,9 @@ export function detachedGateway(cliPath: string): GatewayControl {
       }
       if (running !== ours) return { url, state: 'foreign' };
       if (!changed) return { url, state: 'reused' };
-      await stopDetachedGateway(config.dataDir, url);
+      // Windows: SIGTERM is TerminateProcess, so ask the gateway to close itself first (as oaa stop).
+      const graceful = process.platform === 'win32' ? adminShutdown(config, url) : undefined;
+      await stopDetachedGateway(config.dataDir, url, undefined, undefined, graceful);
       await startDetached(cliPath, file, config);
       return { url, state: 'restarted' };
     },
