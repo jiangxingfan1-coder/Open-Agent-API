@@ -35,11 +35,13 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.v.outputs.version }}
+      published: ${{ steps.v.outputs.published }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - id: v
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
           INPUT_VERSION: ${{ inputs.version }}
           REF_NAME: ${{ github.ref_name }}
@@ -52,10 +54,19 @@ jobs:
           fi
           node scripts/changelog-section.mjs "$v" > /dev/null
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          # 这个版本已经正式发布过（例如把草稿点成发布时 GitHub 创建了标签，标签又触发了本工作流）：
+          # 不再重复构建，也不去碰已发布的版本。
+          if [ "$(gh release view "v$v" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]; then
+            echo "::notice::v$v 已经正式发布，跳过构建。"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
 
   build:
     name: 打包 ${{ matrix.platform }}-${{ matrix.arch }}
     needs: version
+    if: needs.version.outputs.published != 'true'
     permissions:
       contents: read
     strategy:
