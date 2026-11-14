@@ -144,6 +144,7 @@ def verify(secret: str, header: str, raw_body: bytes, tolerance: int = 300) -> b
 - **连续失败的端点**不会被自动删除或停用。端点的 `status` 会显示 `state: "failing"`、`consecutive_failures`、最近的错误与排队数。
 - 停用的端点（`enabled: false`）不再收到新事件；已排队的投递等它重新启用后再发。删除端点会一并删除它排队中的投递。
 - 每个端点保留最近 200 条已结束的投递。
+- 每个端点最多排队 10,000 条投递。超过时（端点持续失败而事件还在不断产生），正在投递的那条之后最早排队的投递会被标为 `failed`（`queue_overflow`）并丢弃，坏掉的接收端不会让数据库无限增长。
 
 ## 出站安全
 

@@ -388,6 +388,20 @@ const gatewayObject = z
       })
       .strict()
       .default({ profile: 'local' }),
+    /**
+     * Data retention (docs/stability.md). Unset: nothing is ever deleted automatically. With
+     * `runsDays`, finished runs older than that (and their events, artifacts and unreferenced
+     * uploads/workspaces) are pruned every `intervalMinutes`. `warnDatabaseMb` only makes
+     * `oaa doctor` warn when the database grows past it.
+     */
+    retention: z
+      .object({
+        runsDays: z.number().positive().max(36_500).optional(),
+        intervalMinutes: z.number().positive().max(10_080).default(60),
+        warnDatabaseMb: z.number().int().min(1).max(10_000_000).default(1024),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((gateway, context) => {

@@ -1,5 +1,6 @@
 /**
- * Dispatch for the operator commands: `approvals`, `approve`, `deny`, `status`, `verify`, `webhook`.
+ * Dispatch for the operator commands: `approvals`, `approve`, `deny`, `status`, `verify`, `webhook`,
+ * `prune`.
  * cli.ts only hands over the parsed flags; everything else lives in the modules imported here.
  */
 import { Fault } from '../core/util.js';
@@ -9,6 +10,9 @@ import { resolveConnection, type ConnectionFlags } from './connection.js';
 import { showStatus } from './status.js';
 import { runVerifyCommand, type VerifyFlags } from './verify.js';
 import { runWebhookCommand, type WebhookFlags } from './webhook-cli.js';
+import { pruneCommand } from './prune.js';
+import { loadConfig } from '../config/config.js';
+import path from 'node:path';
 
 export const OPERATOR_COMMANDS = [
   'approvals',
@@ -17,6 +21,7 @@ export const OPERATOR_COMMANDS = [
   'status',
   'verify',
   'webhook',
+  'prune',
 ] as const;
 
 export const isOperatorCommand = (command: string): command is (typeof OPERATOR_COMMANDS)[number] =>
@@ -31,6 +36,10 @@ export type OperatorFlags = ConnectionFlags &
     all?: boolean;
     yes?: boolean;
     reason?: string;
+    config?: string;
+    'older-than'?: string;
+    'dry-run'?: boolean;
+    vacuum?: boolean;
   };
 
 /** Run `fn` with an AbortSignal that fires on Ctrl+C or SIGTERM, then remove the handlers. */
@@ -96,6 +105,18 @@ export async function runOperatorCommand(
   if (command === 'status') {
     // Read-only; exits 1 when the gateway is not running so scripts can test it.
     if (!(await showStatus(flags, { json: flags.json, prefix: ctx.prefix }))) process.exitCode = 1;
+    return;
+  }
+  if (command === 'prune') {
+    const file = path.resolve(
+      flags.config ?? (flags.dir ? path.join(flags.dir, 'config.json') : '.oaa/config.json'),
+    );
+    const report = await pruneCommand(await loadConfig(file), {
+      olderThan: flags['older-than'],
+      dryRun: flags['dry-run'],
+      vacuum: flags.vacuum,
+    });
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n');
     return;
   }
   throw new Fault('unknown_command', `Unknown command: ${command}`);

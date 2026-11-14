@@ -2,7 +2,7 @@
  * 新手上手用的两个小命令：`oaa key create`（不打开控制台也能拿到调用方密钥）与 `oaa stop`
  * （停掉 `oaa serve --detach` 启动的网关）。只经网关的公开接口或本机 pid 文件工作。
  */
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import { closeSync, openSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -108,6 +108,7 @@ export async function startDetached(
 ): Promise<{ url: string; pid: number }> {
   await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
   const logFile = path.join(config.dataDir, 'server.log');
+  await rotateLog(logFile);
   const log = openSync(logFile, 'a', 0o600);
   const child = spawn(
     process.execPath,
@@ -161,5 +162,25 @@ export async function healthPid(url: string): Promise<number | undefined> {
     return r.ok ? ((await r.json()) as { pid?: number }).pid : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/** Above this size `server.log` is moved to `server.log.1` (one generation) at startup. */
+export const LOG_ROTATE_BYTES = 10 * 1024 * 1024;
+/** The detached gateway appends to server.log for its lifetime; rotate it between starts. */
+export async function rotateLog(file: string, limit = LOG_ROTATE_BYTES): Promise<boolean> {
+  const size = await stat(file).then(
+    (s) => s.size,
+    () => 0,
+  );
+  if (size <= limit) return false;
+  // Best effort: on Windows a log still held open by another process cannot be renamed (or an
+  // old server.log.1 may be locked); the gateway then keeps appending, and startup goes on.
+  try {
+    await rm(`${file}.1`, { force: true });
+    await rename(file, `${file}.1`);
+    return true;
+  } catch {
+    return false;
   }
 }

@@ -1,3 +1,4 @@
+import { registerRetention } from './retention-routes.js';
 import type { FastifyInstance } from 'fastify';
 import type { Auth } from './auth.js';
 import { isOwnerWide } from '../core/contracts.js';
@@ -16,6 +17,7 @@ export function registerOwnerRoutes(app: FastifyInstance, deps: RunDeps & KeyDep
   registerShutdownRoute(app, deps.auth);
   registerMemoryRoutes(app, deps);
   registerRunRoutes(app, deps);
+  registerRetention(app, deps);
 }
 
 const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);

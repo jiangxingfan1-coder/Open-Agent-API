@@ -111,6 +111,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       definition: { type: 'string' },
       check: { type: 'boolean' },
       test: { type: 'boolean' },
+      'older-than': { type: 'string' },
+      'dry-run': { type: 'boolean' },
+      vacuum: { type: 'boolean' },
     },
   });
   const command = positionals[0];

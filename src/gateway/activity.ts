@@ -3,6 +3,7 @@
  * per-agent counts and an aggregated time breakdown of recent finished runs. Derived only from
  * run summaries and (for the breakdown) run timelines; nothing here executes work.
  */
+import { pruneGeneration } from '../store/retention.js';
 import type { Principal, RunStatus } from '../core/contracts.js';
 import { terminal, visibleSubject } from '../core/contracts.js';
 import type { Store, SummaryRow } from '../store/store.js';
@@ -87,7 +88,7 @@ const WINDOW_ROW_LIMIT = 100_000;
 export class SummaryWindow {
   private readonly views = new Map<
     string,
-    { since: number; maxOrdinal: number; rows: Map<string, SummaryRow> }
+    { since: number; maxOrdinal: number; generation: number; rows: Map<string, SummaryRow> }
   >();
   constructor(private readonly limit = 32) {}
   rows(store: Store, principal: Principal, key: string, since: number): SummaryRow[] {
@@ -95,11 +96,13 @@ export class SummaryWindow {
     const subject = visibleSubject(principal);
     let view = this.views.get(key);
     this.views.delete(key);
-    if (!view || since < view.since) {
+    // Rebuilt after a prune, so deleted runs do not stay in the window until they age out.
+    if (!view || since < view.since || view.generation !== pruneGeneration.value) {
       const all = store.summariesSince(owner, agents, since, 0, subject);
       view = {
         since,
         maxOrdinal: all.reduce((max, row) => Math.max(max, row.ordinal), 0),
+        generation: pruneGeneration.value,
         rows: new Map(all.map((row) => [row.id, row])),
       };
     } else {

@@ -285,12 +285,18 @@ test('the original run deadline still applies while an approved run waits for re
     const binding = installTool(s, 'guarded', true, async () => ({ value: ++writes }));
     s.store.publish(
       'owner',
-      makeBundle(agent({ id: 'agent/review', tools: [binding], limits: { timeoutMs: 250 } })),
+      makeBundle(agent({ id: 'agent/review', tools: [binding], limits: { timeoutMs: 60_000 } })),
     );
     s.store.publish('owner', makeBundle(agent({ id: 'agent/quick' })));
     const review = submit(s);
     await parked(s, review.id);
-    const deadline = s.store.run(review.id).checkpoint.deadlineAt;
+    // A short deadline set only once the run is parked: a 250 ms agent limit could expire before
+    // the run even parked on a slow machine, which made this test flaky. The kernel reads the
+    // stored deadline again when the approval is resolved, so this is the deadline it must keep.
+    const parkedRun = s.store.run(review.id);
+    parkedRun.checkpoint.deadlineAt = Date.now() + 1500;
+    s.store.checkpoint(parkedRun, []);
+    const deadline = parkedRun.checkpoint.deadlineAt;
     const quick = submit(s, 'agent/quick');
     await waitFor(() => quickStarted);
     s.kernel.decide(principal, review.id, s.store.approvals(review.id)[0]!.id, 'approve');

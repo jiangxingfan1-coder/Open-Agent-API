@@ -53,6 +53,13 @@ export type Delivery = {
 /** Endpoints per owner, and finished deliveries kept per endpoint. */
 export const MAX_ENDPOINTS = 20;
 export const KEEP_DELIVERIES = 200;
+/**
+ * Queued deliveries per endpoint. An endpoint that keeps failing holds its serial queue for up to
+ * ~42 minutes per delivery while new events keep arriving, so without a cap the queue (and the
+ * database) grew without bound; above it the oldest queued deliveries after the head are marked
+ * `failed` with `queue_overflow` and then trimmed like any finished delivery.
+ */
+export const MAX_PENDING_DELIVERIES = 10_000;
 
 export function ensureWebhookTables(db: DatabaseSync): void {
   db.exec(`
@@ -230,7 +237,18 @@ export class WebhookDb {
       now,
       now,
     );
-    return Number(res.changes) > 0 ? this.delivery(deliveryId) : undefined;
+    if (Number(res.changes) === 0) return undefined;
+    const excess = this.pendingCount(input.endpointId) - MAX_PENDING_DELIVERIES;
+    if (excess > 0) {
+      this.q(
+        `UPDATE webhook_deliveries SET status='failed',last_error='queue_overflow: more than ${MAX_PENDING_DELIVERIES} deliveries were queued for this endpoint',updated_at=?
+         WHERE seq IN (SELECT seq FROM webhook_deliveries WHERE endpoint_id=? AND status='pending' ORDER BY seq LIMIT ? OFFSET 1)`,
+      ).run(now, input.endpointId, excess);
+      this.q(
+        `DELETE FROM webhook_deliveries WHERE endpoint_id=? AND status!='pending' AND seq NOT IN (SELECT seq FROM webhook_deliveries WHERE endpoint_id=? ORDER BY seq DESC LIMIT ${KEEP_DELIVERIES})`,
+      ).run(input.endpointId, input.endpointId);
+    }
+    return this.delivery(deliveryId);
   }
   delivery(deliveryId: string): Delivery | undefined {
     const row = this.q('SELECT * FROM webhook_deliveries WHERE id=?').get(deliveryId);

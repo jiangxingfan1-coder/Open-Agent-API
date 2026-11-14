@@ -181,6 +181,13 @@ CLI 调用方不用控制台也能完成同样的工作流：`oaa upload SELECTE
 
 未知的外部写入结果会阻止恢复。有权限的操作员必须先显式记录带结果的 `completed`，或 `not_executed`，然后再单独恢复内核运行。这是**操作员的断言**，在步骤历史里可见地保留，不是一次新的工具测量。对账与审批决定都与它们的审计事件一起提交，之后执行才能继续。原生的黑盒会话不会被呈现为可重放的检查点，一次失败的 HTTP 响应也不是重复外部写入的许可。
 
+<a id="data-retention-and-backups"></a>
+## 数据保留与备份
+
+除非你要求，网关不会自动删除任何数据。`oaa prune [--older-than 30d] [--dry-run] [--vacuum]` 删除早于指定时长的已结束运行，连同它们的事件、步骤、产物和事件回调的审批通告，以及不再被任何保留运行使用的上传文件（含存下的图片输入）和会话工作区。排队、执行中、等待审批和 `interrupted` 的运行一律不动；开发者平台账本里还没结算的运行也不动。账本、密钥用量总计、记忆和事件回调的投递记录属于记录，保留不删。要定期清理，在 `config.json` 里设置 `"retention": {"runsDays": 30}`；数据库超过 `retention.warnDatabaseMb`（默认 1024）时，`oaa doctor` 和 `oaa status` 会提示。
+
+迁移数据库结构之前，网关把数据库复制到 `backups/state-v<旧版本>-before-subjects-<时间>.sqlite`；同一源版本只保留最近 3 份。细节、实测的压测结果和崩溃恢复语义见 [stability.md](stability.md)。
+
 <a id="import-selected-mcp-tools"></a>
 ## 导入选定的 MCP 工具
 

@@ -59,6 +59,8 @@ export type StatusReport = {
   uptime_seconds?: number;
   data_dir?: string;
   database_bytes?: number;
+  /** Set when the database is larger than `retention.warnDatabaseMb` (default 1024). */
+  database_warn_mb?: number;
   keys?: number;
   /** From the local configuration: the security profile and, when it looks exposed while `local`, why. */
   security?: { profile: string; exposure_reasons?: string[] };
@@ -153,6 +155,8 @@ export async function gatherStatus(endpoint: Endpoint, now = Date.now()): Promis
   if (dataDir) {
     report.data_dir = dataDir;
     report.database_bytes = await databaseBytes(dataDir);
+    const warnMb = endpoint.config?.retention?.warnDatabaseMb ?? 1024;
+    if ((report.database_bytes ?? 0) > warnMb * 1024 * 1024) report.database_warn_mb = warnMb;
   }
   if (endpoint.config) {
     const exposure = exposureHint(endpoint.config);
@@ -280,8 +284,16 @@ export function renderStatus(
   const t = (zh: string, en: string) => pick(bi(zh, en), locale);
   const lines: string[] = [];
   const kv = (rows: [string, string][]) => table(rows.map(([k, v]) => [`  ${k}`, v]));
-  const securityLines = (): string[] =>
-    r.security
+  const securityLines = (): string[] => [
+    ...(r.database_warn_mb !== undefined
+      ? [
+          t(
+            `  提示：数据库已超过 ${r.database_warn_mb} MB；运行 ${prefix} prune --older-than 30d --dry-run 查看能清理多少，或设置 retention.runsDays（docs/stability.md）`,
+            `  Note: the database is larger than ${r.database_warn_mb} MB; run ${prefix} prune --older-than 30d --dry-run to see what can be removed, or set retention.runsDays (docs/stability.md)`,
+          ),
+        ]
+      : []),
+    ...(r.security
       ? [
           t(`安全档位：${r.security.profile}`, `Security profile: ${r.security.profile}`),
           ...(r.security.exposure_reasons
@@ -293,7 +305,8 @@ export function renderStatus(
               ]
             : []),
         ]
-      : [];
+      : []),
+  ];
   if (!r.running) {
     lines.push(
       t(`网关：没有在运行（${r.url}）`, `Gateway: not running (${r.url})`),

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { mkdir, readdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { JsonSchemas } from '../core/schemas.js';
 import { McpConnections, mcpConfigured, descriptorDigest, findMcpTool } from './mcp-connections.js';
 import type { WorkerConfig } from '../config/config.js';
@@ -315,9 +316,8 @@ export class WorkerRuntime implements Executor {
         .join(';'),
     );
     const cached = this.workspaces.get(sessionKey);
-    if (cached && cached.fingerprint === fingerprint) {
-      return cached.root;
-    }
+    // A pruned workspace (oaa prune) is rebuilt instead of reused from the cache.
+    if (cached && cached.fingerprint === fingerprint && existsSync(cached.root)) return cached.root;
     const inFlight = this.workspaceInFlight.get(sessionKey);
     if (inFlight) return inFlight;
 

@@ -34,7 +34,8 @@
 | `oaa serve [--config .oaa/config.json] [--dir DIR] [--detach] [--tool-config FILE]...` | 运行网关（加 `--detach` 在后台运行，并写下 `server.pid`）；`--tool-config` 把准备好的 MCP 工具绑定加到本机 worker。 | `oaa serve --detach` |
 | `oaa stop [--config .oaa/config.json]` | 停止由 `oaa serve --detach` 启动的网关，停之前先确认 `/health` 报告的就是那个进程。 | `oaa stop` |
 | `oaa status [--dir .oaa] [--url URL] [--token-file FILE] [--json]` | 对「我的网关怎么样了」给出一份只读的回答：地址、版本、进程 ID、运行时长、数据目录与数据库大小、已发布的智能体以及各自现在能不能运行（不能时给原因）、本机找到但还没接上的智能体、运行中、排队中与等待审批的任务、最近失败的任务及其错误码、密钥数量，以及本地配置里的安全档位（当网关看起来能被外部访问、档位却还是 `local` 时多一行警告，与 `oaa doctor` 的 `security_exposure` 字段是同一个检查）。网关没在运行时退出码为 1。 | `oaa status` |
-| `oaa doctor [--config .oaa/config.json] [--write]` | 报告哪些智能体命令行与 ACP 智能体已安装、配置里有什么；什么都不执行。`--write` 把新发现的 ACP 智能体记为停用的适配器。 | `oaa doctor --write` |
+| `oaa doctor [--config .oaa/config.json] [--write]` | 报告哪些智能体命令行与 ACP 智能体已安装、配置里有什么，以及数据库大小（超过 `retention.warnDatabaseMb`，默认 1024 MB 时给出提示）；什么都不执行。`--write` 把新发现的 ACP 智能体记为停用的适配器。 | `oaa doctor --write` |
+| `oaa prune [--older-than 30d] [--dry-run] [--vacuum] [--config .oaa/config.json]` | 删除早于指定时长（`30d`、`12h`、`45m`、`90s`；默认 `30d`）的已结束运行，连同它们的事件、产物和没人再引用的上传文件；网关停止时还会清扫旧的会话工作区。`--dry-run` 只统计不删除。网关在运行时经 `POST /v1/maintenance/prune`（管理员密钥）执行；`--vacuum` 需要先停止网关。排队、执行中、等待审批和 interrupted 的运行一律不动。见 [stability.md](stability.md#4-数据保留与-oaa-prune)。 | `oaa prune --older-than 30d --dry-run` |
 
 `status` 只读。某个密钥读不了某一部分时（例如密钥列表需要管理员密钥），其余部分照常给出，并注明缺了哪一部分。`--json` 以 JSON 输出同样的事实。
 

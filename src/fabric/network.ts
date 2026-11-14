@@ -40,6 +40,8 @@ import {
   secret,
   sha,
   sleep,
+  deadlineTimer,
+  coarseDelay,
 } from '../core/util.js';
 import { LIMITS } from '../core/limits.js';
 import { isUncertainWhenStarted } from '../core/errors.js';
@@ -887,7 +889,8 @@ export class NodeHub {
       });
     }
     if (this.queue.length && Number.isFinite(this.wakeAt)) {
-      this.wakeTimer = setTimeout(() => this.pump(), Math.max(1, this.wakeAt - Date.now() + 1));
+      // coarseDelay: see util.ts (an unref'd timer re-armed with exact durations leaks).
+      this.wakeTimer = setTimeout(() => this.pump(), coarseDelay(this.wakeAt - Date.now() + 1));
       this.wakeTimer.unref();
     }
   }
@@ -961,16 +964,17 @@ export class NodeHub {
       job.onStart?.(node.credential.nodeId);
       started = true;
       executionStart = Date.now();
-      const deadline =
+      // A clearable timer: AbortSignal.timeout would keep every finished job alive until its
+      // (default 30-minute) deadline fired.
+      const timer = deadlineTimer(
         job.work.kind === 'tool'
           ? job.work.binding.capability.timeoutMs
-          : job.work.agent.limits.timeoutMs;
-      executionDeadline = AbortSignal.timeout(deadline);
-      const result = await node.executor.execute(
-        job.work,
-        AbortSignal.any([job.signal, executionDeadline]),
-        job.emit,
+          : job.work.agent.limits.timeoutMs,
       );
+      executionDeadline = timer.signal;
+      const result = await node.executor
+        .execute(job.work, AbortSignal.any([job.signal, executionDeadline]), job.emit)
+        .finally(timer.clear);
       node.successes++;
       const executionMs = Date.now() - executionStart;
       health.successes++;

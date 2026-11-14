@@ -3,6 +3,7 @@
  * configuration contains). `--write` additionally records newly found ACP agents as disabled adapters.
  * Nothing is executed and no model is called.
  */
+import { databaseHealth } from './prune.js';
 import { access, readFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
@@ -106,6 +107,7 @@ export async function doctorReport(file: string, write: boolean): Promise<Record
     })),
     config,
     security_exposure: loaded ? exposureHint(loaded) : undefined,
+    ...(loaded ? { database: await databaseHealth(loaded) } : {}),
     ...(written
       ? {
           written_disabled_adapters: written,

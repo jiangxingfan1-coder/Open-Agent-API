@@ -179,6 +179,7 @@ def verify(secret: str, header: str, raw_body: bytes, tolerance: int = 300) -> b
 - A disabled endpoint (`enabled: false`) gets no new events; deliveries already queued for it wait until
   it is enabled again. Deleting an endpoint deletes its queued deliveries.
 - The last 200 finished deliveries per endpoint are kept.
+- At most 10,000 deliveries wait per endpoint. Above that (an endpoint that keeps failing while events keep coming) the oldest waiting deliveries after the one in progress are marked `failed` with `queue_overflow` and dropped, so a broken receiver cannot grow the database without bound.
 
 ## Outbound safety
 

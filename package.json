@@ -55,6 +55,8 @@
     "bench:protocol": "npm run build && node dist/bench/protocol-speed.js",
     "bench:queue": "npm run build && node dist/bench/queue-estimate.js",
     "bench:paired": "npm run build && node dist/bench/paired/run.js",
+    "soak": "npm run build && node dist/bench/soak.js",
+    "upgrade-check": "npm run build && node dist/bench/upgrade-check.js",
     "package:mac": "node scripts/package-all.mjs mac",
     "package:win": "node scripts/package-all.mjs win",
     "package:all": "node scripts/package-all.mjs all",

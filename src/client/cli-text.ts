@@ -23,6 +23,7 @@ const GROUPS: Group[] = [
       'oaa stop [--config .oaa/config.json]',
       'oaa doctor [--config .oaa/config.json] [--write]',
       'oaa status [--dir .oaa] [--json]',
+      'oaa prune [--older-than 30d] [--dry-run] [--vacuum] [--config .oaa/config.json]',
     ],
   },
   {

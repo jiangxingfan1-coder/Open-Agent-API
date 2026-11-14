@@ -272,3 +272,29 @@ export function faultOf(error: unknown): Fault {
     500,
   );
 }
+/**
+ * Like `AbortSignal.timeout(ms)`, but `clear()` cancels the timer. A pending `AbortSignal.timeout`
+ * stays referenced (with every `AbortSignal.any` built on it) until it fires, so a long deadline
+ * on short work would otherwise hold memory for the whole deadline.
+ */
+export function deadlineTimer(ms: number): { signal: AbortSignal; clear: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('The operation timed out.', 'TimeoutError')),
+    ms,
+  );
+  timer.unref();
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
+/**
+ * Delay for an unref'd timer that is often cleared and re-armed, rounded up to two significant
+ * digits (at most about 10% late). Node keeps one internal timer list per distinct duration, and
+ * clearing an unref'd timer leaves its emptied list behind until that duration has elapsed, so
+ * arbitrary long durations (`deadline - Date.now()`) piled up one list per re-arm under load;
+ * rounded durations reuse a small set of lists.
+ */
+export function coarseDelay(ms: number): number {
+  if (!(ms > 1)) return 1;
+  const step = 10 ** Math.max(0, Math.floor(Math.log10(ms)) - 1);
+  return Math.ceil(ms / step) * step;
+}

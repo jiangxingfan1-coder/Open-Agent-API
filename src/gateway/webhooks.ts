@@ -12,7 +12,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { checkedLookup } from './checked-lookup.js';
 import type { Store } from '../store/store.js';
-import { faultOf, id } from '../core/util.js';
+import { coarseDelay, faultOf, id } from '../core/util.js';
 import { GATEWAY_VERSION } from './endpoints.js';
 import {
   STATUS_EVENTS,
@@ -184,7 +184,8 @@ export class WebhookDispatcher {
         this.timerAt = Infinity;
         this.pump();
       },
-      Math.max(0, at - Date.now()),
+      // Rounded: an unref'd timer re-armed with exact durations leaks a Node timer list each time.
+      coarseDelay(at - Date.now()),
     );
     this.timer.unref();
   }
