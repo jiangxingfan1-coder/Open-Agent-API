@@ -114,7 +114,7 @@ test('quickstart: next steps name installed agents, otherwise built-in agent wit
     p,
   ).join('\n');
   assert.match(none, /OPENAI_API_KEY/);
-  assert.match(none, /examples\/research\.oaa/);
+  assert.match(none, /examples[\\/]research\.oaa/);
 });
 
 test('sample agent: offline ACP process does steps, a tool call and an approved write', async (t) => {
@@ -280,7 +280,7 @@ test('gateway: 401 says where keys come from; a restricted key gets the GET /v1/
 
 test('init summary and Claude SDK hint are actionable for installer users', () => {
   const s = initSummary('/d/.oaa/config.json', '.oaa', 'en');
-  assert.equal(s.admin_token_file, '/d/.oaa/admin.token');
+  assert.equal(s.admin_token_file, path.join('/d/.oaa', 'admin.token'));
   assert.match(s.next, /oaa quickstart/);
   const status = claudeSdkStatus({
     specifier: '@oaa-test/missing-sdk',

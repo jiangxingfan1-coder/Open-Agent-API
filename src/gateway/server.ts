@@ -56,11 +56,8 @@ import {
 } from '../fabric/local-backends.js';
 import { registerLocalBackendRoutes } from './local-backend-routes.js';
 import { publishWarning, publishedNative } from '../fabric/runnability.js';
-import { registerMemoryRoutes } from './memory-routes.js';
-import { registerKeyRoutes } from './key-routes.js';
-import { registerShutdownRoute } from './shutdown-route.js';
+import { registerOwnerRoutes } from './shutdown-route.js';
 import { ERROR_CATALOG, ERROR_CATALOG_REVISION, ERROR_CATEGORIES } from '../core/errors.js';
-import { registerRunRoutes } from './run-routes.js';
 import { registerConsoleAssets } from './console-assets.js';
 import { streamEvents, type StreamMode } from './compat-stream.js';
 import { streamSlots } from './stream-slots.js';
@@ -961,8 +958,7 @@ export async function createGateway(
       hub.credentials.push(result.credential);
       return { node_id: body.node_id, token: result.token };
     });
-    registerKeyRoutes(app, { auth, audit, config });
-    registerShutdownRoute(app, auth);
+    registerOwnerRoutes(app, { auth, audit, config, store, kernel, providerKeyOf });
     app.get('/v1/me', async (req) => {
       const usage = req.principal.keyId
         ? auth.keyUsage(req.principal.keyId)
@@ -1012,7 +1008,6 @@ export async function createGateway(
         endpoints: buildEndpointDirectory(baseUrl),
       };
     });
-    registerMemoryRoutes(app, { auth, store });
     app.get('/v1/catalog/changes', async (req, reply) => {
       auth.require(req.principal, 'read');
       const q = z
@@ -1184,7 +1179,6 @@ export async function createGateway(
       );
       return reply.type('application/octet-stream').send(Buffer.from(payload.content, 'base64'));
     });
-    registerRunRoutes(app, { auth, store, kernel, providerKeyOf });
     const executeProtocolInvocation = async (
       req: FastifyRequest,
       reply: FastifyReply,

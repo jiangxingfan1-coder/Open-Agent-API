@@ -101,7 +101,8 @@ test('a real stdio adapter process receives the configured environment', async (
       { runId: 'resp_env', sessionId: 'session_env', owner: 'owner', digest: 'd', files: [] },
       new AbortController().signal,
     );
-    return new Set(JSON.parse(result.text) as string[]);
+    // Windows environment names are case-insensitive (`Path`); compare upper-cased.
+    return new Set((JSON.parse(result.text) as string[]).map((k) => k.toUpperCase()));
   };
   try {
     const inherited = await run({});

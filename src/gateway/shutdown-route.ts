@@ -3,6 +3,20 @@ import type { Auth } from './auth.js';
 import { isOwnerWide } from '../core/contracts.js';
 import { Fault } from '../core/util.js';
 import { bi } from '../core/locale.js';
+import { registerKeyRoutes } from './key-routes.js';
+import { registerMemoryRoutes } from './memory-routes.js';
+import { registerRunRoutes } from './run-routes.js';
+
+type RunDeps = Parameters<typeof registerRunRoutes>[1];
+type KeyDeps = Parameters<typeof registerKeyRoutes>[1];
+
+/** Owner-facing routes registered as one group (keeps gateway/server.ts within its line budget). */
+export function registerOwnerRoutes(app: FastifyInstance, deps: RunDeps & KeyDeps): void {
+  registerKeyRoutes(app, deps);
+  registerShutdownRoute(app, deps.auth);
+  registerMemoryRoutes(app, deps);
+  registerRunRoutes(app, deps);
+}
 
 const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 

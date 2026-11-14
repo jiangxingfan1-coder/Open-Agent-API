@@ -25,4 +25,7 @@ jobs:
           node-version: '24'
       - run: npm ci --omit=optional --ignore-scripts
       - run: npm run build
+      # TAP prints each failure's details inline, so a later hang cannot hide them.
       - run: node scripts/test-offline.mjs --all
+        env:
+          NODE_OPTIONS: --test-reporter=tap
