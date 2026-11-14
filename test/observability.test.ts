@@ -103,8 +103,12 @@ test('run timeline: queue, model turns, parallel tools, graph, critical path and
     const turn2 = models[1]!;
     assert.ok(graph.every((t) => t.depends_on.includes(turn2.id)));
     const turn3 = models[2]!;
+    // A slow dispatch (>= 10 ms) inserts a node-wait span between the batch and the next turn;
+    // the batch then precedes that wait, which turn 3 depends on (test/timeline-deps.test.ts).
+    const nodeWait = tl.spans.find((s) => s.kind === 'queue' && s.ref.turn === 3);
+    const successor = nodeWait && turn3.depends_on.includes(nodeWait.id) ? nodeWait : turn3;
     for (const t of graph)
-      assert.ok(turn3.depends_on.includes(t.id), 'next turn waits for the batch');
+      assert.ok(successor.depends_on.includes(t.id), 'next turn waits for the batch');
     assert.equal(tools.filter((t) => t.critical).length, 3, 'one tool per batch is critical');
     assert.ok(tl.breakdown_ms.tools > 0 && tl.breakdown_ms.model > 0);
     const etag = String(res.headers.etag);
