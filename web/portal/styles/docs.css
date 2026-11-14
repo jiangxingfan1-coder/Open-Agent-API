@@ -1,0 +1,92 @@
+/* Docs steps and sign-in pages. */
+/* Docs */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+}
+.steps > li {
+  list-style: none;
+}
+.steps > li + li {
+  border-left: 1px solid var(--border);
+}
+.step-link {
+  display: block;
+  height: 100%;
+  padding: var(--s-5) var(--s-6) var(--s-2) 0;
+}
+.steps > li + li .step-link {
+  padding-left: var(--s-5);
+}
+.step-link:hover h3 {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+.steps .num {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.steps h3 {
+  margin: var(--s-3) 0 var(--s-2);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.steps p {
+  font-size: var(--fs-md);
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+.doc-section {
+  display: grid;
+  gap: var(--s-4);
+  scroll-margin-top: 96px;
+}
+.doc-section h2:focus {
+  outline: none;
+}
+.doc-section p {
+  max-width: 68ch;
+  line-height: 1.75;
+  color: var(--text-muted);
+}
+ul.plain {
+  margin: 0;
+  padding-left: var(--s-5);
+  display: grid;
+  gap: var(--s-2);
+  max-width: 68ch;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+/* Auth: sign in, sign up, reset. One column, the same top edge on every page. */
+.auth {
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  display: grid;
+  gap: var(--s-6);
+}
+.auth-head .sub {
+  margin-top: var(--s-2);
+  min-height: calc(1.5em * 2);
+  color: var(--text-muted);
+}
+.auth button.primary,
+.auth .link-button.primary {
+  width: 100%;
+  height: 40px;
+}
+.auth-alt {
+  display: grid;
+  gap: var(--s-2);
+  font-size: var(--fs-md);
+  color: var(--text-soft);
+}
+.auth-wrap {
+  padding-block: var(--s-7) calc(var(--s-7) * 2);
+}

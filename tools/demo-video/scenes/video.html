@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="{{LANG}}">
+  <head>
+    <meta charset="utf-8" />
+    <title>Open Agent API 演示视频（逐帧渲染页）</title>
+    <!-- 色板、字号、圆角、字体全部来自产品的 web/shared/；{{WEB}} 由 render.mjs 换成 web/ 的 file URL。 -->
+    <link rel="stylesheet" href="{{WEB}}/shared/tokens.css" />
+    <link rel="stylesheet" href="{{WEB}}/shared/fonts.css" />
+    <link rel="stylesheet" href="{{HERE}}/scenes/video.css" />
+    <script src="data.js"></script>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <script src="{{HERE}}/scenes/common.js"></script>
+    <script src="{{HERE}}/scenes/s1-open.js"></script>
+    <script src="{{HERE}}/scenes/s2-edit.js"></script>
+    <script src="{{HERE}}/scenes/s3-run.js"></script>
+    <script src="{{HERE}}/scenes/s4-tasks.js"></script>
+    <script src="{{HERE}}/scenes/s5-approval.js"></script>
+    <script src="{{HERE}}/scenes/s6-protocols.js"></script>
+    <script src="{{HERE}}/scenes/s7-close.js"></script>
+    <script src="{{HERE}}/scenes/boot.js"></script>
+  </body>
+</html>

@@ -1,0 +1,546 @@
+/*
+ * 演示视频的画面样式。画布 1920×1080，纸色底；颜色、字体、圆角、细线一律取自产品的 web/shared/tokens.css
+ * （墨 / 纸 / 潮 Tide；朱砂只留给「需要人处理」的状态）。动画不用 CSS transition 或 animation：
+ * 每一帧由 scenes/*.js 里「时间 → DOM 状态」的纯函数决定，这里只有静态样式。
+ */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: var(--paper);
+}
+body {
+  font-family: var(--sans);
+  color: var(--text);
+}
+#stage {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: var(--paper);
+}
+.scene {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+}
+.scene[data-active] {
+  visibility: visible;
+}
+
+/* ── 字幕：中文一行（衬线），英文一行（小号） ───────────────── */
+.caption {
+  position: absolute;
+  left: 120px;
+  bottom: 74px;
+  width: 1080px;
+  height: 112px;
+}
+.caption .zh {
+  position: relative;
+  font-family: var(--display-zh);
+  font-weight: 600;
+  font-size: 46px;
+  line-height: 1.3;
+  color: var(--text-strong);
+  letter-spacing: 0;
+}
+.caption .en {
+  margin-top: 8px;
+  font-family: var(--sans);
+  font-size: 24px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  letter-spacing: 0.005em;
+}
+.caption .line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* ── 右下角：诚实标注与真实耗时 ─────────────────────────────── */
+.corner {
+  position: absolute;
+  right: 120px;
+  bottom: 74px;
+  width: 560px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  text-align: right;
+}
+.badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 560px;
+  padding: 12px 18px 13px;
+  border: 1px solid var(--note-border);
+  border-radius: var(--r-md);
+  background: var(--note-bg);
+  text-align: left;
+}
+.badge .zh {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 21px;
+  line-height: 1.4;
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.badge .dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--tide-deep);
+  transform: translateY(-1px);
+}
+.badge.stand-in .dot {
+  background: var(--chart-muted);
+}
+.badge .en {
+  padding-left: 19px;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text-soft);
+}
+.note {
+  font-family: var(--mono);
+  font-size: 19px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ── 场景一：开场 ─────────────────────────────────────────── */
+.open-stack {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.open-mark {
+  width: 230px;
+  height: 222px;
+  overflow: visible;
+}
+.open-mark path,
+.close-mark path {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.open-word,
+.close-word {
+  margin-top: 40px;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 92px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+.open-tag {
+  margin-top: 44px;
+  text-align: center;
+}
+.open-tag .zh {
+  font-family: var(--display-zh);
+  font-weight: 600;
+  font-size: 54px;
+  line-height: 1.3;
+  color: var(--text-strong);
+}
+.open-tag .en {
+  margin-top: 10px;
+  font-size: 26px;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+
+/* ── 场景二：编辑器 ───────────────────────────────────────── */
+.window {
+  position: absolute;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  overflow: hidden;
+  box-shadow: var(--shadow-float);
+}
+.window-bar {
+  position: relative;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-family: var(--mono);
+  font-size: 18px;
+  color: var(--text-soft);
+}
+.window-bar .dots {
+  position: absolute;
+  left: 22px;
+  display: flex;
+  gap: 9px;
+}
+.window-bar .dots i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+}
+.code {
+  position: relative;
+  padding: 26px 0 26px;
+  font-family: var(--mono);
+  font-size: 26px;
+  line-height: 44px;
+  color: var(--text-strong);
+}
+.code .ln {
+  position: relative;
+  height: 44px;
+  padding-left: 96px;
+  padding-right: 40px;
+  white-space: pre;
+}
+.code .ln .num {
+  position: absolute;
+  left: 0;
+  width: 62px;
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 20px;
+}
+.code .ln .wash {
+  position: absolute;
+  inset: 0;
+  background: var(--tide-wash);
+  border-left: 4px solid var(--tide-deep);
+  opacity: 0;
+}
+.code .ln .txt {
+  position: relative;
+}
+.code .ln .tag {
+  position: absolute;
+  right: 40px;
+  top: 0;
+  font-family: var(--sans);
+  font-size: 20px;
+  color: var(--tide-deep);
+  opacity: 0;
+}
+.tok-str {
+  color: var(--tide-deep);
+}
+.tok-kw {
+  color: var(--dusk);
+}
+.sel {
+  background: var(--selected-soft);
+  border-radius: 3px;
+}
+.caret {
+  display: inline-block;
+  width: 3px;
+  height: 34px;
+  margin: 0 -1px;
+  vertical-align: -7px;
+  background: var(--tide-deep);
+}
+
+/* ── 场景三：终端 ─────────────────────────────────────────── */
+.term-body {
+  padding: 30px 36px 0;
+  height: 380px;
+  font-family: var(--mono);
+  font-size: 28px;
+  line-height: 46px;
+  color: var(--text-strong);
+}
+.term-body .prompt {
+  color: var(--tide-deep);
+}
+.term-out {
+  margin-top: 14px;
+  white-space: pre-wrap;
+}
+.term-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 36px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 20px;
+  color: var(--text-muted);
+}
+.term-foot .state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.term-foot .pulse {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--tide-deep);
+}
+.term-foot .clock {
+  font-family: var(--mono);
+  font-size: 22px;
+  color: var(--text-strong);
+}
+.chips {
+  position: absolute;
+  display: flex;
+  gap: 14px;
+}
+.chip {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  font-size: 19px;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+.chip b {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 20px;
+  color: var(--text-strong);
+}
+
+/* ── 场景四、五：控制台截图 ──────────────────────────────────── */
+.shot-frame {
+  position: absolute;
+  left: 256px;
+  top: 48px;
+  width: 1408px;
+  height: 792px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  background: var(--paper);
+  box-shadow: var(--shadow-float);
+}
+.shot-zoom {
+  position: absolute;
+  inset: 0;
+}
+.shot-zoom img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1408px;
+  height: 792px;
+}
+.ring {
+  position: absolute;
+  border: 2px solid var(--tide-deep);
+  border-radius: 12px;
+  box-shadow: 0 0 0 5px var(--selected-soft);
+  opacity: 0;
+}
+.cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 30px;
+  height: 36px;
+  opacity: 0;
+  filter: drop-shadow(0 2px 3px #13222033);
+}
+.ripple {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border: 2px solid var(--tide-deep);
+  border-radius: 50%;
+  opacity: 0;
+}
+
+/* ── 场景六：三家协议 ─────────────────────────────────────── */
+.proto {
+  position: absolute;
+  left: 120px;
+  right: 120px;
+  top: 138px;
+}
+.proto-row {
+  position: relative;
+  height: 190px;
+  padding: 34px 0 0 270px;
+  border-top: 1px solid var(--border);
+}
+.proto-row:last-child {
+  border-bottom: 1px solid var(--border);
+}
+.proto-row .bar {
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: 4px;
+  height: 192px;
+  background: var(--tide-deep);
+  opacity: 0;
+}
+.proto-row .label {
+  position: absolute;
+  left: 34px;
+  top: 30px;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 54px;
+  line-height: 1.2;
+  color: var(--text-strong);
+}
+.proto-row .code {
+  padding: 0;
+  font-size: 29px;
+  line-height: 48px;
+  white-space: pre;
+}
+.proto-row .stats {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 18px;
+  font-family: var(--mono);
+  font-size: 22px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.proto-row .stats span:first-child {
+  font-family: var(--sans);
+  color: var(--text-soft);
+}
+.proto-row .stats i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+/* ── 场景七：收尾 ─────────────────────────────────────────── */
+.close-stack {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.close-mark {
+  width: 150px;
+  height: 145px;
+  overflow: visible;
+}
+.close-word {
+  margin-top: 30px;
+  font-size: 76px;
+}
+.close-url {
+  margin-top: 52px;
+  font-family: var(--mono);
+  font-size: 38px;
+  line-height: 1.3;
+  color: var(--text-strong);
+  letter-spacing: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.close-license {
+  margin-top: 36px;
+  text-align: center;
+}
+.close-license .zh {
+  font-family: var(--display-zh);
+  font-weight: 600;
+  font-size: 40px;
+  color: var(--text-strong);
+}
+.close-license .en {
+  margin-top: 8px;
+  font-size: 24px;
+  color: var(--text-muted);
+}
+
+/* ── 英文版：一行主文案（衬线 Instrument Serif，与产品英文界面的标题字体一致）加可选的小号副文案 ── */
+.caption .main {
+  position: relative;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 64px;
+  line-height: 1.12;
+  color: var(--text-strong);
+  letter-spacing: -0.01em;
+}
+.caption .sub {
+  margin-top: 10px;
+  font-family: var(--sans);
+  font-size: 24px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  letter-spacing: 0.005em;
+}
+.badge .main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 21px;
+  line-height: 1.4;
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.open-tag .main {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 72px;
+  line-height: 1.15;
+  color: var(--text-strong);
+  letter-spacing: -0.01em;
+}
+.open-tag .sub {
+  margin-top: 14px;
+  font-size: 28px;
+  color: var(--text-muted);
+  letter-spacing: 0.005em;
+}
+.close-license .main {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 52px;
+  line-height: 1.2;
+  color: var(--text-strong);
+}

@@ -1,0 +1,13 @@
+dist/
+node_modules
+release/
+output/
+coverage/
+.oaa*/
+package-lock.json
+web/index.html
+web/agents/
+*.md
+licenses/
+.claude/
+docs/

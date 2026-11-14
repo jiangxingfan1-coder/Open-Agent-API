@@ -1,0 +1,165 @@
+/* Nodes view: the machine table, then two grids of external agents that share one column rhythm
+   and one cell shape (.ext-grid / .ext-item): enabled adapters on this computer, and the presets
+   that can be switched on. */
+.nodes .section-title {
+  display: block;
+}
+.nodes .section-title p {
+  max-width: 72ch;
+  margin-top: var(--s-1);
+  line-height: 1.6;
+}
+.node-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-caps {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.node-actions {
+  align-items: center;
+}
+/* Stopping a machine for good is not undoable, so it is quiet until it is the thing being pointed at. */
+.row-action button.node-revoke {
+  height: 30px;
+  padding: 0 var(--s-2);
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+  font-weight: 450;
+}
+.row-action button.node-revoke:hover:not(:disabled) {
+  background: var(--garnet-wash);
+  color: var(--garnet);
+}
+.ext-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--s-3);
+}
+.ext-item {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: var(--s-3);
+  row-gap: 2px;
+  min-height: 72px;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+.ext-item > .agent-glyph {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+.ext-name {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.ext-sub {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  min-height: 24px;
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.ext-sub code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.ext-sub .ext-facts {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ext-item > .switch {
+  grid-column: 3;
+  grid-row: 1;
+}
+button.adapter-check {
+  flex: none;
+  height: 24px;
+  padding: 0 var(--s-2);
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 450;
+}
+button.adapter-check:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  color: var(--text-strong);
+}
+/* Presets: the control sits to the right and spans both lines. */
+.preset .ext-sub {
+  grid-column: 2;
+}
+.preset > .status,
+.preset > button {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  justify-self: end;
+}
+.preset > .status {
+  font-size: var(--fs-xs);
+}
+.preset > button.small-btn {
+  height: 28px;
+}
+.preset.is-missing .ext-name {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.preset.is-missing > .status {
+  color: var(--text-faint);
+}
+.ext-doc {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-xs);
+  color: var(--text-faint);
+}
+.ext-doc:hover {
+  background: var(--bg-subtle);
+  color: var(--text-strong);
+}
+.ext-doc svg {
+  width: 13px;
+  height: 13px;
+}
+/* Responsive */
+@media (max-width: 640px) {
+  .ext-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "agent/sample",
+  "description": "Offline sample agent: calls no model, uses no network; answers by fixed rules. 离线示例智能体：不调用任何模型。",
+  "engine": "adapter/oaa-sample",
+  "provider": "native",
+  "model": "default",
+  "instructions": "",
+  "tools": [],
+  "allowGraph": false,
+  "routes": [{ "id": "default", "provider": "native", "model": "default", "priority": 0 }]
+}

@@ -1,0 +1,229 @@
+/* Site frame: header, navigation, account menu, footer. */
+.wrap {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-inline: var(--s-5);
+}
+.site-head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--border);
+  background: var(--paper);
+}
+.head-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  min-height: 64px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 36px;
+  color: var(--text-strong);
+  flex: none;
+}
+.mark {
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+.mark g {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 12;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.brand .mark {
+  width: 28px;
+  height: 27px;
+}
+.brand-word {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 21px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex: 1;
+  min-width: 0;
+}
+.site-nav a,
+.head-tools a.plain {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 64px;
+  padding: 0 var(--s-3);
+  font-size: var(--fs-md);
+  color: var(--text-muted);
+  white-space: nowrap;
+  transition: color var(--dur-quick) var(--ease);
+}
+.site-nav a:hover,
+.head-tools a.plain:hover {
+  color: var(--text-strong);
+}
+.site-nav a[aria-current='page'] {
+  color: var(--text-strong);
+  font-weight: 550;
+}
+.site-nav a[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--tide);
+}
+.head-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex: none;
+}
+/* Account menu: one button in the header, everything about "my account" behind it. */
+.account-menu {
+  position: relative;
+}
+.account-trigger {
+  height: 32px;
+  padding: 0 var(--s-2) 0 var(--s-3);
+  border-color: transparent;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.account-trigger[data-current='true'],
+.account-trigger[aria-expanded='true'] {
+  border-color: var(--border-strong);
+  background: var(--bg);
+  color: var(--text-strong);
+}
+.account-trigger .acct-email {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-trigger .acct-name {
+  display: none;
+}
+.menu {
+  position: absolute;
+  top: calc(100% + var(--s-2));
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 2px;
+  min-width: 224px;
+  max-width: calc(100vw - 32px);
+  padding: var(--s-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-float);
+}
+.menu-head {
+  padding: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-1);
+  border-bottom: 1px solid var(--border-soft);
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--s-3);
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--s-3);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 450;
+  text-align: left;
+}
+.menu-item:hover:not(:disabled) {
+  border: 0;
+  background: var(--bg-subtle);
+  color: var(--text-strong);
+}
+.menu-item[aria-current='page'] {
+  background: var(--tide-wash);
+  color: var(--tide-deep);
+  font-weight: 600;
+}
+.menu-item svg.lucide {
+  color: var(--text-soft);
+}
+.menu-item[aria-current='page'] svg.lucide {
+  color: inherit;
+}
+.menu-out {
+  margin-top: var(--s-1);
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  height: 40px;
+}
+.menu-out:hover:not(:disabled) {
+  border-top: 1px solid var(--border-soft);
+}
+/* Footer: who this is, where to go next, the language, who runs it. */
+.site-foot {
+  border-top: 1px solid var(--border);
+  padding-block: var(--s-5);
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.foot-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2) var(--s-5);
+  flex-wrap: wrap;
+}
+.foot-links {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+.foot-links a,
+.foot-lang {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: inherit;
+  font-weight: 400;
+}
+.foot-links a:hover,
+.foot-lang:hover:not(:disabled) {
+  border: 0;
+  color: var(--text-strong);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.foot-note {
+  margin-inline-start: auto;
+}
+/* Keyboard focus on a header link: a rounded ring inside the link, not a box the height of the bar. */
+.site-nav a:focus-visible,
+.head-tools a:focus-visible {
+  border-radius: var(--r-md);
+  outline-offset: -10px;
+}

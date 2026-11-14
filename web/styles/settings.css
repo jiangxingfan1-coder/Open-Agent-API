@@ -1,0 +1,314 @@
+/* Settings view. */
+.settings {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: var(--s-6);
+  align-items: start;
+}
+.settings-nav {
+  position: sticky;
+  top: 70px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-nav a {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 var(--s-3);
+  border-radius: var(--r-md);
+  color: var(--text-muted);
+  font-size: var(--fs-md);
+}
+.settings-nav a:hover {
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  color: var(--text-strong);
+}
+.settings-nav a.active {
+  background: var(--bg);
+  color: var(--text-strong);
+  font-weight: 550;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.settings-section {
+  margin-bottom: var(--s-6);
+  scroll-margin-top: 70px;
+}
+.settings-section > p {
+  margin-top: var(--s-1);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.setting-card {
+  margin-top: var(--s-3);
+  overflow: hidden;
+}
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-3) var(--s-5);
+  padding: var(--s-4) var(--s-4);
+}
+.setting-row + .setting-row,
+.info-list + .setting-actions,
+.about + .setting-row {
+  border-top: 1px solid var(--border-soft);
+}
+.setting-row.stack {
+  grid-template-columns: minmax(0, 1fr);
+}
+.setting-label strong {
+  display: block;
+  font-size: var(--fs-md);
+  font-weight: 550;
+  color: var(--text-strong);
+}
+.setting-label p {
+  margin-top: 3px;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+.setting-row select {
+  width: auto;
+  min-width: 150px;
+}
+.setting-row .segmented button {
+  height: 28px;
+  padding: 0 var(--s-3);
+}
+.setting-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s-2);
+}
+.setting-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-4);
+}
+.keys {
+  display: inline-flex;
+  gap: var(--s-1);
+}
+/* A shortcut is one plain sentence and its keys, not a titled setting. */
+.setting-row.compact {
+  padding-block: var(--s-3);
+}
+.setting-row.compact .setting-label strong {
+  font-weight: 400;
+  color: var(--text);
+}
+/* Theme choice: three flat thumbnails, no card around them; the selection is a tide outline on the
+   thumbnail and a tide label. */
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-4);
+  max-width: 560px;
+}
+button.theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s-2);
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  font-weight: 500;
+}
+.theme-name {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.theme-option:hover .theme-name {
+  color: var(--text-strong);
+}
+.theme-option.selected .theme-name {
+  color: var(--tide-deep);
+  font-weight: 600;
+}
+.theme-preview {
+  position: relative;
+  display: block;
+  height: 76px;
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.theme-preview::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  pointer-events: none;
+  transition: box-shadow var(--dur-quick) var(--ease);
+}
+.theme-option:hover .theme-preview::after {
+  box-shadow: inset 0 0 0 1px var(--text-muted);
+}
+.theme-option.selected .theme-preview::after {
+  box-shadow: inset 0 0 0 2px var(--tide-deep);
+}
+.pv-layer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 28% 1fr;
+}
+/* "System": a light thumbnail with a diagonally cut dark thumbnail laid over it. */
+.theme-preview.split .pv-layer + .pv-layer {
+  clip-path: polygon(52% 0, 100% 0, 100% 100%, 30% 100%);
+}
+.pv-side {
+  background: var(--pv-side);
+}
+.pv-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: var(--s-2) 0 0 var(--s-2);
+  padding: var(--s-3);
+  border-radius: var(--r-md) 0 0 0;
+  background: var(--pv-main);
+}
+.pv-line {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--pv-line);
+}
+.pv-line.short {
+  width: 55%;
+}
+.pv-accent {
+  width: 38%;
+  height: 10px;
+  border-radius: 4px;
+  background: var(--tide);
+}
+/* These are pictures of the light, black and deep-tide themes, so they are fixed on purpose and do
+   not follow the theme in use. They are the only literal colours in this view. */
+.pv-layer[data-look='light'] {
+  --pv-side: #ece9e1;
+  --pv-main: #f5f3ee;
+  --pv-line: #dcd6ca;
+}
+.pv-layer[data-look='dark'] {
+  --pv-side: #000000;
+  --pv-main: #111111;
+  --pv-line: #2a2a2a;
+}
+.pv-layer[data-look='tide'] {
+  --pv-side: #0a1211;
+  --pv-main: #121d1b;
+  --pv-line: #2a3b37;
+}
+.info-list {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: var(--s-3) var(--s-4);
+  margin: 0;
+  padding: var(--s-4) var(--s-4);
+  font-size: var(--fs-md);
+}
+.info-list dt {
+  color: var(--text-soft);
+}
+.info-list dd {
+  margin: 0;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+.address-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+}
+.address-line code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+}
+.address-note {
+  margin-top: var(--s-1);
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.about {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  color: var(--text-strong);
+}
+.about .mark {
+  width: 40px;
+  height: 39px;
+}
+.about .mark g {
+  stroke-width: 11;
+}
+.about strong {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: var(--fs-xl);
+  font-weight: 400;
+}
+.about p {
+  margin-top: 3px;
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+/* Responsive */
+.settings-wrap {
+  container: settings / inline-size;
+}
+/* The section list stands beside the settings only while there is room for both; below that it is a
+   row of tabs on top (the sidebar leaves ~690px at a 1024 window). */
+@container settings (max-width: 779px) {
+  .settings-wrap .settings {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-4);
+  }
+  .settings-wrap .settings-nav {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .settings-wrap .settings-nav a {
+    flex: none;
+  }
+}
+@container settings (max-width: 559px) {
+  .settings-wrap .theme-options {
+    gap: var(--s-2);
+  }
+  .settings-wrap .theme-preview {
+    height: 56px;
+  }
+  .settings-wrap .info-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px 0;
+  }
+  .settings-wrap .info-list dd {
+    margin-bottom: var(--s-2);
+  }
+  .settings-wrap .setting-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-wrap .setting-row > :not(.setting-label) {
+    justify-self: start;
+  }
+  .settings-wrap .setting-row.compact {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}

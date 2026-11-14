@@ -1,0 +1,78 @@
+{
+  "_notes": "English cut. Same shape as copy.json, except each line is { en, sub? }: one main line, plus an optional smaller line. Everything that appears on screen is here; run render.mjs with --lang en after editing. {agent} is replaced with the agent name from the recording.",
+  "repo_url": "github.com/jiangxingfan1-coder/Open-Agent-API",
+  "brand": "Open Agent API",
+  "open": { "en": "Turn agents into an API.", "sub": "You call an agent, not a model." },
+  "edit": { "en": "The same code. Two values change." },
+  "edit_labels": { "baseURL": "Your gateway", "model": "The agent to call" },
+  "run": {
+    "real": {
+      "en": "A real call to the {agent} agent on this machine"
+    },
+    "placeholder": {
+      "en": "Placeholder cut: the agent here is a local stand-in"
+    },
+    "waiting": "Agent running",
+    "returned": "Returned",
+    "chips": { "agent": "Agent", "elapsed": "Elapsed", "usage": "Usage", "run": "Task" }
+  },
+  "tasks": {
+    "en": "Not a model call. A task you can inspect."
+  },
+  "approval": {
+    "wait": {
+      "en": "The task stops and waits for your approval."
+    },
+    "done": {
+      "en": "Approve it, and the same task carries on."
+    }
+  },
+  "protocols": {
+    "en": "OpenAI, Claude and Gemini protocols, unmodified.",
+    "rows": [
+      {
+        "key": "openai",
+        "label": "OpenAI",
+        "code": "client.chat.completions.create({ model: '{id}', … })",
+        "how": "Official openai SDK"
+      },
+      {
+        "key": "anthropic",
+        "label": "Claude",
+        "code": "client.messages.create({ model: '{id}', … })",
+        "how": "Official @anthropic-ai/sdk"
+      },
+      {
+        "key": "gemini",
+        "label": "Gemini",
+        "code": "POST /v1/models/{id}:generateContent",
+        "how": "HTTP request, no SDK"
+      }
+    ],
+    "stats": { "elapsed": "elapsed", "usage": "usage" }
+  },
+  "close": { "en": "Open source under Apache-2.0" },
+  "badges": {
+    "real": { "en": "Recorded for real" },
+    "placeholder": {
+      "en": "Placeholder cut · the model is a local stand-in"
+    },
+    "approval": {
+      "en": "The model in this segment is a local stand-in; the approval flow is real product behavior."
+    }
+  },
+  "elapsed": {
+    "exact": "Actual time {seconds} s",
+    "sped_up": "Actual time {seconds} s; the wait is sped up"
+  },
+  "poster": { "scene": "edit", "t": 9.4 },
+  "gif": {
+    "segments": [
+      { "scene": "edit", "from": 1.0, "to": 8.6 },
+      { "scene": "run", "from": 1.9, "to": "answer+1.8" }
+    ],
+    "max_seconds": 12,
+    "width": 960,
+    "fps": 15
+  }
+}

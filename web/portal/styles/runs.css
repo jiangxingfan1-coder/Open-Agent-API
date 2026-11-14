@@ -1,0 +1,306 @@
+/* Task history, task details, process timeline, playground. */
+.run-tools {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  padding-bottom: var(--s-4);
+  border-bottom: 1px solid var(--border);
+}
+.run-tools .field {
+  flex: 0 1 380px;
+  min-width: min(100%, 220px);
+}
+.section-body > .empty + .actions {
+  padding-top: var(--s-4);
+}
+/* Run details */
+.run-head h1 {
+  overflow-wrap: anywhere;
+}
+/* A task that is running says so, and that the page keeps itself up to date. */
+.live-note {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-md);
+  color: var(--text-muted);
+}
+.live-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tide-deep);
+  animation: live 1600ms ease-in-out infinite;
+}
+@keyframes live {
+  50% {
+    opacity: 0.25;
+  }
+}
+.run-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: var(--s-6);
+  border-top: 1px solid var(--border);
+}
+.fact {
+  min-width: 0;
+  padding: var(--s-4) 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.fact .label {
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.fact .value {
+  margin-top: var(--s-1);
+  font-size: var(--fs-lg);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.fact .sub {
+  display: block;
+  margin-top: var(--s-1);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+/* Process: one hairline rail, a dot per step, a thin bar on a shared time axis. */
+.timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.span {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px 120px minmax(0, 1fr) minmax(96px, 180px) 64px 64px;
+  grid-template-areas: 'rail kind name track status dur';
+  column-gap: var(--s-4);
+  align-items: start;
+  padding: var(--s-3) 0;
+}
+.span::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+.span:first-child::before {
+  top: 21px;
+}
+.span:last-child::before {
+  bottom: auto;
+  height: 21px;
+}
+.span:only-child::before {
+  display: none;
+}
+.span .dot {
+  grid-area: rail;
+  position: relative;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  margin-top: var(--s-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg);
+}
+.span.run .dot {
+  border-color: var(--tide-deep);
+  background: var(--tide);
+}
+.span.error .dot {
+  border-color: var(--garnet);
+  background: var(--garnet);
+}
+.span.warn .dot {
+  border-color: var(--cin-strong);
+  background: var(--cin);
+}
+.span-kind {
+  grid-area: kind;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+  line-height: 20px;
+  color: var(--text-soft);
+}
+.span-kind svg.lucide {
+  width: 14px;
+  height: 14px;
+}
+.span-name {
+  grid-area: name;
+  min-width: 0;
+  font-size: var(--fs-md);
+  line-height: 20px;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+.span-sub {
+  display: inline-block;
+  margin-left: var(--s-2);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.span-track {
+  grid-area: track;
+  display: block;
+  align-self: start;
+  margin-top: var(--s-2);
+  overflow: visible;
+}
+.track-line {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.track-bar {
+  fill: var(--chart-muted);
+}
+/* What the time went on, in three ink tones: thinking darkest, waiting lightest. */
+.span.k-model .track-bar {
+  fill: var(--text-soft);
+}
+.span.k-queue .track-bar {
+  fill: var(--border-strong);
+}
+.span.run .track-bar {
+  fill: var(--tide);
+}
+.span.error .track-bar {
+  fill: var(--garnet);
+}
+.span.warn .track-bar {
+  fill: var(--cin);
+}
+.span-status {
+  grid-area: status;
+  justify-self: start;
+  line-height: 20px;
+}
+.timeline .status.neutral {
+  color: var(--text-soft);
+}
+.timeline .status.neutral::before {
+  display: none;
+}
+.span-dur {
+  grid-area: dur;
+  justify-self: end;
+  font-size: var(--fs-sm);
+  line-height: 20px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* A long process folds its middle: one row on the rail that opens the rest. */
+.span.fold {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding-block: var(--s-1);
+}
+.span.fold .dot {
+  margin-top: 0;
+  border-style: dashed;
+}
+.fold-actions {
+  padding-top: var(--s-3);
+  padding-left: calc(16px + var(--s-4));
+}
+/* Output text: body type in a hairline frame, scrolls when long. */
+.output-block {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+.output {
+  margin: 0;
+  padding: var(--s-4) var(--s-5);
+  max-height: min(60vh, 560px);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--sans);
+  font-size: var(--fs-md);
+  line-height: 1.8;
+  color: var(--text-strong);
+}
+.output.is-empty {
+  color: var(--text-soft);
+}
+/* Playground: the form on the left, the output on the right; both start on the same line and the
+   output box is as tall as the form, scrolling inside when the answer is longer. */
+.play-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  gap: var(--s-7);
+  align-items: stretch;
+}
+.play-grid > * + * {
+  margin-top: 0;
+}
+.play-form {
+  gap: var(--s-4);
+  align-content: start;
+}
+.play-form .note {
+  margin-top: 0;
+}
+.play-out {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.out-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  min-height: 20px;
+  margin-bottom: var(--s-2);
+}
+.out-label {
+  font-family: var(--sans);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text);
+}
+.play-out .output-block {
+  position: relative;
+  flex: 1;
+  min-height: 320px;
+}
+.play-out .output {
+  position: absolute;
+  inset: 0;
+  max-height: none;
+  border-radius: var(--r-lg);
+}
+.play-out .status {
+  line-height: 1.5;
+}
+.play-after {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.play-after:not(:empty),
+.play-out [aria-live] > .notice {
+  margin-top: var(--s-3);
+}
+.play-out [aria-live] > .actions {
+  margin-top: var(--s-3);
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="auggie-title auggie-desc">
+  <title id="auggie-title">Auggie</title>
+  <desc id="auggie-desc">Auggie CLI agent icon</desc>
+  <path fill="#F15A3A" d="M12 2.25 21.5 20h-4.08l-1.7-3.35H8.3L6.6 20H2.5L12 2.25Zm0 7.02-1.98 3.9h3.96L12 9.27Z"/>
+  <path fill="#FFB14A" d="M8.3 16.65h7.4l1.8 3.35h-4.18L12 17.9l-1.32 2.1H6.5l1.8-3.35Z"/>
+</svg>

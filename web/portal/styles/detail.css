@@ -1,0 +1,121 @@
+/* Agent detail and account layout. */
+/* Agent detail */
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  justify-self: start;
+  font-size: var(--fs-md);
+  color: var(--text-soft);
+}
+.crumb:hover {
+  color: var(--text-strong);
+}
+.detail-head {
+  display: grid;
+  gap: var(--s-4);
+}
+.detail-head .agent-id {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-md);
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.detail-head .actions {
+  margin-top: var(--s-1);
+}
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--s-7);
+  align-items: start;
+}
+.detail-grid > * + * {
+  margin-top: 0;
+}
+.stack > * + * {
+  margin-top: var(--s-7);
+}
+.prose p {
+  max-width: 68ch;
+  font-size: var(--fs-md);
+  line-height: 1.8;
+  color: var(--text);
+}
+.prose p + p {
+  margin-top: var(--s-4);
+}
+.kv {
+  display: grid;
+  grid-template-columns: minmax(96px, 128px) minmax(0, 1fr);
+  border-top: 1px solid var(--border);
+}
+.kv dt,
+.kv dd {
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: var(--fs-md);
+}
+.kv dt {
+  padding-right: var(--s-3);
+  color: var(--text-soft);
+}
+.kv dd {
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+.kv dd .tags {
+  margin-top: 0;
+}
+.price-lines {
+  display: grid;
+  gap: 2px;
+}
+.section-body {
+  padding-top: var(--s-5);
+}
+.section-body [aria-live] > .notice {
+  margin-top: var(--s-3);
+}
+.note {
+  margin-top: var(--s-3);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+.lead-note {
+  margin: var(--s-2) 0 var(--s-4);
+  font-size: var(--fs-md);
+}
+.side > * + * {
+  margin-top: var(--s-6);
+}
+.side h2,
+.stack h2.minor {
+  margin-bottom: var(--s-3);
+}
+/* Account block (usage page): facts, then the password form. */
+.account {
+  display: grid;
+  gap: var(--s-6);
+}
+.account .kv {
+  max-width: 560px;
+}
+.account-password {
+  display: grid;
+  gap: var(--s-3);
+  max-width: 760px;
+}
+.account-password .note {
+  margin-top: calc(var(--s-1) * -1);
+}
+.account-form {
+  margin-top: var(--s-2);
+}
+.account-form .field {
+  flex: 1 1 220px;
+}

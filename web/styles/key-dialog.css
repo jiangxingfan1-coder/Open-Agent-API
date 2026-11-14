@@ -1,0 +1,345 @@
+/* Key generator dialog and its result view. */
+/* Key generator dialog. */
+.key-section {
+  margin-top: var(--s-2);
+  padding: var(--s-4) 0 var(--s-2);
+  border-top: 1px solid var(--border-soft);
+}
+.key-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.key-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+  flex-wrap: wrap;
+}
+.key-section-head strong {
+  font-size: var(--fs-md);
+  font-weight: 650;
+  color: var(--text-strong);
+}
+.key-section-head .segmented,
+.key-section-head small {
+  margin-left: auto;
+}
+.step-num {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.key-agent-search {
+  margin-bottom: var(--s-3);
+}
+/* The search field inside the dialog gets a hairline ring, not the heavy page-level one. */
+.key-agent-search input:focus {
+  box-shadow: 0 0 0 2px var(--selected-soft);
+}
+.key-agent-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--s-2);
+  max-height: 248px;
+  overflow-y: auto;
+  padding: 2px;
+  overscroll-behavior: contain;
+}
+.key-agent-list .empty {
+  grid-column: 1 / -1;
+}
+.key-agent {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+  padding: var(--s-3) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-quick) var(--ease),
+    background-color var(--dur-quick) var(--ease),
+    box-shadow var(--dur-quick) var(--ease);
+}
+.key-agent:hover {
+  border-color: var(--border-strong);
+}
+.key-agent:focus-within {
+  box-shadow: var(--focus-ring);
+}
+.key-agent input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.key-agent-text {
+  flex: 1;
+  min-width: 0;
+}
+.key-agent-text strong {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+.key-agent-text small {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.key-agent .status {
+  font-size: var(--fs-xs);
+}
+.key-check {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  color: transparent;
+  transition:
+    background-color var(--dur-quick) var(--ease),
+    border-color var(--dur-quick) var(--ease);
+}
+.key-check svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 3;
+}
+.key-agent.selected {
+  border-color: color-mix(in srgb, var(--tide-deep) 55%, var(--border));
+  background: var(--tide-wash);
+}
+.key-agent.selected .key-check {
+  border-color: var(--tide-deep);
+  background: var(--tide-deep);
+  color: var(--bg);
+}
+.key-empty {
+  grid-column: 1 / -1;
+  padding: var(--s-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.key-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.key-model-row {
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-panel);
+  animation: surface-enter var(--dur-enter) var(--ease);
+}
+.key-model-agent {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.key-model-agent > strong {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+.key-model-agent > svg {
+  color: var(--text-faint);
+}
+.key-model-name {
+  flex: 1;
+  min-width: 0;
+  padding: 3px var(--s-2);
+  border-radius: var(--r-xs);
+  background: var(--code-bg);
+  border: 1px solid var(--border-soft);
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.key-model-agent .icon-button {
+  width: 28px;
+  height: 28px;
+}
+.model-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+.scope-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+.scope-row .checkboxes {
+  margin: 0;
+}
+.scope-row .checkboxes input {
+  accent-color: var(--tide-deep);
+}
+.scope-hint {
+  margin-top: var(--s-2);
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.key-meta .field {
+  margin-bottom: var(--s-3);
+}
+/* Key generator: result. */
+.key-success {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-panel);
+}
+.key-success-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-strong);
+  animation: pop-in 360ms var(--ease);
+}
+.key-success-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.key-success strong {
+  color: var(--text-strong);
+  font-size: var(--fs-md);
+}
+/* "Shown only once" is a reminder, not a task waiting for someone: ink, never cinnabar. */
+.key-success p {
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  font-weight: 450;
+  color: var(--text-strong);
+}
+@keyframes pop-in {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+.result-item {
+  margin-top: var(--s-4);
+}
+.result-item > span {
+  display: block;
+  margin-bottom: var(--s-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+.result-item .key-reveal {
+  margin-top: 0;
+}
+.result-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.result-model {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  max-width: 100%;
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-quick) var(--ease),
+    background-color var(--dur-quick) var(--ease);
+}
+.result-model:hover {
+  border-color: var(--border-strong);
+}
+.result-model.active {
+  border-color: color-mix(in srgb, var(--tide-deep) 55%, var(--border));
+  background: var(--tide-wash);
+}
+.result-model code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+}
+.result-model .icon-button {
+  width: 26px;
+  height: 26px;
+}
+.result-all {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+  margin-top: var(--s-4);
+}
+.result-all p {
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+/* The code sample is secondary: folded by default, and once open it keeps the same column width as the three items above. */
+.key-snippet-fold {
+  margin: var(--s-4) 0 0;
+}
+.snippet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+  margin-top: var(--s-2);
+}
+#key-snippet {
+  max-height: 260px;
+  margin-top: var(--s-3);
+}
+/* Responsive */
+@media (max-width: 640px) {
+  .key-meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .key-agent-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .key-section-head .segmented,
+  .key-section-head small {
+    margin-left: 0;
+  }
+}

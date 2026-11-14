@@ -1,0 +1,175 @@
+/* Access view: endpoints, snippets, quick-start steps; the key table's cells. */
+.access-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.access-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-4);
+}
+.access-pair > .panel {
+  min-width: 0;
+}
+.endpoint-row {
+  display: grid;
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) 0;
+}
+.endpoint-row + .endpoint-row {
+  border-top: 1px solid var(--border-soft);
+}
+.endpoint-label {
+  min-width: 0;
+}
+.endpoint-label strong {
+  display: block;
+  font-size: var(--fs-md);
+  font-weight: 550;
+  color: var(--text-strong);
+}
+/* One line of explanation; the full sentence is in the tooltip. */
+.endpoint-label small {
+  display: block;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+/* An address never breaks inside a word: it scrolls sideways when the row is too narrow. */
+.endpoint-url {
+  min-width: 0;
+  padding: var(--s-1) 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  white-space: pre;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.access-page .snippet .code {
+  max-height: none;
+}
+.access-page .panel-body:not(.endpoint-list) > * + * {
+  margin-top: var(--s-3);
+}
+.caller-tools .table-scroll {
+  border-top: 1px solid var(--border-soft);
+}
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+.steps li {
+  position: relative;
+  padding: 0 0 var(--s-4) var(--s-6);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--text-muted);
+  counter-increment: step;
+}
+.steps li:last-child {
+  padding-bottom: 0;
+}
+.steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.steps li .snippet {
+  margin-top: var(--s-2);
+}
+.steps strong {
+  color: var(--text-strong);
+  font-weight: 550;
+}
+/* API keys: agents and permissions in one cell, usage on two lines. */
+.key-agents {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-strong);
+}
+.key-agents-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+.key-agents-more {
+  flex: none;
+  color: var(--text-soft);
+  font-size: var(--fs-xs);
+}
+.key-locked {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--text-faint);
+  cursor: help;
+}
+.key-locked svg {
+  width: 15px;
+  height: 15px;
+}
+.key-usage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+/* Responsive */
+/* The copy button has a word on it now: below 1360 the address gets the whole row under its label. */
+@media (max-width: 1360px) {
+  .endpoint-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'label copy'
+      'url url';
+    gap: var(--s-1) var(--s-3);
+    align-items: start;
+  }
+  .endpoint-label {
+    grid-area: label;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0 var(--s-3);
+  }
+  .endpoint-label small {
+    margin-top: 0;
+  }
+  .endpoint-url {
+    grid-area: url;
+  }
+  .endpoint-row > .copy-btn,
+  .endpoint-row > .icon-button {
+    grid-area: copy;
+  }
+}
+@media (max-width: 1180px) {
+  .access-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

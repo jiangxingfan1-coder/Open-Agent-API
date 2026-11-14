@@ -1,0 +1,163 @@
+/* Developer platform: enabling from the console, the site-settings dialog, the "saved, restart to apply" state,
+   the pending-settings bar and the quiet stop entry. Hairlines and neutral ink; the only solid tide fill is
+   the page's one main action (set where the buttons are built). */
+
+/* The folded section at the bottom of the disabled page: enabling with the config file. */
+.intro-details {
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--border-soft);
+}
+.intro-details > summary {
+  padding: var(--s-1) 0;
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+  cursor: pointer;
+  user-select: none;
+}
+.intro-details > summary:hover {
+  color: var(--text-strong);
+}
+.intro-details[open] > summary {
+  margin-bottom: var(--s-3);
+}
+
+/* Waiting for the restart: three lines of saved settings, one line of actions. */
+.setup-facts {
+  width: 100%;
+  font-size: var(--fs-md);
+}
+.setup-facts > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+}
+.setup-facts span {
+  color: var(--text-soft);
+}
+.setup-facts strong {
+  min-width: 0;
+  font-weight: 500;
+  color: var(--text-strong);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-1);
+}
+
+/* Summary tab: settings that are saved but not yet in effect. Neutral outline, not cinnabar: nobody has to act at once. */
+.setup-pending {
+  align-items: center;
+  margin-bottom: var(--s-4);
+}
+.setup-pending-text {
+  min-width: 0;
+}
+.setup-pending-text strong {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.setup-pending-text .muted {
+  color: var(--text-muted);
+}
+.setup-pending .small-btn {
+  margin: -2px 0;
+}
+
+/* Bottom of the summary tab: the disable entry. Separated by a hairline, text in the danger colour, never solid. */
+.platform-stop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3) var(--s-4);
+  margin-top: var(--s-7);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--fs-sm);
+}
+.platform-stop p {
+  max-width: 62ch;
+}
+button.danger-text {
+  color: var(--garnet);
+}
+button.danger-text:hover:not(:disabled) {
+  border-color: var(--garnet-border);
+  background: var(--garnet-wash);
+}
+
+/* Enable / site settings dialog: who can sign up is a choice of three, each with one sentence of explanation. The selected state is a light ground with darker text, like the other choices. */
+.choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.choice-option {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-quick) var(--ease),
+    background-color var(--dur-quick) var(--ease);
+}
+.choice-option:hover {
+  border-color: var(--border-strong);
+}
+.choice-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.choice-option.selected {
+  border-color: color-mix(in srgb, var(--tide-deep) 55%, var(--border));
+  background: var(--tide-wash);
+}
+.choice-option:focus-within {
+  box-shadow: var(--focus-ring);
+}
+.choice-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.choice-meta strong {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.choice-option.selected .choice-meta strong {
+  color: var(--tide-deep);
+}
+.choice-meta small {
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+.setup-reminder {
+  margin-top: var(--s-1);
+}
+/* An input that failed validation: a hairline outline in garnet (failure). */
+.field input[aria-invalid='true'] {
+  border-color: var(--garnet-border);
+}
+.field input[aria-invalid='true']:focus {
+  border-color: var(--garnet);
+}
+/* Responsive */
+@media (max-width: 640px) {
+  .platform-stop {
+    align-items: flex-start;
+  }
+}

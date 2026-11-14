@@ -1,0 +1,77 @@
+{
+  "name": "open-agent-api",
+  "version": "0.0.64",
+  "private": true,
+  "type": "module",
+  "description": "A capability-aware agent runtime with a portable API and distributed workers",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jiangxingfan1-coder/Open-Agent-API.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jiangxingfan1-coder/Open-Agent-API/issues"
+  },
+  "homepage": "https://github.com/jiangxingfan1-coder/Open-Agent-API#readme",
+  "engines": {
+    "node": ">=24.18.0 <25"
+  },
+  "bin": {
+    "oaa": "dist/src/cli.js"
+  },
+  "files": [
+    "dist/src",
+    "!dist/src/**/*.map",
+    "web",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    "NOTICE",
+    "THIRD_PARTY_NOTICES.md",
+    "CHANGELOG.md",
+    "licenses"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.{ts,mjs}\" \"bench/**/*.ts\" \"examples/**/*.ts\" \"scripts/*.mjs\" \"tools/**/*.{mjs,js,css}\" \"web/*.js\" \"web/{lib,views,dialogs,shared}/*.js\" \"web/*.css\" \"web/{styles,shared}/*.css\" \"web/portal/*.js\" \"web/portal/*.css\" \"web/portal/styles/*.css\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.{ts,mjs}\" \"bench/**/*.ts\" \"examples/**/*.ts\" \"scripts/*.mjs\" \"tools/**/*.{mjs,js,css}\" \"web/*.js\" \"web/{lib,views,dialogs,shared}/*.js\" \"web/*.css\" \"web/{styles,shared}/*.css\" \"web/portal/*.js\" \"web/portal/*.css\" \"web/portal/styles/*.css\"",
+    "test": "npm run build && node --import ./dist/test/setup-locale.js --test --test-concurrency=1 dist/test/*.test.js",
+    "test:offline": "npm run build && node scripts/test-offline.mjs",
+    "verify": "npm run check && npm run format:check && npm test",
+    "start": "node dist/src/cli.js serve",
+    "oaa": "node dist/src/cli.js",
+    "demo": "npm run build && node dist/examples/demo.js",
+    "bench": "npm run build && node dist/bench/runtime.js",
+    "bench:stream": "npm run build && node dist/bench/streaming.js",
+    "bench:fair": "npm run build && node dist/bench/fairness.js",
+    "bench:protocol": "npm run build && node dist/bench/protocol-speed.js",
+    "bench:queue": "npm run build && node dist/bench/queue-estimate.js",
+    "bench:paired": "npm run build && node dist/bench/paired/run.js",
+    "package:mac": "node scripts/package-all.mjs mac",
+    "package:win": "node scripts/package-all.mjs win",
+    "package:all": "node scripts/package-all.mjs all",
+    "package:release:mac": "node scripts/package-all.mjs mac --release",
+    "package:release:win": "node scripts/package-all.mjs win --release"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.322",
+    "@anthropic-ai/sandbox-runtime": "0.0.82",
+    "@fastify/multipart": "10.1.8",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "ajv": "^8.17.1",
+    "fastify": "5.12.8",
+    "lucide": "1.71.0",
+    "ws": "8.22.2",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "1.3.0",
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.1",
+    "openai": "7.55.0",
+    "prettier": "3.9.10",
+    "typescript": "^5.9.3"
+  }
+}

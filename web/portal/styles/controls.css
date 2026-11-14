@@ -1,0 +1,292 @@
+/* Controls: buttons, links, inputs, form fields, multi-line text. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  height: 36px;
+  padding: 0 var(--s-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text-strong);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-quick) var(--ease),
+    border-color var(--dur-quick) var(--ease),
+    color var(--dur-quick) var(--ease);
+}
+button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text-strong) 30%, var(--border-strong));
+}
+/* Disabled keeps its outline (it is still a button) and gives up its contrast. */
+button:disabled {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+button.primary {
+  border-color: var(--tide);
+  background: var(--tide);
+  color: var(--tide-ink);
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+button.primary:disabled {
+  border-color: var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-faint);
+}
+/* Working: the button keeps its look, shows a spinner, and does not accept another click. */
+button[aria-busy='true']:disabled {
+  color: var(--text-muted);
+  cursor: progress;
+}
+button.primary[aria-busy='true']:disabled {
+  border-color: var(--tide);
+  background: var(--tide);
+  color: var(--tide-ink);
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+  flex: none;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+button.quiet:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--bg-subtle);
+  color: var(--text-strong);
+}
+button.quiet:disabled {
+  border-color: transparent;
+}
+button.danger {
+  border-color: var(--garnet-border);
+  color: var(--garnet);
+}
+button.small {
+  height: 28px;
+  padding: 0 var(--s-3);
+  font-size: var(--fs-sm);
+}
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  height: 36px;
+  padding: 0 var(--s-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text-strong);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    border-color var(--dur-quick) var(--ease),
+    background-color var(--dur-quick) var(--ease);
+}
+.link-button:hover {
+  border-color: color-mix(in srgb, var(--text-strong) 30%, var(--border-strong));
+}
+.link-button.small {
+  height: 28px;
+  padding: 0 var(--s-3);
+  font-size: var(--fs-sm);
+}
+.link-button.primary {
+  border-color: var(--tide);
+  background: var(--tide);
+  color: var(--tide-ink);
+  font-weight: 600;
+}
+.link-button.primary:hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+/* A link in running text is ink with a hairline underline; colour is for state, not for links. */
+.text-link {
+  color: var(--text-strong);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--border-strong);
+}
+.text-link:hover {
+  text-decoration-color: var(--text-strong);
+}
+input:not([type='checkbox'], [type='radio']),
+select {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 var(--s-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text-strong);
+  font-size: var(--fs-md);
+  transition:
+    border-color var(--dur-quick) var(--ease),
+    box-shadow var(--dur-quick) var(--ease);
+}
+input:not([type='checkbox'], [type='radio']):focus,
+select:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--tide-deep) 55%, var(--border-strong));
+  box-shadow: var(--focus-ring);
+}
+input::placeholder {
+  color: var(--text-faint);
+}
+/* A control with something drawn over its right end: the eye of a password, the arrow of a menu. */
+.input-wrap {
+  position: relative;
+}
+.input-wrap input {
+  padding-right: 44px;
+}
+.pw-toggle {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+.pw-toggle .lucide-eye-off,
+.pw-toggle[aria-pressed='true'] .lucide-eye {
+  display: none;
+}
+.pw-toggle[aria-pressed='true'] .lucide-eye-off {
+  display: block;
+}
+select {
+  appearance: none;
+  padding-right: 36px;
+  cursor: pointer;
+}
+.select-wrap > svg {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  color: var(--text-soft);
+  pointer-events: none;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.field > label,
+.field > .field-label {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+.field > small {
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+/* Validation: the field's own words in garnet under it, and its outline in garnet. */
+.field > .field-error {
+  color: var(--garnet);
+}
+.field input[aria-invalid='true'],
+.field input[aria-invalid='true']:focus,
+.field textarea[aria-invalid='true'],
+.field textarea[aria-invalid='true']:focus {
+  border-color: var(--garnet);
+}
+.field input[aria-invalid='true']:focus,
+.field textarea[aria-invalid='true']:focus {
+  box-shadow: 0 0 0 4px var(--garnet-wash);
+}
+.form {
+  display: grid;
+  gap: var(--s-4);
+}
+.form-message:empty {
+  display: none;
+}
+.form-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.form-row .field {
+  position: relative;
+  flex: 0 1 420px;
+  min-width: min(100%, 220px);
+}
+/* In a one-line form an error must not push its button out of line with the input. */
+.form-row .field > .field-error {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: var(--s-1);
+}
+.form-row button {
+  height: 40px;
+}
+/* A multi-line field looks like the single-line ones. */
+textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 132px;
+  padding: var(--s-3) var(--s-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text-strong);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  resize: vertical;
+  transition:
+    border-color var(--dur-quick) var(--ease),
+    box-shadow var(--dur-quick) var(--ease);
+}
+textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--tide-deep) 55%, var(--border-strong));
+  box-shadow: var(--focus-ring);
+}
+textarea::placeholder {
+  color: var(--text-faint);
+}
+/* Dark: the page is nearly the colour of a field, so a field is lifted one step. */
+:root[data-theme='dark'] input:not([type='checkbox'], [type='radio']),
+:root[data-theme='dark'] select,
+:root[data-theme='dark'] textarea {
+  background: var(--bg-subtle);
+}

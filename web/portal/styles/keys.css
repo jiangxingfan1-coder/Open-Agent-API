@@ -1,0 +1,39 @@
+/* Keys page: revealed key, token line, redeem. */
+/* Keys */
+/* A new key: a hairline frame in ink, not a coloured box. It is the one thing on the page that
+   cannot be fetched again, which the words say. */
+.reveal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+.reveal strong {
+  font-size: var(--fs-md);
+  color: var(--text-strong);
+}
+.reveal p {
+  font-size: var(--fs-md);
+  color: var(--text-muted);
+}
+.token-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--code-bg);
+}
+.token-line code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+}
+.redeem {
+  max-width: 520px;
+}

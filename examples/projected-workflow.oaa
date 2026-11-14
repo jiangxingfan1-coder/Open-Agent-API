@@ -1,0 +1,27 @@
+agent "agent/document-excerpt" {
+  description = "Read a selected document and return a bounded excerpt"
+  model = "configure-your-model"
+  provider = "default"
+
+  use builtin read_file
+
+  flow "inspect_document" {
+    params { path: string }
+    step document = read_file(path = $input.path)
+    output_schema {
+      path: string
+      excerpt: string(max=2000)
+    }
+    return {
+      path: $input.path
+      excerpt: $(slice(document.text, 0, 2000))
+    }
+  }
+
+  limits { max_turns = 4 tool_concurrency = 2 timeout = 2m }
+  instructions """
+    Use inspect_document only for a caller-selected session workspace file.
+    Summarize the returned excerpt and identify the source path.
+    The excerpt is intentionally limited; do not claim to have analyzed omitted text.
+  """
+}

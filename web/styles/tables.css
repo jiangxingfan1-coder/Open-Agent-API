@@ -1,0 +1,91 @@
+/* Tables: table card, cells, row actions, section titles. */
+.table-card {
+  overflow: hidden;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: left;
+}
+th {
+  padding: var(--s-3) var(--s-4) var(--s-3);
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+td {
+  padding: var(--s-3) var(--s-4);
+  font-size: var(--fs-md);
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border-soft);
+  overflow-wrap: anywhere;
+}
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+tbody tr[data-id] {
+  cursor: pointer;
+}
+tbody tr[data-id]:hover td,
+tbody tr[data-id]:focus-visible td {
+  background: var(--bg-panel);
+}
+tbody tr[data-id]:focus-visible {
+  outline: none;
+}
+.cell-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+}
+.cell-title > div {
+  min-width: 0;
+}
+.row-action {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s-1);
+}
+.row-action button.subtle {
+  height: 30px;
+  padding: 0 var(--s-3);
+  font-size: var(--fs-sm);
+}
+.node-detail {
+  margin-top: 3px;
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin: var(--s-6) 0 var(--s-3);
+}
+.section-title h2 {
+  white-space: nowrap;
+}
+.section-title p {
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.section-title.flush {
+  margin-top: 0;
+}
+.cell-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-1);
+}
+.cell-hint {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+  line-height: 1.4;
+}

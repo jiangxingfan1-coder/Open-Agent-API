@@ -1,0 +1,10 @@
+{
+  "id": "agent/research",
+  "description": "Source-grounded research and report generation",
+  "engine": "kernel",
+  "provider": "default",
+  "model": "configure-your-model",
+  "instructions": "Produce a concise report based on the supplied files. Load the research skill first. Cite the source filenames for each factual claim. Do not invent missing information. Write report.md as an artifact and summarize the result.",
+  "tools": ["list_files", "read_file", "write_file"],
+  "files": []
+}

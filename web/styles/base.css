@@ -1,0 +1,67 @@
+/* Base: reset, document defaults, text helpers. */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--bg-app);
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+::selection {
+  background: color-mix(in srgb, var(--tide) 45%, transparent);
+  color: var(--text-strong);
+}
+:focus-visible {
+  outline: 2px solid var(--tide-deep);
+  outline-offset: 2px;
+}
+[hidden] {
+  display: none !important;
+}
+/* Until lib/static-text.js has filled in the page text, nothing is drawn: no flash of empty
+   labels. If the script never runs, the page is shown anyway after a moment. */
+html[data-i18n-pending] body {
+  visibility: hidden;
+  animation: i18n-reveal 0s 1.5s forwards;
+}
+@keyframes i18n-reveal {
+  to {
+    visibility: visible;
+  }
+}
+svg.lucide {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.7;
+  flex-shrink: 0;
+}
+code,
+.mono {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+}
+.muted {
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

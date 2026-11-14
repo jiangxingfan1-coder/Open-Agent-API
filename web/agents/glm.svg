@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="GLM Agent">
+  <rect width="64" height="64" rx="14" fill="#0F3B67"/>
+  <path fill="#E94B5F" d="M16 18h13v7h-6v14h6v7H16V18Zm32 0v28H35v-7h6V25h-6v-7h13Z"/>
+  <circle cx="32" cy="32" r="4" fill="#fff"/>
+</svg>

@@ -1,0 +1,26 @@
+# Open Agent API Declarative Source (OAA-Lang 2.0)
+# 将本机 Antigravity (agy) 封装为 OAA 标准 Agent API，默认使用 Gemini 3.8 Flash
+let DEFAULT_MODEL = "gemini-3.8-flash"
+
+agent "agent/antigravity" {
+  description = "Local Antigravity (agy) Agent API powered by Gemini 3.8 Flash"
+  engine      = antigravity
+  provider    = "native"
+  model       = $DEFAULT_MODEL
+  allow_graph = false
+
+  route "gemini-3.8-flash"        -> native/"gemini-3.8-flash"        priority=0 cost=1 speed=5 tags=["fast", "coding", "reasoning"]
+  route "gemini-3.8-flash-medium" -> native/"gemini-3.8-flash-medium" priority=1 cost=2 speed=4 tags=["coding", "reasoning"]
+  route "gemini-3.8-flash-high"   -> native/"gemini-3.8-flash-high"   priority=2 cost=3 speed=3 tags=["reasoning", "quality"]
+  route "gemini-3.8-flash-low"    -> native/"gemini-3.8-flash-low"    priority=3 cost=1 speed=5 tags=["fast", "cost"]
+
+  limits {
+    max_turns = 16
+    wall_ms   = 5m
+  }
+
+  instructions """
+    You are an Antigravity Agent exposed through the Open Agent API (oaa/1 & UAP/1).
+    Respond concisely and accurately to the user's request.
+  """
+}

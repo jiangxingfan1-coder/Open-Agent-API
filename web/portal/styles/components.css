@@ -1,0 +1,60 @@
+/* Shared parts: messages, row links, toast. */
+/* Messages: a hairline frame in ink. Cinnabar only for the one thing that waits for a person (an
+   empty balance); garnet for a refusal or an error. A confirmation is a plain frame, not green. */
+.notice {
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-md);
+}
+.notice.warn {
+  border-color: var(--cin-border);
+  background: var(--cin-wash);
+  color: var(--cin-strong);
+}
+.notice.error {
+  border-color: var(--garnet-border);
+  background: var(--garnet-wash);
+  color: var(--garnet);
+}
+.notice.ok {
+  border-color: var(--border-strong);
+  background: var(--bg);
+  color: var(--text-strong);
+}
+.row-link {
+  color: var(--text-strong);
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.row-link:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+/* Toast */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 30;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-md);
+  background: var(--toast-bg);
+  color: var(--toast-text);
+  font-size: var(--fs-md);
+  box-shadow: var(--shadow-float);
+}
+/* A page that failed to load: the message and the retry button belong together. */
+.error-block {
+  display: grid;
+  justify-items: start;
+  gap: var(--s-3);
+}
+.error-block .notice {
+  justify-self: stretch;
+}

@@ -1,0 +1,316 @@
+/* Controls: buttons, inputs, selects, form fields, switch, checkboxes. The segmented control is in components.css. */
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  height: 36px;
+  padding: 0 var(--s-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text-strong);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-quick) var(--ease),
+    border-color var(--dur-quick) var(--ease),
+    color var(--dur-quick) var(--ease),
+    box-shadow var(--dur-quick) var(--ease);
+}
+button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text-strong) 30%, var(--border-strong));
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+button.primary {
+  border: 0;
+  background: var(--tide);
+  color: var(--tide-ink);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--tide-ink) 14%, transparent);
+}
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+button.primary.danger {
+  background: var(--garnet);
+  color: #fff;
+  box-shadow: none;
+}
+button.subtle {
+  background: var(--bg);
+}
+button.chip {
+  height: 30px;
+  padding: 0 var(--s-3);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--text-strong) 5%, transparent);
+  color: var(--text);
+  font-weight: 450;
+}
+button.chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-strong) 9%, transparent);
+  color: var(--text-strong);
+}
+.icon-button {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-muted);
+}
+.icon-button:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  color: var(--text-strong);
+}
+.small-btn {
+  height: 28px;
+  padding: 0 var(--s-3);
+  font-size: var(--fs-sm);
+}
+/* The native file picker keeps its behaviour but wears the same outlined button as the rest. */
+input[type='file'] {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+input[type='file']::file-selector-button {
+  height: 28px;
+  margin-right: var(--s-3);
+  padding: 0 var(--s-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text-strong);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+input[type='file']::file-selector-button:hover {
+  border-color: color-mix(in srgb, var(--text-strong) 30%, var(--border-strong));
+}
+input:not([type='checkbox'], [type='radio'], [type='file']),
+select,
+textarea {
+  width: 100%;
+  min-width: 0;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text-strong);
+  font-size: var(--fs-md);
+  transition:
+    border-color var(--dur-quick) var(--ease),
+    box-shadow var(--dur-quick) var(--ease);
+}
+input:not([type='checkbox'], [type='radio'], [type='file']):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--tide-deep) 55%, var(--border-strong));
+  box-shadow: var(--focus-ring);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-faint);
+}
+textarea {
+  resize: vertical;
+  min-height: 92px;
+  line-height: 1.7;
+}
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--tide-deep);
+}
+.switch {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  cursor: pointer;
+}
+.switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.switch span {
+  width: 36px;
+  height: 21px;
+  border-radius: var(--r-pill);
+  background: var(--bg-muted);
+  transition: background-color var(--dur-quick) var(--ease);
+}
+.switch span::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--dur-quick) var(--ease);
+}
+.switch input:checked + span {
+  background: var(--tide);
+}
+.switch input:checked + span::after {
+  transform: translateX(15px);
+}
+.switch input:focus-visible + span {
+  box-shadow: var(--focus-ring);
+}
+/* Forms inside dialogs. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: var(--s-4) 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.field > span:first-child {
+  font-weight: 500;
+  color: var(--text);
+}
+.field small {
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.field-label {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: var(--s-4);
+}
+.form-grid .field {
+  margin: 0 0 var(--s-4);
+}
+.file-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: var(--s-3);
+  row-gap: 2px;
+  margin: var(--s-4) 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
+  color: var(--text);
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+.file-row:hover {
+  background: var(--bg-panel);
+}
+.file-row > svg {
+  grid-row: span 2;
+  color: var(--text-muted);
+}
+.file-row small {
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.file-row.compact {
+  grid-template-columns: auto 1fr;
+  padding: var(--s-3) var(--s-3);
+}
+.file-row.compact > svg {
+  grid-row: auto;
+}
+.file-row input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  margin: var(--s-4) 0;
+  padding: 0;
+  border: 0;
+}
+.checkboxes legend {
+  width: 100%;
+  margin-bottom: var(--s-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+.checkboxes label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-md);
+}
+.field-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  font-weight: 500;
+  color: var(--text);
+}
+.warn-text {
+  color: var(--text-strong) !important;
+  font-weight: 550;
+}
+.text-attention {
+  color: var(--cin-strong);
+}
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 2px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  cursor: pointer;
+}
+.inline-check input {
+  accent-color: var(--tide-deep);
+}
+.block-btn {
+  width: 100%;
+  margin-top: var(--s-3);
+}
+/* The emphasised chip is outlined in ink, not filled with tide: tide marks selection and running work. */
+button.chip.accent {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-strong);
+  font-weight: 550;
+}
+button.chip.accent:hover:not(:disabled) {
+  border-color: var(--text-strong);
+  background: transparent;
+  color: var(--text-strong);
+}

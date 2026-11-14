@@ -1,0 +1,343 @@
+/*
+ * Shared components, one of each: segmented control, selectable chip, status mark, tag, callout,
+ * empty state, copy button, code block, text link. Loaded after every view stylesheet on purpose,
+ * so a view can lay a component out (margins, wrapping) but not give it a second look.
+ *
+ *   Segmented control   <div class="segmented"><button class="active">…</button>…</div>
+ *                       .small for dense places. Selected = tide wash, deep tide text, 1px ring.
+ *   Selectable chip     <button class="chip-choice active">…</button>  (pick one or several of many)
+ *   Status mark         status() in lib/dom.js: dot and text, no ground. Only a state that waits for
+ *                       a person gets the capsule: <span class="status warn pill">.
+ *   Tag                 <span class="tag">…</span>  outlined, mono
+ *   Callout             <p class="callout [needs-action|danger]">[<i icon>]text</p>  neutral by default
+ *   Empty state         empty() in lib/dom.js → <div class="empty">; whole-page: .empty.page
+ *   Copy button         copyButton() in lib/dom.js → <button class="copy-btn">[icon]Copy</button>
+ *   Code block          <pre class="code">…</pre>, scrolls sideways; a .snippet puts the copy button
+ *                       on a row above the block, never on top of the code
+ */
+
+/* ── Segmented control ───────────────────────────────── */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  max-width: 100%;
+  padding: 3px;
+  border-radius: var(--r-md);
+  background: var(--segment-bg);
+}
+.segmented button {
+  flex: none;
+  gap: var(--s-2);
+  height: 30px;
+  padding: 0 var(--s-3);
+  border: 0;
+  border-radius: calc(var(--r-md) - 3px);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: 450;
+}
+.segmented.small {
+  padding: 2px;
+}
+.segmented.small button {
+  height: 26px;
+  border-radius: calc(var(--r-md) - 2px);
+}
+.segmented button:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--text-strong);
+}
+.segmented button:focus-visible {
+  outline-offset: -2px;
+}
+.segmented button.active,
+.segmented button[aria-pressed='true'] {
+  background: var(--tide-wash);
+  color: var(--tide-deep);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--select-ring);
+}
+.segmented button small {
+  font-family: var(--sans);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+  opacity: 0.8;
+}
+
+/* ── Selectable chip (several options, one or more picked) ── */
+.chip-choice {
+  gap: var(--s-1);
+  height: 28px;
+  padding: 0 var(--s-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 450;
+}
+.chip-choice.route {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+.chip-choice.active,
+.chip-choice[aria-pressed='true'],
+.chip-choice.selected {
+  border-color: var(--select-ring);
+  background: var(--tide-wash);
+  color: var(--tide-deep);
+  font-weight: 600;
+}
+.chip-choice.unavailable:not(.active) {
+  border-style: dashed;
+  color: var(--text-soft);
+}
+
+/* ── Status mark ─────────────────────────────────────── */
+/* A dot and a word, no ground. Done, valid and ready are plain ink dots; tide means running;
+   cinnabar means a person has to act; garnet failed; dusk queued; grey is off or finished. */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.status::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-strong);
+}
+.status.run {
+  color: var(--tide-deep);
+}
+.status.run::before {
+  background: var(--tide-deep);
+  animation: signal-pulse 1.4s ease-in-out infinite;
+}
+.status.warn {
+  color: var(--cin-strong);
+}
+.status.warn::before {
+  background: var(--cin);
+}
+.status.error {
+  color: var(--garnet);
+}
+.status.error::before {
+  background: var(--garnet);
+}
+.status.queued {
+  color: var(--dusk);
+}
+.status.queued::before {
+  background: var(--dusk);
+}
+.status.neutral {
+  color: var(--text-soft);
+}
+.status.neutral::before {
+  background: var(--text-faint);
+}
+/* The capsule is a signal of its own: it only appears on a state that waits for a person. */
+.status.pill.warn {
+  height: 24px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-pill);
+  background: var(--cin-wash);
+}
+@keyframes signal-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ── Tag ─────────────────────────────────────────────── */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin: 2px var(--s-1) 2px 0;
+  padding: 1px var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+.tag.tide {
+  border-color: color-mix(in srgb, var(--tide-deep) 45%, var(--border));
+  color: var(--tide-deep);
+}
+
+/* ── Callout ─────────────────────────────────────────── */
+/* Neutral by default: an explanation or a risk worth reading, not an alarm. .needs-action (cinnabar)
+   is for what waits on a person; .danger (garnet) for what failed. A hairline, no shadow. */
+.callout,
+#error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--note-border);
+  border-radius: var(--r-md);
+  background: var(--note-bg);
+  box-shadow: none;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+:is(.callout, #error-banner) > svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+.callout.needs-action {
+  border-color: var(--cin-border);
+  background: var(--cin-wash);
+  color: var(--cin-strong);
+}
+.callout.danger,
+#error-banner {
+  border-color: var(--garnet-border);
+  background: var(--garnet-wash);
+  color: var(--garnet);
+}
+:is(.callout.needs-action, .callout.danger, #error-banner) > svg {
+  color: inherit;
+}
+#error-banner {
+  margin-bottom: var(--s-4);
+}
+#error-banner .banner-action {
+  flex: none;
+  height: 28px;
+  margin: -2px 0 -2px auto;
+  padding: 0 var(--s-3);
+  font-size: var(--fs-sm);
+}
+
+/* ── Empty state ─────────────────────────────────────── */
+/* Left-aligned and quiet. Only a whole-page empty state is centred vertically. */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-1);
+  padding: var(--s-6) var(--s-4);
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  text-align: left;
+}
+.empty-icon {
+  display: inline-flex;
+  margin-bottom: var(--s-1);
+  color: var(--text-faint);
+}
+.empty-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.empty strong {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.empty button {
+  margin-top: var(--s-3);
+}
+.empty.compact {
+  padding: var(--s-4);
+}
+.empty.page,
+.view-content > .empty:only-child {
+  justify-content: center;
+  min-height: min(52vh, 460px);
+  max-width: 460px;
+}
+
+/* ── Copy button ─────────────────────────────────────── */
+.copy-btn {
+  gap: var(--s-1);
+  flex: none;
+  height: 28px;
+  padding: 0 var(--s-3);
+  font-size: var(--fs-sm);
+  font-weight: 450;
+  color: var(--text-muted);
+}
+.copy-btn:hover:not(:disabled) {
+  color: var(--text-strong);
+}
+.copy-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Code block ──────────────────────────────────────── */
+/* Never wraps inside a word: long lines scroll sideways. */
+.code {
+  margin: var(--s-3) 0 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--code-bg);
+  color: var(--text);
+  font: var(--fs-sm) / 1.7 var(--mono);
+  min-width: 0;
+  max-width: 100%;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  tab-size: 2;
+  max-height: 300px;
+  overflow: auto;
+}
+.code.small {
+  font-size: var(--fs-xs);
+  max-height: 200px;
+}
+.snippet {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.snippet > .code {
+  margin: 0;
+  padding-right: var(--s-4);
+}
+.snippet > .copy-btn {
+  order: -1;
+  align-self: flex-end;
+}
+
+/* ── Text link ───────────────────────────────────────── */
+/* Links are ink with a hairline underline; tide is not a link colour. */
+a.link,
+.panel-head a {
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur-quick) var(--ease);
+}
+a.link:hover,
+.panel-head a:hover {
+  text-decoration-color: currentColor;
+}

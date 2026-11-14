@@ -1,0 +1,28 @@
+/*
+ * Open Agent API developer portal — style entry. Same Möbius design language as the console
+ * (web/console.css): 墨 Ink · 纸 Paper · 潮 Tide for selection, primary actions and work in
+ * progress · 朱 Cinnabar only for states that need a person (an empty balance). Hairline borders,
+ * no shadows, no gradients. The design tokens are the console's own file (web/shared/tokens.css),
+ * so the two front ends cannot drift apart.
+ *
+ * Only @import lines live here: the order below is the cascade order. Add a rule to the file that
+ * owns its area; add a file by listing it here, before `responsive.css`, which must stay last.
+ */
+@import url('./shared/tokens.css');
+@import url('./shared/fonts.css');
+@import url('./shared/type.css');
+@import url('./shared/table.css');
+@import url('./styles/base.css');
+@import url('./styles/controls.css');
+@import url('./styles/components.css');
+@import url('./styles/site.css');
+@import url('./styles/pages.css');
+@import url('./styles/catalog.css');
+@import url('./styles/detail.css');
+@import url('./styles/code.css');
+@import url('./styles/docs.css');
+@import url('./styles/dashboard.css');
+@import url('./styles/tables.css');
+@import url('./styles/keys.css');
+@import url('./styles/runs.css');
+@import url('./styles/responsive.css');

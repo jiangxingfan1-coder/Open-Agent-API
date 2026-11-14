@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Open Agent API · Turn agents into an API</title>
+    <meta
+      name="description"
+      content="You call an agent, not a model: one with its own tools, skills, and permissions, and one call is one task. Compatible with the OpenAI, Claude, and Gemini protocols and their official SDKs. Self-hosted, Apache-2.0."
+    />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <link rel="alternate" hreflang="zh-CN" href="../" />
+    <link rel="alternate" hreflang="en" href="./" />
+    <link rel="stylesheet" href="../styles.css" />
+    <!-- Repository address (a placeholder; replace it everywhere once the public address is settled): https://github.com/jiangxingfan1-coder/Open-Agent-API -->
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-head">
+      <div class="wrap head-inner">
+        <a class="brand" href="./" aria-label="Open Agent API home">
+          <svg viewBox="40.11 43 175.78 170" aria-hidden="true">
+            <g>
+              <path d="M209.89 207L150.11 49L108.57 155" />
+              <path d="M94.7 190.38L88.19 207" />
+              <path d="M143.36 106.65A50 50 0 1 1 119.1 78.6" />
+            </g>
+          </svg>
+          <span class="brand-word" translate="no">Open Agent API</span>
+        </a>
+        <nav class="head-nav" aria-label="Site">
+          <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/README.en.md"
+            >GitHub</a
+          >
+          <a class="lang" href="../" hreflang="zh-CN" lang="zh-CN">中文</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="wrap">
+          <p class="eyebrow">Open source · Self-hosted · Apache-2.0</p>
+          <h1 class="display" id="hero-title">Turn agents into an API.</h1>
+          <p class="lede">
+            You call an agent, not a model: one with its own tools, skills, and permissions. One
+            call is one task. Compatible with the OpenAI, Claude, and Gemini protocols and their
+            official SDKs; the caller needs only a Base URL and an API key.
+          </p>
+          <div class="actions">
+            <a
+              class="btn"
+              href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/README.en.md"
+              >View on GitHub</a
+            >
+            <a
+              class="btn-quiet"
+              href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/README.en.md#running-in-three-minutes"
+              >Running in three minutes →</a
+            >
+          </div>
+          <figure class="shot-figure">
+            <div class="shot">
+              <picture>
+                <source media="(prefers-color-scheme: dark)" srcset="../assets/hero-dark-en.png" />
+                <img
+                  src="../assets/hero-light-en.png"
+                  width="2240"
+                  height="1532"
+                  alt="The Open Agent API console overview (sample data): two tasks waiting for you at the top, then task count, success rate and median duration, then recent activity and the agent list."
+                />
+              </picture>
+            </div>
+          </figure>
+        </div>
+      </section>
+
+      <section id="change-one-line" aria-labelledby="t-change">
+        <div class="wrap">
+          <p class="eyebrow">One line</p>
+          <h2 class="display" id="t-change">
+            Change one line of Base URL, and your app gains an agent that does the work
+          </h2>
+          <p class="lede section-lede">
+            The same OpenAI SDK code with only <code class="inline">base_url</code> and
+            <code class="inline">model</code> changed goes from calling a model to calling an agent.
+          </p>
+
+          <div class="compare">
+            <div class="code">
+              <div class="code-label">Python</div>
+              <pre
+                tabindex="0"
+                role="region"
+                aria-label="Python example; changed lines are marked with plus and minus"
+              ><code><span class="l">from openai import OpenAI</span><span class="l"> </span><span class="l">client = OpenAI(</span><span class="l del">    base_url="https://api.openai.com/v1",</span><span class="l del">    api_key=OPENAI_API_KEY,</span><span class="l add">    base_url="http://127.0.0.1:8787/v1",  <span class="c"># your gateway</span></span><span class="l add">    api_key="sk-oaa-…",  <span class="c"># key from the console</span></span><span class="l">)</span><span class="l"> </span><span class="l">resp = client.chat.completions.create(</span><span class="l del">    model="&lt;some-model&gt;",</span><span class="l add">    model="agent/research",  <span class="c"># the agent's call name</span></span><span class="l">    messages=[{"role": "user", "content": "Compare quotes"}],</span><span class="l">)</span><span class="l">print(resp.choices[0].message.content)</span></code></pre>
+            </div>
+            <div class="code">
+              <div class="code-label">Node.js</div>
+              <pre
+                tabindex="0"
+                role="region"
+                aria-label="Node.js example; changed lines are marked with plus and minus"
+              ><code><span class="l">import OpenAI from 'openai';</span><span class="l"> </span><span class="l">const client = new OpenAI({</span><span class="l del">  baseURL: 'https://api.openai.com/v1',</span><span class="l del">  apiKey: process.env.OPENAI_API_KEY,</span><span class="l add">  baseURL: 'http://127.0.0.1:8787/v1',  <span class="c">// your gateway</span></span><span class="l add">  apiKey: process.env.OAA_API_KEY,  <span class="c">// key from the console</span></span><span class="l">});</span><span class="l"> </span><span class="l">const resp = await client.chat.completions.create({</span><span class="l del">  model: '&lt;some-model&gt;',</span><span class="l add">  model: 'agent/research',  <span class="c">// the agent's call name</span></span><span class="l">  messages: [{ role: 'user', content: 'Compare quotes' }],</span><span class="l">});</span><span class="l">console.log(resp.choices[0].message.content);</span></code></pre>
+            </div>
+          </div>
+
+          <div class="aside">
+            <div>
+              <h3>The caller needs only three things</h3>
+              <p>
+                The service address (Base URL), the API key, and the model name. After you create a
+                key in the console, the result page lists all three, each with a copy button.
+              </p>
+              <p>
+                <code class="inline">model</code> holds the agent's call name, not the name of an
+                underlying model; which model runs behind it is declared by the publisher when the
+                agent is published.
+              </p>
+            </div>
+            <figure>
+              <div class="shot dialog">
+                <picture>
+                  <source
+                    media="(prefers-color-scheme: dark)"
+                    srcset="../assets/api-key-dark-en.png"
+                  />
+                  <img
+                    src="../assets/api-key-light-en.png"
+                    width="1120"
+                    height="870"
+                    loading="lazy"
+                    alt="The result page after creating an API key (sample data): the service address, a sample key, and the model name agent/research, each with a copy button."
+                  />
+                </picture>
+              </div>
+              <figcaption>
+                The result page after creating a key (sample data; the key is an obvious
+                placeholder).
+              </figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section id="points" aria-labelledby="t-points">
+        <div class="wrap">
+          <p class="eyebrow">What it is</p>
+          <h2 class="display" id="t-points">Not another model relay</h2>
+
+          <div class="points">
+            <div class="point">
+              <p class="num">01</p>
+              <h3>An agent, not a model</h3>
+              <p>
+                What is distributed is a complete execution unit with its own tools, skills, model
+                routes, and permissions. One call is one task: a multi-turn tool loop that produces
+                artifacts and can be resumed. No subscription pooling, and no relaying of login
+                sessions.
+              </p>
+            </div>
+            <div class="point">
+              <p class="num">02</p>
+              <h3>Three protocols, as they are</h3>
+              <p>
+                OpenAI Chat and Responses, Claude Messages, Gemini generateContent. The official
+                SDKs only need a new service address and key. The OpenAI and Anthropic SDKs have
+                standing regression tests; the Gemini SDK was checked once.
+              </p>
+            </div>
+            <div class="point">
+              <p class="num">03</p>
+              <h3>A person in the loop</h3>
+              <p>
+                An operation that needs approval stops the task at "awaiting approval", and once you
+                approve it the same task carries on. Tasks can be cancelled, resumed, and made
+                idempotent, and every task's timeline and steps can be inspected.
+              </p>
+            </div>
+          </div>
+
+          <figure class="figure">
+            <div class="shot">
+              <picture>
+                <source
+                  media="(prefers-color-scheme: dark)"
+                  srcset="../assets/inspector-dark-en.png"
+                />
+                <img
+                  src="../assets/inspector-light-en.png"
+                  width="2240"
+                  height="1214"
+                  loading="lazy"
+                  alt="The task inspector (sample data): a coding agent's task stopped at awaiting approval, expanded to show the command it wants to run, npm test, with Reject and Approve buttons at the bottom right."
+                />
+              </picture>
+            </div>
+            <figcaption>
+              A task stopped at "awaiting approval": the agent wants to run npm test on your
+              machine, and the same task continues once you approve (sample data).
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="agents" aria-labelledby="t-agents">
+        <div class="wrap">
+          <p class="eyebrow">Connections</p>
+          <h2 class="display" id="t-agents">Connected agents and protocols</h2>
+          <p class="lede section-lede">
+            Built-in agents and external agents installed on the machine can both be published as an
+            API. The difference is in depth of interaction, not in whether an agent can be
+            connected.
+          </p>
+
+          <div class="lists">
+            <div>
+              <h3>Agents</h3>
+              <ul class="rows">
+                <li>
+                  <b>Built-in agents</b
+                  ><span>Defined in OAA-Lang or JSON; approvals and caller-tool bridging</span>
+                </li>
+                <li><b>Codex</b><span>Approvals; no caller-tool bridging</span></li>
+                <li><b>Claude Code</b><span>Approvals; output streamed per message</span></li>
+                <li>
+                  <b>Antigravity</b
+                  ><span>No approvals; the only external agent validated for real so far</span>
+                </li>
+                <li><b>ACP agents</b><span>Approvals and caller-tool bridging</span></li>
+                <li><b>Your own adapter</b><span>oaa/1 over stdio, streaming, or HTTP</span></li>
+                <li>
+                  <b>A2A remote agents</b
+                  ><span>No approval bridging; resumes the same task through contextId</span>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3>Protocols</h3>
+              <ul class="rows">
+                <li>
+                  <b>OpenAI Chat</b
+                  ><span
+                    >Standing regression tests with the official openai SDK, streaming or not</span
+                  >
+                </li>
+                <li>
+                  <b>OpenAI Responses</b><span>Same; continues with previous_response_id</span>
+                </li>
+                <li>
+                  <b>Claude Messages</b
+                  ><span>Standing regression tests with the official @anthropic-ai/sdk</span>
+                </li>
+                <li>
+                  <b>Gemini</b
+                  ><span>generateContent; checked once with the official @google/genai</span>
+                </li>
+                <li><b>oaa/1 native</b><span>POST /v1/invoke</span></li>
+                <li>
+                  <b>MCP entry</b
+                  ><span>Discover and call agents; deliberately no tool for approving</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+          <p class="note">
+            The full comparison of streaming, approvals, cancellation, resume, and usage per
+            connection is in
+            <a
+              class="text-link"
+              href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/docs/adapters.md"
+              >Connecting external agents</a
+            >
+            (in Chinese). An external agent's permissions are inherited; the gateway does not
+            sandbox it.
+          </p>
+        </div>
+      </section>
+
+      <section id="platform" aria-labelledby="t-platform">
+        <div class="wrap split">
+          <div>
+            <p class="eyebrow">Developer platform</p>
+            <h2 class="display" id="t-platform">It can also be a developer platform</h2>
+            <p class="lede section-lede">
+              Click "Enable" in the console, and developers can register themselves, create their
+              own keys in a portal, and call the agents you list, billed in credits per task.
+            </p>
+            <ul class="plain-list">
+              <li>
+                <b>Self-service accounts and keys</b>: developers create and delete their own keys,
+                and their data is isolated from one another.
+              </li>
+              <li>
+                <b>Credits per task</b>: one price per task, with an optional per-token price on
+                top.
+              </li>
+              <li>
+                <b>Credits are only an accounting unit</b>: there is no real payment channel, and no
+                email is sent.
+              </li>
+              <li><b>Off by default</b>: when it is not enabled none of this exists.</li>
+            </ul>
+          </div>
+          <figure>
+            <div class="shot">
+              <picture>
+                <source media="(prefers-color-scheme: dark)" srcset="../assets/portal-dark-en.png" />
+                <img
+                  src="../assets/portal-light-en.png"
+                  width="2240"
+                  height="1132"
+                  loading="lazy"
+                  alt="The developer portal home page (sample data): the headline says you call an agent, not a model, followed by the service address and three differences."
+                />
+              </picture>
+            </div>
+            <figcaption>The developer portal home page (sample data).</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="status" aria-labelledby="t-status">
+        <div class="wrap">
+          <p class="eyebrow">Status</p>
+          <h2 class="display" id="t-status">Status and limits</h2>
+          <p class="lede section-lede">What has been done and what has not, stated plainly.</p>
+
+          <div class="status">
+            <div>
+              <h3>Done</h3>
+              <ul>
+                <li>
+                  741 tests written with node:test, including regression tests with the official
+                  OpenAI and Anthropic SDKs.
+                </li>
+                <li>
+                  One real-agent validation with Antigravity, 12 calls in all: OpenAI Chat
+                  (non-streaming and streaming), Responses continuation, Claude Messages, Gemini
+                  generateContent, cancellation, and concurrency.
+                </li>
+                <li>A one-off check with the official Gemini SDK.</li>
+                <li>
+                  Approvals, interrupt and resume, idempotency, the task inspector, and a developer
+                  platform you can enable in one click.
+                </li>
+              </ul>
+            </div>
+            <div class="todo">
+              <h3>Not yet</h3>
+              <ul>
+                <li>
+                  Codex, Claude Code, and built-in agents with a real model provider have not had
+                  end-to-end validation.
+                </li>
+                <li>Public deployment has not been validated in a real public environment.</li>
+                <li>
+                  A real payment channel: there is none, and credits are not connected to payments.
+                </li>
+                <li>
+                  The developer platform is a single gateway with SQLite; no multiple instances.
+                </li>
+                <li>
+                  The macOS installer: there is no published build, and one you build yourself is
+                  not notarized.
+                </li>
+              </ul>
+            </div>
+          </div>
+          <p class="note">
+            The tests use a local deterministic model and fixtures; they cannot prove compatibility
+            or performance with real providers. The full account is in the README's
+            <a
+              class="text-link"
+              href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/README.en.md#status-and-limits"
+              >Status and limits</a
+            >.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-foot">
+      <div class="wrap">
+        <div class="foot-inner">
+          <p>Apache-2.0 · Open Agent API</p>
+          <nav class="foot-links" aria-label="Footer">
+            <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/LICENSE"
+              >License</a
+            >
+            <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API/tree/main/docs"
+              >Documentation</a
+            >
+            <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/SECURITY.md"
+              >Security</a
+            >
+            <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/CHANGELOG.md"
+              >Changelog</a
+            >
+            <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API">GitHub</a>
+          </nav>
+        </div>
+        <p class="foot-note">
+          This page loads no external resources. The fonts Geist, Geist Mono, Instrument Serif, and
+          Noto Serif SC are licensed under SIL OFL 1.1; the license text is in
+          <a class="text-link" href="../fonts/LICENSE.txt">fonts/LICENSE.txt</a>. All screenshots
+          show sample data.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

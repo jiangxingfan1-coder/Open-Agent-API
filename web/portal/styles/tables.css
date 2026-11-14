@@ -1,0 +1,241 @@
+/* Tables, status marks, empty states, pager, inline confirmation. */
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+th {
+  padding: var(--s-3) var(--s-4) var(--s-3) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+td {
+  padding: var(--s-4) var(--s-4) var(--s-4) 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: var(--fs-md);
+  color: var(--text);
+  vertical-align: middle;
+}
+th:last-child,
+td:last-child {
+  padding-right: 0;
+}
+/* A text column after a figure column keeps its distance from the right-aligned number. */
+.data-table:not(.is-stacked) th.num + th,
+.data-table:not(.is-stacked) td.num + td {
+  padding-left: var(--s-4);
+}
+/* The shared table classes `.actions` / `.num` must not pick up the page's `.actions` button row. */
+.data-table th.actions,
+.data-table td.actions {
+  display: table-cell;
+}
+td.nowrap {
+  white-space: nowrap;
+}
+td strong {
+  font-weight: 550;
+  color: var(--text-strong);
+}
+td .sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+/* Working: tide. Done / valid: plain ink. Waiting for a person: cinnabar. Failed: garnet. */
+.status.run {
+  color: var(--tide-deep);
+}
+.status.good {
+  color: var(--text);
+}
+.status.good::before {
+  background: var(--text-strong);
+}
+.status.neutral {
+  color: var(--text-soft);
+}
+.status.warn {
+  color: var(--cin-strong);
+}
+.status.error {
+  color: var(--garnet);
+}
+.empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--s-2);
+  padding: var(--s-6) 0;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-soft);
+  font-size: var(--fs-md);
+}
+.empty strong {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.loading {
+  padding: var(--s-7) 0;
+  color: var(--text-soft);
+  font-size: var(--fs-md);
+}
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding-top: var(--s-4);
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+/* Asking again in place: the question, then the two answers, right-aligned in their cell. */
+.confirm-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s-2);
+  max-width: 100%;
+}
+.confirm-inline .ask {
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  text-align: right;
+  color: var(--text-muted);
+}
+.confirm-buttons {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s-2);
+}
+/* 响应式 — the stacked form (stack.js) replaces sideways scrolling: one entry per row, the main
+   cell on top, the others beneath it under their column name. */
+.data-table.is-stacked {
+  min-width: 0 !important;
+}
+.data-table.is-stacked,
+.data-table.is-stacked tbody {
+  display: block;
+}
+.data-table.is-stacked colgroup {
+  display: none;
+}
+.data-table.is-stacked thead {
+  display: none;
+}
+.data-table.is-stacked tr {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: var(--s-4);
+  row-gap: var(--s-2);
+  padding: var(--s-4) 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.data-table.is-stacked td {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.data-table.is-stacked td:empty {
+  display: none;
+}
+.data-table.is-stacked td::before {
+  content: attr(data-label);
+  display: block;
+  margin-bottom: 2px;
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+/* Main cell, status, and the cells that explain themselves have no label. */
+.stack-runs td:nth-child(-n + 2)::before,
+.stack-keys td:nth-child(-n + 2)::before,
+.stack-keys td:nth-child(5)::before,
+.stack-ledger td:nth-child(3)::before,
+.stack-ledger td:nth-child(4)::before,
+.stack-agents td:nth-child(1)::before {
+  content: none;
+}
+.stack-runs td:nth-child(1),
+.stack-keys td:nth-child(1) {
+  grid-column: 1 / 3;
+}
+.stack-runs td:nth-child(2),
+.stack-keys td:nth-child(2) {
+  grid-column: 3;
+  justify-self: end;
+}
+.stack-keys td:nth-child(3) {
+  grid-column: 1;
+}
+.stack-keys td:nth-child(4) {
+  grid-column: 2 / 4;
+}
+.data-table.stack-keys.is-stacked td:nth-child(5) {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+.data-table.stack-keys.is-stacked td:nth-child(5):empty {
+  display: none;
+}
+.stack-ledger td:nth-child(3) {
+  grid-column: 1 / 3;
+  grid-row: 1;
+}
+.stack-ledger td:nth-child(4) {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  font-weight: 550;
+  color: var(--text-strong);
+}
+.stack-ledger td:nth-child(1) {
+  grid-column: 1;
+  grid-row: 2;
+}
+.stack-ledger td:nth-child(2) {
+  grid-column: 2;
+  grid-row: 2;
+}
+.stack-ledger td:nth-child(5) {
+  grid-column: 3;
+  grid-row: 2;
+}
+.stack-agents td:nth-child(1) {
+  grid-column: 1 / -1;
+}
+.stack-agents td:nth-child(n + 2) {
+  grid-row: 2;
+}
+.is-stacked .confirm-inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}

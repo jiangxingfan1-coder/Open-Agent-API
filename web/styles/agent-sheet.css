@@ -1,0 +1,349 @@
+/* Agent sheet: invoke form, routing, capabilities, conversion tier, Agent API card. */
+.agent-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: var(--s-4);
+  align-items: start;
+  align-content: start;
+}
+#invoke-form {
+  padding: var(--s-4) var(--s-5) var(--s-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+.strategy-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.dialect-tabs {
+  display: flex;
+  width: 100%;
+}
+.dialect-tabs button {
+  flex: 1 1 0;
+  padding: 0 var(--s-2);
+  font-size: var(--fs-xs);
+}
+.run-button {
+  width: 100%;
+  height: 40px;
+  margin-top: var(--s-1);
+}
+.inline-result {
+  margin-top: var(--s-3);
+  padding: var(--s-3) var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--garnet-wash);
+  color: var(--garnet);
+  font-size: var(--fs-sm);
+}
+.agent-aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding-top: var(--s-1);
+  min-width: 0;
+}
+/* The invoke form and the aside stack once the sheet is narrow (was in responsive.css). */
+@media (max-width: 900px) {
+  .agent-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  #agent-key-btn span {
+    display: none;
+  }
+}
+/* The aside is one column of titled sections divided by hairlines; only the Agent API block is a
+   surface, because it is the thing to copy from. */
+.agent-aside > section + section,
+.agent-aside > .dev-details {
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--border-soft);
+}
+.agent-aside .section-heading h3 {
+  font-size: var(--fs-lg);
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-2);
+}
+.section-heading h3,
+.inspector-heading h3,
+.inspector-body > h3 {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.inspector-body > h3 {
+  margin: var(--s-4) 0 2px;
+}
+#route-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  padding: var(--s-1) 0 var(--s-2);
+  font-size: var(--fs-sm);
+}
+.route-selected {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+#route-candidates {
+  max-height: 300px;
+  overflow: auto;
+}
+.route-candidate {
+  padding: var(--s-3) 0;
+  font-size: var(--fs-sm);
+}
+.route-candidate + .route-candidate {
+  border-top: 1px solid var(--border-soft);
+}
+.route-candidate summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  cursor: pointer;
+  list-style: none;
+}
+.route-candidate summary::-webkit-details-marker {
+  display: none;
+}
+.route-candidate summary code {
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+}
+.route-evidence {
+  margin: var(--s-2) 0 var(--s-1);
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+.route-node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin: var(--s-2) 0;
+}
+.route-reason {
+  margin: var(--s-1) 0;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+#agent-capabilities {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--s-2);
+}
+.cap-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  font-size: var(--fs-sm);
+}
+.cap-row + .cap-row {
+  border-top: 1px solid var(--border-soft);
+}
+.cap-row > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+}
+.cap-row .tag {
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--sans);
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.endpoint-code {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+}
+.endpoint-code code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+}
+/* AgentAPI conversion tier: how faithfully the agent's own protocol converts. */
+.tag.conv {
+  font-family: var(--sans);
+  font-weight: 600;
+}
+#agent-conversion-note {
+  margin-top: var(--s-3);
+}
+.conversion-list {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: var(--s-2) var(--s-4);
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+.conversion-list dt {
+  color: var(--text-soft);
+}
+.conversion-list dd {
+  margin: 0;
+  color: var(--text-strong);
+}
+#agent-conversion-section .section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#agent-conversion-section > small {
+  display: block;
+  margin-bottom: var(--s-2);
+}
+/* Agent sheet: header actions and the Agent API card. */
+.sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex: none;
+}
+.sheet-actions .primary.small-btn {
+  height: 32px;
+  padding: 0 var(--s-3);
+}
+/* One solid tide button per screen: "Run agent". Generating a key from here is the secondary action. */
+#agent-key-btn.primary {
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text-strong);
+  font-weight: 500;
+  box-shadow: none;
+}
+#agent-key-btn.primary:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text-strong) 30%, var(--border-strong));
+  background: var(--bg);
+}
+.agent-api-card {
+  padding: var(--s-4) var(--s-4) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+.agent-api-card .section-heading {
+  margin-bottom: var(--s-2);
+}
+/* Label above, value below with its copy button: the value gets the whole width and a long
+   calling name wraps instead of being cut off (its full text is also in the title). */
+.api-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--s-2);
+  padding: var(--s-2) 0;
+}
+.api-line + .api-line {
+  border-top: 1px solid var(--border-soft);
+}
+.api-line > span {
+  grid-column: 1 / -1;
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.api-line code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+}
+.api-line .icon-button {
+  width: 28px;
+  height: 28px;
+}
+.route-checking-hint {
+  font-size: var(--fs-sm);
+  margin-left: var(--s-2);
+}
+.dev-details {
+  margin: var(--s-3) 0;
+  border-top: 1px solid var(--border-soft);
+  padding-top: var(--s-2);
+}
+.dev-details summary {
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+  cursor: pointer;
+  user-select: none;
+  padding: var(--s-1) 0;
+}
+.dev-details[open] summary {
+  margin-bottom: var(--s-2);
+}
+.dev-details > section + section {
+  margin-top: var(--s-4);
+}
+/* The "Continue" strip: its look (hairline, neutral ground) comes from the strip in components.css; only the layout is here. */
+.continue-strip {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-4);
+}
+.continue-copy {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.continue-copy strong {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.continue-copy small {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.continue-strip > .icon-button {
+  flex: none;
+}
+.continue-pick {
+  order: 3;
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding-left: 26px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.continue-pick span {
+  flex: none;
+}
+.continue-pick select {
+  flex: 1 1 auto;
+  min-width: 0;
+}

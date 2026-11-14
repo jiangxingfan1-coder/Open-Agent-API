@@ -1,0 +1,34 @@
+/*
+ * Open Agent API console — style entry. Only @import lines live here: the order below is the
+ * cascade order (tokens, base, controls, shell, shared parts, views, dialogs, components,
+ * preferences, responsive). components.css comes after the views so the one definition of each
+ * shared component wins over the older class names a view may still use. Add a rule to the file
+ * that owns its area; add a file by listing it here, before `preferences.css` and
+ * `responsive.css`, which must stay last.
+ */
+@import url('./shared/tokens.css');
+@import url('./shared/fonts.css');
+@import url('./shared/type.css');
+@import url('./shared/table.css');
+@import url('./styles/base.css');
+@import url('./styles/controls.css');
+@import url('./styles/shell.css');
+@import url('./styles/surfaces.css');
+@import url('./styles/tables.css');
+@import url('./styles/overview.css');
+@import url('./styles/activity.css');
+@import url('./styles/agents.css');
+@import url('./styles/nodes.css');
+@import url('./styles/access.css');
+@import url('./styles/platform.css');
+@import url('./styles/platform-setup.css');
+@import url('./styles/dialogs.css');
+@import url('./styles/key-dialog.css');
+@import url('./styles/agent-sheet.css');
+@import url('./styles/runs.css');
+@import url('./styles/timeline.css');
+@import url('./styles/palette.css');
+@import url('./styles/settings.css');
+@import url('./styles/components.css');
+@import url('./styles/preferences.css');
+@import url('./styles/responsive.css');

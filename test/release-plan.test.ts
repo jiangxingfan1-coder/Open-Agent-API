@@ -1,0 +1,469 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { parse } from 'yaml';
+
+// 打包脚本的纯逻辑（scripts/release-plan.mjs、package-windows.mjs、package-actions.mjs 的越界守卫）。
+// 只读仓库内文件，不执行 swiftc / hdiutil / codesign，不写任何文件，不监听端口。
+
+type Mod = Record<string, any>;
+const load = (file: string): Promise<Mod> => import(pathToFileURL(path.resolve(file)).href);
+const plan = await load('scripts/release-plan.mjs');
+const win = await load('scripts/package-windows.mjs');
+const actions = await load('scripts/package-actions.mjs');
+const pkg = JSON.parse(await readFile('package.json', 'utf8')) as {
+  version: string;
+  engines: { node: string };
+  scripts: Record<string, string>;
+};
+const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
+
+test('参数：发布模式必须带 --node-dir、一次一个平台；本机开发模式才安装', () => {
+  assert.throws(() => plan.parseOptions(['mac', '--release']), /--node-dir/);
+  assert.throws(
+    () => plan.parseOptions(['all', '--release', '--node-dir', 'x']),
+    /一次只打一个平台/,
+  );
+  assert.throws(() => plan.parseOptions(['win', '--arch', 'arm64']), /Windows 只支持/);
+  assert.throws(() => plan.parseOptions(['mac', '--arch', 'ppc']), /macOS 只支持/);
+  assert.throws(() => plan.parseOptions(['mac', '--bogus']), /未知参数/);
+  const rel = plan.parseOptions([
+    'mac',
+    '--release',
+    '--arch',
+    'x64',
+    '--node-dir',
+    'n',
+    '--dry-run',
+  ]);
+  assert.equal(rel.release, true);
+  assert.equal(rel.dryRun, true);
+  assert.equal(rel.arch, 'x64');
+  assert.equal(rel.nodeDir, path.resolve('n'));
+  assert.equal(plan.shouldInstallLocally(rel), false);
+  const dev = plan.parseOptions(['mac'], 'arm64');
+  assert.equal(dev.arch, 'arm64');
+  assert.equal(plan.shouldInstallLocally(dev), true);
+  assert.equal(plan.parseOptions([], 'arm64').target, 'all');
+  assert.equal(
+    plan.parseOptions(['win', '--release', '--node-dir', 'n', '--node-version', 'v24.18.0'])
+      .nodeVersion,
+    '24.18.0',
+  );
+});
+
+test('产物命名与 swiftc 目标', () => {
+  assert.equal(
+    plan.artifactName('1.2.3', 'mac', 'arm64', 'dmg'),
+    'Open-Agent-API-1.2.3-macOS-arm64.dmg',
+  );
+  assert.equal(plan.artifactName('1.2.3', 'win', 'x64', 'zip'), 'Open-Agent-API-1.2.3-win-x64.zip');
+  assert.equal(plan.swiftTarget('arm64'), 'arm64-apple-macos13.0');
+  assert.equal(plan.swiftTarget('x64'), 'x86_64-apple-macos13.0');
+});
+
+test('发布目录都在仓库的 release/ 之下', () => {
+  const root = path.resolve('/repo');
+  const p = plan.releasePaths(root, 'mac', 'arm64');
+  for (const dir of [p.outDir, p.workDir]) assert.ok(dir.startsWith(path.join(root, 'release')));
+  const files = plan.nodeRuntimeFiles('win', '/n', '/out/runtime');
+  assert.deepEqual(
+    files.map((f: { to: string }) => path.basename(f.to)),
+    ['node.exe', 'LICENSE'],
+  );
+});
+
+test('engines 版本判断', () => {
+  const range = pkg.engines.node;
+  assert.equal(plan.satisfiesEngines('v24.18.0', '>=24.18.0 <25'), true);
+  assert.equal(plan.satisfiesEngines('24.20.1', '>=24.18.0 <25'), true);
+  assert.equal(plan.satisfiesEngines('v24.17.9', '>=24.18.0 <25'), false);
+  assert.equal(plan.satisfiesEngines('v25.0.0', '>=24.18.0 <25'), false);
+  assert.equal(plan.satisfiesEngines('v22.1.0', range), false);
+  assert.equal(plan.satisfiesEngines('garbage', range), false);
+});
+
+test('发布工作流里固定的 Node 运行时版本满足 engines', async () => {
+  const wf = parse(await readFile('.github/workflows/release.yml', 'utf8'));
+  const v = wf.env.NODE_RUNTIME_VERSION as string;
+  assert.match(v, /^\d+\.\d+\.\d+$/);
+  assert.equal(plan.satisfiesEngines(v, pkg.engines.node), true);
+  assert.equal(wf.permissions && Object.keys(wf.permissions).length, 0, '顶层不给权限');
+  const writers = Object.entries(
+    wf.jobs as Record<string, { permissions?: Record<string, string> }>,
+  )
+    .filter(([, job]) => job.permissions?.contents === 'write')
+    .map(([name]) => name);
+  assert.deepEqual(writers, ['release'], '只有创建草稿 Release 的作业有 contents: write');
+});
+
+test('进包依赖：排除专有、开发与其他平台的包', () => {
+  const mac = plan.payloadPackages(lock, 'mac', 'arm64');
+  const names = (list: { name: string }[]) => new Set(list.map((p) => p.name));
+  const inc = names(mac.include);
+  const reasons = new Map(
+    mac.exclude.map((e: { name: string; reason: string }) => [e.name, e.reason]),
+  );
+  assert.ok(!inc.has('@anthropic-ai/claude-agent-sdk'));
+  assert.equal(reasons.get('@anthropic-ai/claude-agent-sdk'), 'proprietary');
+  assert.equal(reasons.get('@anthropic-ai/claude-agent-sdk-darwin-arm64'), 'proprietary');
+  // @anthropic-ai/sdk 在锁文件里只是专有 SDK 的 peer 依赖（另作开发依赖），排除后不可达。
+  assert.equal(reasons.get('@anthropic-ai/sdk'), 'unused');
+  for (const dev of ['typescript', 'prettier', 'openai'])
+    assert.equal(reasons.get(dev), 'dev', dev);
+  for (const runtime of ['fastify', 'ws', 'yaml', 'zod', '@anthropic-ai/sandbox-runtime'])
+    assert.ok(inc.has(runtime), runtime);
+  if (reasons.has('@koromix/koffi-win32-x64') || inc.has('@koromix/koffi-darwin-arm64')) {
+    assert.ok(inc.has('@koromix/koffi-darwin-arm64'));
+    assert.equal(reasons.get('@koromix/koffi-win32-x64'), 'platform');
+    assert.equal(reasons.get('@koromix/koffi-darwin-x64'), 'platform');
+  }
+  const winPlan = plan.payloadPackages(lock, 'win', 'x64');
+  const winInc = names(winPlan.include);
+  if (winInc.has('@koromix/koffi-win32-x64')) assert.ok(!winInc.has('@koromix/koffi-darwin-arm64'));
+  assert.ok(!winInc.has('@anthropic-ai/claude-agent-sdk-win32-x64'));
+  for (const p of plan.topLevelPackages(mac)) assert.ok(!p.key.slice(13).includes('node_modules/'));
+});
+
+test('拷贝过滤：只留锁文件里入选的包与目标平台的预编译目录', () => {
+  const fake = {
+    packages: {
+      '': {
+        dependencies: {
+          a: '1',
+          '@s/b': '1',
+          '@anthropic-ai/claude-agent-sdk': '1',
+          'not-linux': '1',
+        },
+        optionalDependencies: { 'node-pty': '1', 'x-win': '1' },
+      },
+      'node_modules/orphan': {},
+      'node_modules/a': { dependencies: { devonly: '1' } },
+      'node_modules/a/node_modules/devonly': { dev: true },
+      'node_modules/@s/b': {},
+      'node_modules/@anthropic-ai/claude-agent-sdk': {},
+      'node_modules/node-pty': { optional: true },
+      'node_modules/x-win': { os: ['win32'], cpu: ['x64'], optional: true },
+      'node_modules/not-linux': { os: ['!linux'] },
+    },
+  };
+  const p = plan.payloadPackages(fake, 'mac', 'arm64');
+  const keep = plan.payloadFilter(p, 'mac', 'arm64');
+  assert.equal(keep('node_modules'), true);
+  assert.equal(keep('dist/src/cli.js'), true);
+  assert.equal(keep('node_modules/a/index.js'), true);
+  assert.equal(keep('node_modules/a/node_modules/devonly/index.js'), false);
+  assert.equal(keep('node_modules/@s'), true);
+  assert.equal(keep('node_modules/@s/b/x.js'), true);
+  assert.equal(keep('node_modules/@anthropic-ai'), false);
+  assert.equal(keep('node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs'), false);
+  assert.equal(keep('node_modules/x-win/index.js'), false);
+  assert.equal(keep('node_modules/not-linux/index.js'), true);
+  assert.equal(keep('node_modules/.bin/tsc'), false);
+  assert.equal(keep('node_modules/extraneous/index.js'), false);
+  assert.equal(keep('node_modules/orphan/index.js'), false, '锁文件里有但不可达');
+  assert.equal(keep('node_modules/node-pty/prebuilds/darwin-arm64/pty.node'), true);
+  assert.equal(keep('node_modules/node-pty/prebuilds/win32-x64/pty.node'), false);
+  assert.equal(keep('node_modules/a/.DS_Store'), false);
+});
+
+test('SHA256SUMS 格式与 sha256sum -c 兼容', () => {
+  assert.equal(
+    plan.sha256sumsText([
+      { file: 'b.zip', hash: '22' },
+      { file: 'a.dmg', hash: '11' },
+    ]),
+    '11  a.dmg\n22  b.zip\n',
+  );
+});
+
+test('发布模式的副作用层拒绝写 release/ 之外的路径（dry-run 也拒绝）', () => {
+  const root = path.resolve('/repo');
+  const act = actions.createActions({
+    dryRun: true,
+    rootDir: root,
+    writeRoot: path.join(root, 'release'),
+  });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    act.write(path.join(root, 'release', 'macos', 'x'), '');
+    act.exec('/usr/bin/hdiutil', ['create'], { writes: [path.join(root, 'release', 'a.dmg')] });
+    assert.throws(() => act.rm('/Applications/Open Agent API.app'), /只许写/);
+    assert.throws(
+      () => act.symlink('/x', path.join(process.env.HOME ?? '/home', '.local/bin/oaa')),
+      /只许写/,
+    );
+    assert.throws(() => act.write(path.join(root, 'release-other', 'x'), ''), /只许写/);
+    assert.throws(
+      () => act.exec('/usr/bin/ditto', ['a', 'b'], { writes: [path.join(root, '..', 'b')] }),
+      /只许写/,
+    );
+  } finally {
+    console.log = log;
+  }
+});
+
+test('Windows 启动器：版本提示与 engines 一致，cmd/vbs 只用 ASCII', () => {
+  const req = win.nodeRequirement(pkg.engines.node);
+  assert.deepEqual([req.major, req.minor, req.below], [24, 18, 25]);
+  const ascii = /^[\x00-\x7f]*$/;
+  for (const text of [
+    win.oaaCmd(req),
+    win.consoleCmd(),
+    win.desktopVbs(),
+    win.stopCmd(),
+    win.installCmd(),
+  ]) {
+    assert.match(text, ascii);
+    assert.doesNotMatch(text, /Node\.js 22/);
+  }
+  const cmd = win.oaaCmd(req);
+  assert.match(cmd, /Node\.js 24\.18\+ \(below 25\)/);
+  // 括号块里的 %ERRORLEVEL% 会在解析时提前展开：exit /b %ERRORLEVEL% 不能出现在 ( … ) 块里。
+  assert.doesNotMatch(cmd, /\([^)]*exit \/b %ERRORLEVEL%[^)]*\)/s);
+  const ps1 = win.desktopPs1(req);
+  assert.match(ps1, /Add-Type -AssemblyName System\.Windows\.Forms/);
+  assert.doesNotMatch(
+    ps1,
+    /Invoke-RestMethod[^\n]*-NoProxy/,
+    'Windows PowerShell 5.1 没有 -NoProxy',
+  );
+  assert.match(ps1, /desktop\.pid/);
+  // 首次启动由 quickstart 保证有可调用的离线示例智能体；-Wait 会连同后台网关一起等，不能用。
+  assert.match(ps1, /"quickstart", "--dir"/);
+  assert.match(ps1, /\$Qs\.WaitForExit\(\)/);
+  assert.doesNotMatch(ps1, /"quickstart"[^\n]*-Wait/);
+  assert.match(win.stopPs1(), /"stop", "--dir"/);
+  const readme = win.readmeTxt('0.0.64', req);
+  assert.ok(
+    readme.indexOf('oaa.cmd quickstart') < readme.indexOf('1. '),
+    'quickstart is the first step',
+  );
+  assert.match(win.stopPs1(), /Stop-Process/);
+});
+
+test('package.json 提供发布打包脚本', () => {
+  assert.match(pkg.scripts['package:release:mac'] ?? '', /package-all\.mjs mac --release/);
+  assert.match(pkg.scripts['package:release:win'] ?? '', /package-all\.mjs win --release/);
+});
+
+test('CHANGELOG 取版本一节作为草稿 Release 正文', async () => {
+  const text =
+    '# 变更\n\n## 未发布\n\nx\n\n## 1.2.3（2026-01-01）\n\n### 新增\n\n- a\n\n## 1.2.30\n\n- b\n';
+  assert.equal(plan.changelogSection(text, '1.2.3'), '### 新增\n\n- a');
+  assert.equal(plan.changelogSection(text, '1.2.30'), '- b');
+  assert.equal(plan.changelogSection(text, '9.9.9'), '');
+  const real = await readFile('CHANGELOG.md', 'utf8');
+  assert.notEqual(plan.changelogSection(real, pkg.version), '', '当前版本在 CHANGELOG 里有一节');
+});
+
+// ── 首跑稳定性：这些工作流从没在 GitHub 上真正跑过，能离线核对的都在这里核对 ──
+
+const workflowDir = '.github/workflows';
+const workflowFiles = (await readdir(workflowDir)).filter((f) => f.endsWith('.yml')).sort();
+const workflowText = new Map<string, string>();
+const workflows = new Map<string, any>();
+for (const f of workflowFiles) {
+  const text = await readFile(path.join(workflowDir, f), 'utf8');
+  workflowText.set(f, text);
+  workflows.set(f, parse(text));
+}
+
+test('工作流里每个 action 都固定到 40 位提交哈希，行尾注明版本号', () => {
+  let count = 0;
+  for (const [file, text] of workflowText) {
+    for (const line of text.split('\n')) {
+      const m = /^\s*(?:-\s+)?uses:\s*(\S+)(.*)$/.exec(line);
+      if (!m) continue;
+      count++;
+      assert.match(m[1]!, /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/, `${file}: ${line.trim()}`);
+      assert.match(m[2]!, /^\s+#\s+v\d+\.\d+\.\d+\s*$/, `${file}: 缺少版本号注释：${line.trim()}`);
+    }
+  }
+  assert.ok(count >= 10, '至少应扫到十来处 uses');
+});
+
+test('每个作业都有 timeout-minutes（避免卡死耗光额度），且不超过 60 分钟', () => {
+  for (const [file, wf] of workflows)
+    for (const [name, job] of Object.entries(wf.jobs as Record<string, any>)) {
+      assert.equal(typeof job['timeout-minutes'], 'number', `${file}:${name} 缺少 timeout-minutes`);
+      assert.ok(job['timeout-minutes'] > 0 && job['timeout-minutes'] <= 60, `${file}:${name}`);
+    }
+});
+
+test('运行器标签不用已退役的系统镜像', () => {
+  // macos-14 已于 2026-11-02 从 GitHub Actions 退役（actions/runner-images 的 README 与 issue 15226）。
+  const retired = new Set([
+    'macos-11',
+    'macos-12',
+    'macos-13',
+    'macos-14',
+    'ubuntu-18.04',
+    'ubuntu-20.04',
+    'windows-2016',
+    'windows-2019',
+  ]);
+  for (const [file, wf] of workflows)
+    for (const [name, job] of Object.entries(wf.jobs as Record<string, any>)) {
+      const labels: string[] = [];
+      const runsOn = job['runs-on'];
+      if (typeof runsOn === 'string' && !runsOn.includes('${{')) labels.push(runsOn);
+      for (const e of job.strategy?.matrix?.include ?? []) if (e.runner) labels.push(e.runner);
+      for (const label of job.strategy?.matrix?.os ?? []) labels.push(label);
+      assert.ok(labels.length > 0, `${file}:${name} 没有可核对的运行器标签`);
+      for (const l of labels) assert.ok(!retired.has(l), `${file}:${name} 用了已退役的 ${l}`);
+    }
+});
+
+test('发布矩阵：字段齐全、被引用的字段都存在、与打包脚本的命名与目录一致', () => {
+  const wf = workflows.get('release.yml');
+  const build = wf.jobs.build;
+  const include = build.strategy.matrix.include as Record<string, string>[];
+  assert.deepEqual(
+    include.map((e) => `${e.platform}-${e.arch}`),
+    ['mac-arm64', 'mac-x64', 'win-x64'],
+  );
+  const keys = new Set(include.flatMap((e) => Object.keys(e)));
+  for (const e of include)
+    assert.deepEqual(Object.keys(e).sort(), [...keys].sort(), JSON.stringify(e));
+  // build 作业里 ${{ matrix.xxx }} 引用的每个字段都得在每个 include 项里有定义。
+  const buildText = JSON.stringify(build) + JSON.stringify(wf.jobs.build.name);
+  const used = new Set([...buildText.matchAll(/matrix\.(\w+)/g)].map((m) => m[1]!));
+  for (const k of used) assert.ok(keys.has(k), `矩阵没有字段 ${k}`);
+  for (const k of keys) assert.ok(used.has(k) || k === 'platform', `矩阵字段 ${k} 没被用到`);
+  for (const e of include) {
+    const arch = e.arch;
+    assert.equal(e.node_dist, e.platform === 'mac' ? `darwin-${arch}` : `win-${arch}`);
+    assert.equal(e.node_ext, e.platform === 'mac' ? 'tar.gz' : 'zip');
+    const { outDir } = plan.releasePaths('/r', e.platform, arch);
+    assert.equal(e.out, path.basename(outDir), '上传路径要与打包脚本的输出目录一致');
+    const ext = plan.artifactName('1.0.0', e.platform, arch, e.artifact_ext).split('.').pop();
+    assert.equal(ext, e.artifact_ext);
+    assert.ok(plan[e.platform === 'mac' ? 'MAC_ARCHES' : 'WIN_ARCHES'].includes(arch));
+  }
+  // 上传的产物名要能被汇总作业的 pattern 命中；两边同一份前缀。
+  const upload = build.steps.find((st: any) => /upload-artifact@/.test(st.uses ?? ''));
+  const download = wf.jobs.release.steps.find((st: any) =>
+    /download-artifact@/.test(st.uses ?? ''),
+  );
+  assert.match(upload.with.name, /^oaa-/);
+  assert.equal(download.with.pattern, 'oaa-*');
+  assert.equal(download.with['merge-multiple'], true);
+  assert.equal(upload.with['if-no-files-found'], 'error');
+  // 打包与上传都走 bash（Windows 默认是 pwsh，里面的 bash 语法会直接报错）。
+  assert.equal(build.defaults.run.shell, 'bash');
+});
+
+test('所有 PowerShell 5.1 的步骤脚本只含 ASCII（runner 写脚本文件时不一定带 BOM，非 ASCII 会变乱码甚至变成智能引号）', () => {
+  for (const [file, wf] of workflows)
+    for (const [name, job] of Object.entries(wf.jobs as Record<string, any>))
+      for (const st of job.steps ?? [])
+        if (st.shell === 'powershell') assert.match(st.run, /^[\x00-\x7f]*$/, `${file}:${name}`);
+});
+
+test('Windows zip 用系统自带的 bsdtar，不用 PATH 里靠前的 GNU tar', () => {
+  const win32 = plan.zipCommand({
+    hostPlatform: 'win32',
+    zipPath: 'C:\\r\\release\\windows\\x.zip',
+    bundleName: 'Open-Agent-API-win-x64',
+    env: { SystemRoot: 'D:\\Windows' },
+  });
+  assert.equal(win32.cmd, 'D:\\Windows\\System32\\tar.exe');
+  assert.deepEqual(win32.args.slice(0, 3), ['-a', '-c', '-f']);
+  assert.ok(win32.args.at(-2)!.endsWith('x.zip'));
+  assert.equal(
+    plan.zipCommand({ hostPlatform: 'win32', zipPath: 'z', bundleName: 'b', env: {} }).cmd,
+    'C:\\Windows\\System32\\tar.exe',
+  );
+  const mac = plan.zipCommand({ hostPlatform: 'darwin', zipPath: 'z.zip', bundleName: 'b' });
+  assert.deepEqual([mac.cmd, mac.args], ['/usr/bin/zip', ['-r', '-q', 'z.zip', 'b']]);
+  assert.equal(
+    plan.zipCommand({ hostPlatform: 'linux', zipPath: 'z', bundleName: 'b' }).cmd,
+    'zip',
+  );
+});
+
+test('发布拷贝过滤：去掉 .DS_Store、编译出的测试与基准、source map，其余交给 node_modules 的过滤', () => {
+  const f = plan.releaseCopyFilter((rel: string) => !rel.startsWith('node_modules/x'));
+  assert.equal(f('dist/src/cli.js'), true);
+  assert.equal(f('dist/src/cli.js.map'), false);
+  assert.equal(f('dist/examples/demo.js.map'), false);
+  assert.equal(f('examples/demo.ts'), false);
+  assert.equal(f('examples/live-agents/harness.ts'), false);
+  assert.equal(f('examples/live-agents'), false);
+  assert.equal(f('examples/gemini-sdk-probe.mjs'), false);
+  assert.equal(f('examples/sample-agent.mjs'), true);
+  assert.equal(f('examples/sample-agent.json'), true);
+  assert.equal(f('examples/research.oaa'), true);
+  assert.equal(f('dist/test/a.test.js'), false);
+  assert.equal(f('dist/bench'), false);
+  assert.equal(f('dist/testing/x.js'), true);
+  assert.equal(f('web/.DS_Store'), false);
+  assert.equal(f('web/console.js'), true);
+  assert.equal(f('node_modules/x/index.js'), false);
+  assert.equal(f('node_modules/y/index.js'), true);
+});
+
+test('外部命令失败可重试（hdiutil create 在 macOS 运行器上偶发 Resource busy），次数用尽后抛出', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'oaa-retry-'));
+  try {
+    const counter = path.join(dir, 'count');
+    const script = path.join(dir, 'flaky.mjs');
+    await writeFile(
+      script,
+      `import fs from 'node:fs';
+const f = process.argv[2];
+const n = (fs.existsSync(f) ? Number(fs.readFileSync(f, 'utf8')) : 0) + 1;
+fs.writeFileSync(f, String(n));
+process.exit(n >= Number(process.argv[3]) ? 0 : 1);
+`,
+    );
+    const act = actions.createActions({ dryRun: false, rootDir: dir });
+    const log = console.log;
+    console.log = () => {};
+    try {
+      // 第 2 次成功；retries=3 够用。
+      act.exec(process.execPath, [script, counter, '2'], {
+        retries: 3,
+        retryDelayMs: 1,
+        stdio: 'ignore',
+      });
+      assert.equal(await readFile(counter, 'utf8'), '2');
+      // 默认不重试：第 1 次失败就抛。
+      await rm(counter);
+      assert.throws(() => act.exec(process.execPath, [script, counter, '2'], { stdio: 'ignore' }));
+      assert.equal(await readFile(counter, 'utf8'), '1');
+      // 次数用尽：要 5 次才成功但只给 2 次。
+      await rm(counter);
+      assert.throws(() =>
+        act.exec(process.execPath, [script, counter, '5'], {
+          retries: 2,
+          retryDelayMs: 1,
+          stdio: 'ignore',
+        }),
+      );
+      assert.equal(await readFile(counter, 'utf8'), '2');
+    } finally {
+      console.log = log;
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('版本号格式：任意 x.y.z（含 0.0.x）都能走通产物命名、CHANGELOG 取节与 engines 判断', () => {
+  assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(
+    plan.artifactName('0.0.64', 'mac', 'x64', 'dmg'),
+    'Open-Agent-API-0.0.64-macOS-x64.dmg',
+  );
+  const text = '## 0.0.6（d）\n\na\n\n## 0.0.64（d）\n\nb\n\n## v0.0.640\n\nc\n';
+  assert.equal(plan.changelogSection(text, '0.0.64'), 'b');
+  assert.equal(plan.changelogSection(text, '0.0.6'), 'a');
+  assert.equal(plan.changelogSection(text, '0.0.640'), 'c');
+  assert.equal(plan.changelogSection('## 0.0.64\r\n\r\nx\r\n', '0.0.64'), 'x');
+});

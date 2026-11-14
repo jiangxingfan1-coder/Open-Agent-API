@@ -1,0 +1,549 @@
+/* Overview: hero, KPI band, grid, list rows, needs-attention strip, getting-started checklist.
+   Every layout rule hangs off .overview, which is a size container: the two columns fold by the
+   width the page actually has (the sidebar eats ~250px), not by the window width. */
+.overview {
+  container: overview / inline-size;
+}
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-5);
+  margin-bottom: var(--s-4);
+  padding: var(--s-5) var(--s-5);
+}
+.hero-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  color: var(--text-strong);
+}
+.hero-brand .mark {
+  width: 52px;
+  height: 50px;
+}
+.hero-brand .mark g {
+  stroke-width: 9.5;
+}
+.hero-word {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: var(--fs-figure);
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+}
+.hero-slogan {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  margin-top: var(--s-2);
+  color: var(--text-muted);
+}
+.hero-slogan [lang='en'] {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: var(--fs-lg);
+}
+.hero-slogan .zh {
+  font-size: var(--fs-md);
+  letter-spacing: 0.08em;
+  color: var(--text-soft);
+}
+.hero-actions {
+  display: flex;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* KPI band: one surface, four readings. Hairlines come from clipped inset shadows,
+   so they stay correct when the grid reflows to two columns. */
+.overview .kpi-band {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: var(--s-4);
+  overflow: hidden;
+}
+.kpi {
+  position: relative;
+  min-width: 0;
+  padding: var(--s-4) var(--s-5) var(--s-4);
+  box-shadow:
+    -1px 0 0 var(--border-soft),
+    0 -1px 0 var(--border-soft);
+}
+.kpi-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.kpi-name {
+  flex: none;
+}
+.kpi-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+.kpi-value {
+  margin-top: var(--s-3);
+  font-family: var(--display);
+  font-size: var(--fs-figure);
+  line-height: 1;
+  color: var(--text-strong);
+  font-variant-numeric: lining-nums tabular-nums;
+  white-space: nowrap;
+}
+.kpi.attention .kpi-value {
+  color: var(--garnet);
+}
+/* The note may take two lines; the full text is in its title. */
+.kpi-note {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin-top: var(--s-2);
+  min-height: 17px;
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+.kpi-note .live {
+  color: var(--tide-deep);
+}
+.kpi .spark {
+  position: absolute;
+  top: 42px;
+  right: var(--s-5);
+  width: 36%;
+  max-width: 116px;
+  height: 28px;
+  overflow: visible;
+}
+.spark-line {
+  fill: none;
+  stroke: var(--tide-deep);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.spark-area {
+  fill: var(--tide);
+  opacity: 0.16;
+}
+.kpi-meter {
+  position: absolute;
+  top: 54px;
+  right: var(--s-5);
+  width: 36%;
+  max-width: 116px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: var(--bg-subtle);
+}
+.kpi-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tide);
+}
+.overview-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-width: 0;
+}
+.overview .overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: var(--s-4);
+  align-items: start;
+}
+.overview-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-width: 0;
+}
+.list-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-3);
+  height: auto;
+  min-height: 64px;
+  padding: var(--s-3) var(--s-2);
+  margin: 0 -8px;
+  width: calc(100% + 16px);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  text-align: left;
+  font-weight: 400;
+}
+.list-row:hover:not(:disabled) {
+  background: var(--bg-panel);
+}
+.list-row + .list-row {
+  box-shadow: inset 0 1px 0 var(--border-soft);
+}
+.list-row:hover + .list-row,
+.list-row:hover {
+  box-shadow: none;
+}
+.row-title {
+  display: block;
+  font-size: var(--fs-md);
+  font-weight: 550;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-end {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s-1);
+}
+.row-end .muted {
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.capacity {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-3) 0;
+}
+.capacity + .capacity {
+  border-top: 1px solid var(--border-soft);
+}
+.capacity-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  font-size: var(--fs-sm);
+}
+.capacity-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.capacity-head strong {
+  flex: none;
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+.bar {
+  height: 5px;
+  border-radius: var(--r-pill);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+.bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tide);
+  min-width: 2px;
+}
+.endpoint-mini {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+}
+.endpoint-mini code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+}
+.side-note {
+  margin-top: var(--s-3);
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+  line-height: 1.7;
+}
+/* Needs attention: the only block on this page that is waiting on a person, so it is the only one
+   with a cinnabar edge. Inside, the status word is cinnabar and the actions stay ink. */
+.attention {
+  position: relative;
+  margin-bottom: var(--s-4);
+  padding: var(--s-3) var(--s-4) var(--s-2) var(--s-5);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+.attention::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--cin);
+}
+.attention-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.attention-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-2);
+  font-size: var(--fs-md);
+}
+.attention-title svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-strong);
+}
+.attention-title strong {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.attention-title .muted {
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.attention-head .link,
+.attention-go {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.attention-head .link svg,
+.attention-go svg {
+  width: 14px;
+  height: 14px;
+}
+.attention-list {
+  margin-top: var(--s-1);
+}
+.attention-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--s-3);
+  width: calc(100% + 16px);
+  height: auto;
+  margin: 0 -8px;
+  padding: var(--s-3) var(--s-2);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  font-weight: 400;
+  text-align: left;
+}
+.attention-row + .attention-row {
+  box-shadow: inset 0 1px 0 var(--border-soft);
+}
+.attention-row:hover:not(:disabled) {
+  background: var(--bg-panel);
+  box-shadow: none;
+}
+.attention-text {
+  min-width: 0;
+}
+.attention-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+.attention-meta .muted {
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+.attention-go {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.attention-row:hover .attention-go span {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* Getting started: one surface, four hairline-divided rows. */
+.checklist {
+  margin-bottom: var(--s-4);
+  padding: var(--s-4) var(--s-5) var(--s-2);
+}
+.checklist-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.checklist-head p {
+  margin-top: 3px;
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.progress {
+  height: 3px;
+  margin: var(--s-3) 0 var(--s-1);
+  border-radius: var(--r-pill);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+.progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tide);
+  transition: width var(--dur-enter) var(--ease);
+}
+.check-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.check-step {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+}
+.check-step + .check-step {
+  border-top: 1px solid var(--border-soft);
+}
+.check-step > svg {
+  color: var(--text-faint);
+}
+.check-step.done > svg {
+  color: var(--text-strong);
+}
+.check-copy strong {
+  display: block;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.check-step.done .check-copy strong {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.check-copy p {
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+.check-step button {
+  height: 28px;
+  padding: 0 var(--s-3);
+  font-size: var(--fs-sm);
+}
+/* Responsive */
+@container overview (max-width: 819px) {
+  .overview .overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Agents on the left, capacity and quick access stacked on the right: the page stays one
+     screen shorter than a single column, and the main reading order is unchanged. */
+  .overview .overview-side {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .overview .overview-side > :first-child {
+    grid-row: span 2;
+  }
+}
+/* Four readings stay in one row down to ~640px; below ~900px the little charts no longer fit. */
+@container overview (min-width: 640px) and (max-width: 899px) {
+  .kpi {
+    padding-inline: var(--s-4);
+  }
+  .kpi .spark,
+  .kpi-meter {
+    display: none;
+  }
+}
+@container overview (max-width: 639px) {
+  .overview .kpi-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kpi {
+    padding-inline: var(--s-5);
+  }
+}
+@container overview (max-width: 599px) {
+  .overview .overview-side {
+    display: flex;
+    align-items: stretch;
+  }
+  .attention-meta {
+    display: none;
+  }
+  .attention-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .check-step {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+  .check-step button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+@container overview (max-width: 459px) {
+  .kpi {
+    padding-inline: var(--s-4);
+  }
+  .kpi-value {
+    font-size: 28px;
+  }
+  .kpi .spark,
+  .kpi-meter {
+    display: none;
+  }
+}
+/* Phones: the hero stacks (these four rules used to sit in responsive.css). */
+@media (max-width: 640px) {
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .hero-actions {
+    justify-content: flex-start;
+  }
+  .hero-word {
+    font-size: 28px;
+  }
+}

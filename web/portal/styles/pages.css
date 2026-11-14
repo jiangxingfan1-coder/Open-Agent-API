@@ -1,0 +1,155 @@
+/* Page frame: display type, section heads, hero, endpoint, differences. */
+main {
+  flex: 1;
+}
+main:focus,
+main:focus-visible {
+  outline: none;
+}
+.page {
+  padding-block: var(--s-7) calc(var(--s-7) * 2);
+}
+.page > * + * {
+  margin-top: var(--s-7);
+}
+.display {
+  font-family: var(--display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+:root[lang^='zh'] .display {
+  font-family: var(--display-zh);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+h1.display {
+  font-size: clamp(32px, 5.2vw, var(--fs-hero));
+  line-height: 1.16;
+}
+h2.display {
+  font-size: clamp(22px, 3vw, var(--fs-page));
+  line-height: 1.25;
+}
+.lede {
+  max-width: 62ch;
+  font-size: var(--fs-lg);
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+/* A line above the headline. Capitals only where capitals read as a label (English). */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  color: var(--text-soft);
+}
+:root[lang='en'] .eyebrow {
+  text-transform: uppercase;
+}
+/* Instrument Serif is a narrow face: at the 18px section size and 28px page size it looks thin
+   and small next to Latin body text, so English titles are a third larger (24px, 34px). */
+:root[lang='en'] .section-head h2,
+:root[lang='en'] .doc-section h2 {
+  font-size: calc(var(--fs-xl) * 4 / 3);
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+:root[lang='en'] .page-head h1,
+:root[lang='en'] .detail-head h1,
+:root[lang='en'] .run-head h1,
+:root[lang='en'] .auth h1 {
+  font-size: calc(var(--fs-page) * 1.2);
+  line-height: 1.2;
+}
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-4);
+  padding-bottom: var(--s-4);
+  margin-bottom: var(--s-1);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.section-head p {
+  font-size: var(--fs-md);
+  color: var(--text-soft);
+}
+.page-head {
+  display: grid;
+  gap: var(--s-3);
+}
+.page-head p {
+  max-width: 64ch;
+  color: var(--text-muted);
+}
+.actions {
+  display: flex;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+/* Hero */
+.hero {
+  display: grid;
+  gap: var(--s-5);
+  padding-top: var(--s-5);
+}
+.hero .lede {
+  margin-top: -4px;
+}
+.endpoint {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  max-width: 560px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-4);
+}
+.endpoint-label {
+  flex: none;
+  padding-right: var(--s-3);
+  margin-right: 2px;
+  border-right: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.endpoint code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+}
+/* Differences: three columns separated by hairlines. */
+.diff {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.diff > div {
+  padding: var(--s-5) var(--s-6) var(--s-2) 0;
+}
+.diff > div + div {
+  padding-left: var(--s-5);
+  border-left: 1px solid var(--border);
+}
+.diff .num {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.diff h3 {
+  margin: var(--s-3) 0 var(--s-2);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.diff p {
+  max-width: 62ch;
+  font-size: var(--fs-md);
+  line-height: 1.7;
+  color: var(--text-muted);
+}

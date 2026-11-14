@@ -1,0 +1,86 @@
+{
+  "_说明": "演示视频里出现的全部文案与仓库地址都在这里，改完重新运行 render.mjs 即可（只会重画受影响的镜头）。{agent} 会被替换成录制时的智能体名称。",
+  "repo_url": "github.com/jiangxingfan1-coder/Open-Agent-API",
+  "brand": "Open Agent API",
+  "open": { "zh": "把智能体变成 API", "en": "Turn agents into APIs" },
+  "edit": { "zh": "同一段代码，只改两处", "en": "The same code. Only two things change." },
+  "edit_labels": { "baseURL": "服务地址", "model": "智能体的调用名" },
+  "run": {
+    "real": {
+      "zh": "真实调用：本机的 {agent} 智能体",
+      "en": "A real call to the {agent} agent on this machine"
+    },
+    "placeholder": {
+      "zh": "占位素材：本版的智能体是本地替身",
+      "en": "Placeholder cut: the agent here is a local stand-in"
+    },
+    "waiting": "智能体运行中",
+    "returned": "已返回",
+    "chips": { "agent": "智能体", "elapsed": "耗时", "usage": "用量", "run": "任务" }
+  },
+  "tasks": {
+    "zh": "不是模型，是任务",
+    "en": "Not a model call. A task you can inspect."
+  },
+  "approval": {
+    "wait": {
+      "zh": "任务停在“待审批”，等你批准",
+      "en": "The task pauses at “awaiting approval”."
+    },
+    "done": {
+      "zh": "批准之后，同一个任务接着做完",
+      "en": "Approve it, and the same task carries on."
+    }
+  },
+  "protocols": {
+    "zh": "三家协议原样兼容",
+    "en": "OpenAI, Claude and Gemini protocols, as they are",
+    "rows": [
+      {
+        "key": "openai",
+        "label": "OpenAI",
+        "code": "client.chat.completions.create({ model: '{id}', … })",
+        "how": "官方 openai SDK"
+      },
+      {
+        "key": "anthropic",
+        "label": "Claude",
+        "code": "client.messages.create({ model: '{id}', … })",
+        "how": "官方 @anthropic-ai/sdk"
+      },
+      {
+        "key": "gemini",
+        "label": "Gemini",
+        "code": "POST /v1/models/{id}:generateContent",
+        "how": "线上格式的 HTTP 请求"
+      }
+    ],
+    "stats": { "elapsed": "耗时", "usage": "用量" }
+  },
+  "close": { "zh": "Apache-2.0 开源", "en": "Open source under Apache-2.0" },
+  "badges": {
+    "real": { "zh": "真实录制", "en": "Recorded for real" },
+    "placeholder": {
+      "zh": "占位素材 · 模型为本地替身",
+      "en": "Placeholder cut · the model is a local stand-in"
+    },
+    "approval": {
+      "zh": "此段模型为本地替身；审批流程为产品真实行为",
+      "en": "The model in this segment is a local stand-in; the approval flow is real product behaviour."
+    }
+  },
+  "elapsed": {
+    "exact": "实际耗时 {seconds} 秒",
+    "sped_up": "实际耗时 {seconds} 秒，画面已加速"
+  },
+  "poster": { "scene": "edit", "t": 9.4 },
+  "gif": {
+    "segments": [
+      { "scene": "edit", "from": 1.0, "to": 8.6 },
+      { "scene": "run", "from": 1.9, "to": "answer+1.8" }
+    ],
+    "max_seconds": 12,
+    "width": 960,
+    "fps": 15
+  }
+}

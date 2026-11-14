@@ -1,0 +1,291 @@
+name: Release
+
+# 推送 v* 标签（或手动触发并填写版本号）时：在 macOS arm64 / macOS x64 / Windows x64 上各打一份自带
+# Node 运行时的安装包，烟雾测试后上传，最后汇总创建「草稿」GitHub Release（不自动公开）。
+# 步骤说明见 docs/releasing.md。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（不带 v，须与 package.json 的 version 一致）'
+        required: true
+        type: string
+
+# 顶层不给任何权限，逐作业声明。
+permissions: {}
+
+env:
+  # 打进安装包的官方 Node 运行时版本：唯一定义处。须满足 package.json 的 engines.node
+  # （test/release-plan.test.ts 会核对）。
+  NODE_RUNTIME_VERSION: '24.18.0'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: 核对版本号
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - id: v
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then v="${INPUT_VERSION#v}"; else v="${REF_NAME#v}"; fi
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$v" != "$pkg" ]; then
+            echo "::error::版本 $v 与 package.json 的 $pkg 不一致"
+            exit 1
+          fi
+          node scripts/changelog-section.mjs "$v" > /dev/null
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: 打包 ${{ matrix.platform }}-${{ matrix.arch }}
+    needs: version
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 运行器标签以 actions/runner-images 的 README 为准：macos-14 已于 2026-11-02 退役；
+          # macos-26 是 arm64，macos-26-intel 是 x64（Intel 运行器）。两者同一代系统与 SDK。
+          - platform: mac
+            arch: arm64
+            runner: macos-26
+            node_dist: darwin-arm64
+            node_ext: tar.gz
+            out: macos
+            artifact_ext: dmg
+          - platform: mac
+            arch: x64
+            runner: macos-26-intel
+            node_dist: darwin-x64
+            node_ext: tar.gz
+            out: macos
+            artifact_ext: dmg
+          - platform: win
+            arch: x64
+            runner: windows-latest
+            node_dist: win-x64
+            node_ext: zip
+            out: windows
+            artifact_ext: zip
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      HAS_MACOS_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+      HAS_NOTARY: ${{ secrets.APPLE_ID != '' }}
+    steps:
+      # Windows 上 git 默认把换行转成 CRLF，prettier --check 会因此报错。
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_RUNTIME_VERSION }}
+      - run: node --version && npm --version
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: npm run format:check
+      - name: 离线测试（macOS）
+        if: matrix.platform == 'mac'
+        run: npm run test:offline
+      - name: 与打包相关的测试（Windows；完整离线测试含 POSIX 专用写法，见 docs/releasing.md）
+        if: matrix.platform == 'win'
+        run: |
+          npm run build
+          node --test --test-concurrency=1 dist/test/release-plan.test.js dist/test/claude-sdk.test.js
+
+      - name: 下载官方 Node 并用 SHASUMS256.txt 校验
+        run: |
+          base="https://nodejs.org/dist/v${NODE_RUNTIME_VERSION}"
+          name="node-v${NODE_RUNTIME_VERSION}-${{ matrix.node_dist }}"
+          file="${name}.${{ matrix.node_ext }}"
+          dir="${RUNNER_TEMP}/node-runtime"
+          mkdir -p "$dir"
+          cd "$dir"
+          curl -fsSL --retry 3 --retry-delay 3 -O "${base}/${file}"
+          curl -fsSL --retry 3 --retry-delay 3 -O "${base}/SHASUMS256.txt"
+          grep -E "  ${file}\$" SHASUMS256.txt > expected.txt
+          test "$(wc -l < expected.txt)" -eq 1
+          # 用 node 自己算 SHA-256：三个平台行为一致（Windows 的 Git Bash 里 sha256sum 有文本/二进制模式之分，macOS 上没有 sha256sum）。
+          expected="$(cut -d' ' -f1 expected.txt)"
+          actual="$(node -e "console.log(require('node:crypto').createHash('sha256').update(require('node:fs').readFileSync(process.argv[1])).digest('hex'))" "$file")"
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::${file} 的 SHA-256 不符：期望 ${expected}，实际 ${actual}"
+            exit 1
+          fi
+          echo "SHA-256 通过：${actual}  ${file}"
+          if [ "${{ matrix.node_ext }}" = "zip" ]; then
+            # Windows 运行器的 Git Bash 不一定带 unzip：依次试 unzip、7z（运行器预装）、系统自带的 bsdtar（能解 zip）。
+            if command -v unzip > /dev/null; then unzip -q "$file"
+            elif command -v 7z > /dev/null; then 7z x -y -bso0 -bsp0 "$file"
+            else "$(cygpath -u "$SYSTEMROOT")/System32/tar.exe" -xf "$file"; fi
+          else
+            tar -xzf "$file"
+          fi
+          test -f "${name}/LICENSE"
+          if [ "${{ matrix.node_ext }}" = "zip" ]; then test -f "${name}/node.exe"; else test -x "${name}/bin/node"; fi
+          echo "NODE_DIR=${dir}/${name}" >> "$GITHUB_ENV"
+
+      - name: 导入 Apple 开发者证书（可选；没有 secrets 时跳过）
+        if: matrix.platform == 'mac' && env.HAS_MACOS_CERT == 'true'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          keychain="${RUNNER_TEMP}/oaa-signing.keychain-db"
+          kpass="$(openssl rand -hex 16)"
+          printf '%s' "$MACOS_CERT_P12" | base64 --decode > "${RUNNER_TEMP}/cert.p12"
+          security create-keychain -p "$kpass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$kpass" "$keychain"
+          security import "${RUNNER_TEMP}/cert.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$kpass" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "${RUNNER_TEMP}/cert.p12"
+          echo "OAA_MACOS_SIGN_IDENTITY=${MACOS_SIGN_IDENTITY}" >> "$GITHUB_ENV"
+
+      - name: 打包（先 --dry-run 列出每一步，再真正构建）
+        run: |
+          args=(scripts/package-all.mjs "${{ matrix.platform }}" --release --arch "${{ matrix.arch }}" --node-dir "$NODE_DIR" --node-version "$NODE_RUNTIME_VERSION")
+          node "${args[@]}" --dry-run
+          node "${args[@]}"
+
+      - name: 公证并装订（可选；没有 secrets 时跳过）
+        if: matrix.platform == 'mac' && env.HAS_MACOS_CERT == 'true' && env.HAS_NOTARY == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          dmg="$(ls release/macos/*.dmg)"
+          codesign --force --timestamp --sign "$OAA_MACOS_SIGN_IDENTITY" "$dmg"
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$dmg"
+          cd release/macos && shasum -a 256 *.dmg > SHA256SUMS
+
+      - name: 烟雾测试（macOS：挂载 .dmg，用包内 Node 运行 CLI 与网关）
+        if: matrix.platform == 'mac'
+        run: |
+          mnt="${RUNNER_TEMP}/oaa-dmg"
+          dmg="$(ls release/macos/*.dmg)"
+          for i in 1 2 3; do
+            if hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt"; then break; fi
+            if [ "$i" = 3 ]; then echo "::error::hdiutil attach 连续 3 次失败"; exit 1; fi
+            sleep 5
+          done
+          trap 'hdiutil detach "$mnt" -force > /dev/null 2>&1 || true' EXIT
+          res="${mnt}/Open Agent API.app/Contents/Resources"
+          test -x "${res}/node/bin/node"
+          test -f "${res}/node/LICENSE"
+          test ! -e "${res}/app/node_modules/@anthropic-ai/claude-agent-sdk"
+          test ! -e "${res}/app/node_modules/typescript"
+          file "${res}/node/bin/node" "${mnt}/Open Agent API.app/Contents/MacOS/OpenAgentAPI"
+          codesign --verify --deep --strict "${mnt}/Open Agent API.app"
+          "${res}/node/bin/node" scripts/smoke-release.mjs --launcher "${res}/oaa" --expect-version "$VERSION"
+
+      - name: 烟雾测试（Windows：解压到含空格与中文的路径，经 oaa.cmd 运行）
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP "解压 测试"
+          $zip = Get-ChildItem release/windows/*.zip | Select-Object -First 1
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $dest -Force
+          $bundle = Join-Path $dest "Open-Agent-API-win-x64"
+          $node = Join-Path $bundle "runtime\node.exe"
+          if (-not (Test-Path -LiteralPath $node)) { throw "缺少 runtime\node.exe" }
+          if (-not (Test-Path -LiteralPath (Join-Path $bundle "runtime\LICENSE"))) { throw "缺少 runtime\LICENSE" }
+          if (Test-Path -LiteralPath (Join-Path $bundle "app\node_modules\@anthropic-ai\claude-agent-sdk")) { throw "不应带 claude-agent-sdk" }
+          & $node scripts/smoke-release.mjs --launcher (Join-Path $bundle "oaa.cmd") --expect-version $env:VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # 只检查打包脚本自己写出的 3 个 .ps1（在 ASCII 路径的组装目录里，不依赖脚本里写中文），
+      # 不递归进 app\node_modules：第三方包里的 .ps1 与本项目无关。
+      - name: 用 Windows PowerShell 5.1 检查包内 .ps1 的语法与 UTF-8 BOM
+        if: matrix.platform == 'win'
+        shell: powershell
+        run: |
+          $bundle = Join-Path $env:GITHUB_WORKSPACE "release\windows\Open-Agent-API-win-x64"
+          $files = @(Get-ChildItem -LiteralPath $bundle -Filter *.ps1) + @(Get-ChildItem -LiteralPath (Join-Path $bundle "scripts") -Filter *.ps1)
+          if ($files.Count -ne 3) { throw "expected 3 .ps1 files, found $($files.Count)" }
+          $bad = 0
+          foreach ($f in $files) {
+            $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
+            if ($bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) { $bad++; Write-Host "missing UTF-8 BOM: $($f.FullName)" }
+            $tokens = $null
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errs) | Out-Null
+            if ($errs -and $errs.Count -gt 0) { $bad++; Write-Host "$($f.FullName)"; $errs | ForEach-Object { Write-Host "  $_" } }
+            else { Write-Host "syntax ok: $($f.Name)" }
+          }
+          if ($bad) { exit 1 }
+
+      # 只上传安装包；SHA256SUMS 由最后的 release 作业统一重新生成（三个平台各有一个同名文件，
+      # 合并下载时会互相覆盖）。
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oaa-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release/${{ matrix.out }}/*.${{ matrix.artifact_ext }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: 创建草稿 Release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: oaa-*
+          path: release-assets
+          merge-multiple: true
+      - name: 汇总 SHA256SUMS
+        run: |
+          cd release-assets
+          ls -l
+          # 必须正好是 2 个 .dmg（arm64、x64）和 1 个 .zip，少一个就不要创建 Release。
+          test "$(ls -1 *.dmg | wc -l)" -eq 2
+          test "$(ls -1 *.zip | wc -l)" -eq 1
+          rm -f SHA256SUMS
+          sha256sum *.dmg *.zip > SHA256SUMS
+          cat SHA256SUMS
+      - name: 取 CHANGELOG 对应一节作为正文
+        run: node scripts/changelog-section.mjs "$VERSION" > release-notes.md
+      - name: 创建草稿（不自动公开）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          extra=(--target "$GITHUB_SHA")
+          if [ "$EVENT" = "push" ]; then extra=(--verify-tag); fi
+          gh release create "v${VERSION}" release-assets/* \
+            --draft \
+            --title "Open Agent API v${VERSION}" \
+            --notes-file release-notes.md \
+            "${extra[@]}"

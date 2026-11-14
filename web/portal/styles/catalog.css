@@ -1,0 +1,166 @@
+/* Agent catalog: hairline-divided entries, tags, search. */
+/* The grid (home page): hairlines, not stacked cards. Each cell has five parts (title, id,
+   summary, tags, price); a cell spans five rows of the grid and shares them with its row-mates
+   (subgrid), so title, summary, tags and price line up across a row whatever the text length. */
+.agent-grid {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  overflow: hidden;
+}
+.agent-grid > .cells {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 -1px -1px 0;
+}
+.agent-grid > .cells.cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.agent-cell {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 5;
+  row-gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-5);
+  border-right: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+  transition: background-color var(--dur-quick) var(--ease);
+}
+@supports not (grid-template-rows: subgrid) {
+  .agent-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+  }
+  .agent-cell .price {
+    margin-top: auto;
+  }
+}
+.agent-cell:hover {
+  background: var(--bg-panel);
+}
+.agent-cell .tags {
+  align-content: flex-start;
+  margin-top: var(--s-1);
+}
+.agent-cell .price {
+  padding-top: var(--s-2);
+}
+h3 {
+  overflow-wrap: anywhere;
+}
+.agent-cell h3,
+.agent-row h3 {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-strong);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.agent-id {
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-cell .summary,
+.agent-row .summary {
+  font-size: var(--fs-md);
+  line-height: 1.65;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* Price: one line per part, so a phrase never breaks in the middle. */
+.price {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+/* The list (catalog page; home page with one or two agents). */
+.agent-list {
+  display: grid;
+}
+.agent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.9fr) minmax(0, 0.9fr);
+  gap: var(--s-6);
+  align-items: start;
+  padding: var(--s-5) 0;
+  border-bottom: 1px solid var(--border);
+}
+.agent-row:hover h3 {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+.agent-row .agent-id {
+  margin-top: var(--s-1);
+}
+.agent-row .price {
+  justify-items: end;
+  text-align: right;
+}
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+/* What kind of agent: the one tag that is a category, not a topic. */
+.tag.kind {
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+}
+.section-head + .agent-grid {
+  margin-top: var(--s-4);
+}
+.catalog-tools {
+  padding-bottom: var(--s-4);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: var(--s-3);
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.search {
+  position: relative;
+  flex: 0 1 340px;
+  min-width: min(100%, 200px);
+}
+.search svg {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+.search input {
+  padding-left: 36px;
+  border-radius: var(--r-pill);
+}

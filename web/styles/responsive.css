@@ -1,0 +1,231 @@
+/*
+ * Responsive rules of the shell and the global parts, one block per query, wide to narrow:
+ *   901-1180  the sidebar folds into an icon rail
+ *   900       the sidebar becomes a strip above the page
+ *   640       phones
+ * Rules that only concern one view live at the end of that view's stylesheet, not here.
+ */
+
+/* ── 901–1180: icon rail ─────────────────────────────── */
+/* The collapsed preference (data-sidebar) still hides the sidebar completely: its rules are more
+   specific than these, so none of this needs to repeat the condition. A label shows as a tooltip
+   on hover or keyboard focus; it stays in the accessibility tree. */
+@media (min-width: 901px) and (max-width: 1180px) {
+  :root[data-shell='macos'] {
+    --rail-w: 80px;
+  }
+  .shell {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  }
+  .sidebar {
+    z-index: 4;
+    align-items: center;
+    padding: var(--s-4) var(--s-2);
+  }
+  .sidebar-head {
+    display: none;
+  }
+  /* macOS keeps the head row: the traffic lights sit in it (rail is wide enough to hold them). */
+  :root[data-shell='macos'] .sidebar-head {
+    display: flex;
+    padding-left: 0;
+    margin: 0 0 var(--s-3);
+  }
+  :root[data-shell='macos'] .sidebar-head .icon-button {
+    display: none;
+  }
+  .brand {
+    justify-content: center;
+    width: 100%;
+    margin-bottom: var(--s-4);
+    padding: 0;
+  }
+  .brand-word,
+  .protocol,
+  .nav > a > small,
+  .sidebar-foot .nav kbd {
+    display: none;
+  }
+  .nav,
+  .sidebar-foot {
+    width: 100%;
+  }
+  .nav-label {
+    height: 1px;
+    margin: var(--s-2) var(--s-3);
+    background: var(--border);
+    font-size: 0;
+    overflow: hidden;
+  }
+  .nav > a {
+    justify-content: center;
+    height: 40px;
+    padding: 0;
+  }
+  .nav > a > span {
+    position: absolute;
+    left: calc(100% + var(--s-2));
+    top: 50%;
+    z-index: 5;
+    padding: var(--s-1) var(--s-2);
+    border-radius: var(--r-xs);
+    background: var(--toast-bg);
+    color: var(--toast-text);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-50%);
+    transition: opacity var(--dur-quick) var(--ease);
+  }
+  .nav > a:hover > span,
+  .nav > a:focus-visible > span {
+    opacity: 1;
+  }
+  /* Running work still shows: a dot in the corner of its icon instead of the count. */
+  .nav > a > small.live {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    display: block;
+    width: 7px;
+    height: 7px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--tide-deep);
+    font-size: 0;
+  }
+}
+
+/* ── ≤900: the sidebar becomes a strip above the page ── */
+@media (max-width: 900px) {
+  .sidebar-head,
+  #expand-sidebar,
+  .sidebar-foot .nav kbd,
+  .live-status {
+    display: none !important;
+  }
+  .sidebar-foot {
+    grid-area: foot;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--s-1);
+    margin: 0;
+  }
+  .sidebar-foot .nav a {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+  .sidebar-foot .nav a span {
+    display: none;
+  }
+  .sidebar-foot .nav a.active::before {
+    display: none;
+  }
+  .shell {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
+  }
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'brand foot' 'nav nav';
+    align-items: center;
+    gap: var(--s-2) var(--s-3);
+    padding: var(--s-3) var(--s-4) var(--s-2);
+    background: color-mix(in srgb, var(--bg-app) 94%, transparent);
+    backdrop-filter: blur(10px);
+  }
+  .brand {
+    grid-area: brand;
+    margin: 0;
+    padding: 0 var(--s-1);
+  }
+  .protocol,
+  .nav-label {
+    display: none;
+  }
+  .nav {
+    grid-area: nav;
+    flex-direction: row;
+    gap: var(--s-1);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nav > a {
+    flex: none;
+    height: 34px;
+  }
+  .nav > a.active::before {
+    display: none;
+  }
+  .main {
+    margin: 0 var(--s-2) var(--s-2);
+    overflow: visible;
+  }
+  .topbar {
+    position: static;
+    padding-inline: var(--s-4);
+    background: transparent;
+    backdrop-filter: none;
+  }
+  .page {
+    padding: var(--s-1) var(--s-4) var(--s-5);
+  }
+}
+
+/* ── ≤640: phones ────────────────────────────────────── */
+@media (max-width: 640px) {
+  .search-trigger {
+    width: 32px;
+    min-width: 0;
+    padding: 0;
+    justify-content: center;
+  }
+  .search-trigger span,
+  .search-trigger kbd {
+    display: none;
+  }
+  .page-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--s-3);
+  }
+  .page-heading h1 {
+    font-size: 24px;
+  }
+  .page-foot > span:last-child {
+    display: none;
+  }
+  th,
+  td {
+    padding: var(--s-3);
+  }
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  /* Longer (English) labels: a filter strip that does not fit scrolls inside itself instead of
+     widening the page. */
+  .view-toolbar .segmented {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+}
+
+/* ── Motion ──────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,35 @@
+# Open Agent API Declarative Source (OAA-Lang 2.0)
+let PRIMARY_MODEL = "configure-your-primary-model"
+let MAX_TURNS = 16
+
+agent "agent/research" {
+  description = "Source-grounded research and multi-route synthesis"
+  engine      = kernel
+
+  route "primary" -> default/"${PRIMARY_MODEL}"              priority=0 cost=3 speed=3 tags=["reasoning", "coding", "quality"]
+  route "fast"    -> default/"configure-your-fast-model"    priority=1 cost=1 speed=5 tags=["fast", "cost"]
+
+  use builtin [list_files, read_file, write_file]
+
+  flow "inspect_workspace" {
+    description = "List workspace files and read the primary source file with fallback"
+    params {
+      primary_file: string("Primary file to read")
+      fallback_file?: string("Fallback file if primary is missing", default="README.md")
+    }
+    step listing = list_files()
+    step primary_doc = read_file(path = $input.primary_file) fallback read_file(path = $input.fallback_file) depends_on = ["listing"]
+  }
+
+  limits {
+    max_turns        = $MAX_TURNS
+    tool_concurrency = 4
+    wall_ms          = 2m
+  }
+
+  instructions """
+    Produce a concise report based on the supplied files.
+    Load the research skill first. Cite the source filenames for each factual claim.
+    Do not invent missing information. Write report.md as an artifact and summarize the result.
+  """
+}

@@ -1,0 +1,130 @@
+/* Command palette. */
+.command {
+  width: min(640px, calc(100% - 32px));
+  margin: 12vh auto auto;
+  padding: 0;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+}
+.command[open] {
+  display: flex;
+  flex-direction: column;
+  max-height: min(560px, 76vh);
+}
+.command-input {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4) var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-soft);
+}
+.command-input input:not([type='checkbox']) {
+  flex: 1;
+  padding: var(--s-2) 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--fs-lg);
+}
+.command-input input:focus {
+  box-shadow: none;
+}
+.command-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--s-2);
+  overscroll-behavior: contain;
+}
+.command-group {
+  padding: var(--s-3) var(--s-3) var(--s-1);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-soft);
+}
+.command-group:not(:first-child) {
+  margin-top: var(--s-2);
+  border-top: 1px solid var(--border-soft);
+}
+.command-item {
+  justify-content: flex-start;
+  gap: var(--s-3);
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--s-3);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text);
+  font-weight: 450;
+}
+.command-item svg {
+  color: var(--text-muted);
+}
+.command-item .label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.command-item .hint {
+  margin-left: auto;
+  padding-left: var(--s-3);
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.command-item .hint.current {
+  color: var(--text-strong);
+  font-weight: 500;
+}
+/* The keyboard highlight is a plain light fill, the same as hovering any list row. */
+.command-item[aria-selected='true'] {
+  background: var(--bg-subtle);
+  color: var(--text-strong);
+}
+.command-item[aria-selected='true'] svg {
+  color: var(--text-strong);
+}
+.command-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-6) var(--s-5);
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.command-empty svg {
+  width: 20px;
+  height: 20px;
+  margin-bottom: var(--s-2);
+  color: var(--text-faint);
+}
+.command-empty strong {
+  font-size: var(--fs-md);
+  font-weight: 550;
+  color: var(--text-strong);
+}
+.command-foot {
+  display: flex;
+  gap: var(--s-4);
+  padding: var(--s-2) var(--s-4);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.command-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+.command-foot kbd {
+  min-width: 18px;
+  height: 18px;
+  font-size: var(--fs-xs);
+}

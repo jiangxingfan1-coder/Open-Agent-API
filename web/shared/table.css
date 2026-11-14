@@ -1,0 +1,40 @@
+/*
+ * Column model of data tables (buildTable() in table.js), the same in the console and the portal.
+ * Appearance (padding, borders, type) stays with each front end; only layout and column kinds
+ * are here: fixed layout driven by <colgroup>, a scroll container instead of dropped columns,
+ * figures right-aligned in the body font, actions that never wrap.
+ */
+.table-scroll {
+  overflow-x: auto;
+}
+table.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: left;
+}
+.data-table th {
+  white-space: nowrap;
+}
+.data-table th.num,
+.data-table td.num,
+.data-table th.actions,
+.data-table td.actions {
+  text-align: right;
+}
+.data-table td.num {
+  font-family: var(--sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.data-table td.actions {
+  white-space: nowrap;
+}
+/* truncate: one line, an ellipsis where it does not fit (the full text is in the cell's title). */
+.data-table td.trunc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}

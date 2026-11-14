@@ -1,0 +1,191 @@
+/* Run inspector timeline: lanes, spans, axis, legend. */
+.timeline {
+  padding: var(--s-4) var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+.tl-chart {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 0 var(--s-3);
+}
+.tl-lanes {
+  display: grid;
+  grid-auto-rows: 26px;
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+}
+.tl-lanes span {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.tl-plot {
+  min-width: 0;
+}
+.tl-tracks {
+  position: relative;
+  display: grid;
+  grid-auto-rows: 26px;
+}
+.tl-track {
+  position: relative;
+  z-index: 1;
+}
+.tl-track + .tl-track {
+  box-shadow: inset 0 1px 0 var(--border-soft);
+}
+.tl-break {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 0;
+  border-right: 1px dashed var(--border-strong);
+  border-left: 1px dashed var(--border-strong);
+  background: repeating-linear-gradient(135deg, transparent 0 5px, var(--border-soft) 5px 6px);
+  pointer-events: none;
+}
+.tl-span {
+  position: absolute;
+  top: 5px;
+  display: flex;
+  align-items: center;
+  height: 16px;
+  min-width: 3px;
+  overflow: hidden;
+  border-radius: var(--r-xs);
+  opacity: 0.45;
+  transition: opacity var(--dur-quick) var(--ease);
+}
+.tl-span.critical,
+.tl-span:hover {
+  opacity: 1;
+}
+.tl-span.link {
+  cursor: pointer;
+}
+.tl-span.link:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--tide);
+  outline-offset: 2px;
+}
+.tl-span.critical {
+  box-shadow: inset 0 -2px 0 var(--text-strong);
+}
+.tl-span.queue,
+.swatch.tl-queue {
+  background-color: var(--chart-muted);
+}
+.tl-span.model,
+.swatch.tl-model {
+  background-color: var(--tide);
+}
+.tl-span.tool,
+.swatch.tl-tool {
+  background-color: var(--dusk);
+}
+.tl-span.approval,
+.swatch.tl-approval {
+  background-color: var(--cin);
+}
+.tl-span.subagent,
+.swatch.tl-subagent {
+  background-color: var(--text-muted);
+}
+.tl-span.native,
+.swatch.tl-native {
+  background-color: var(--tide-deep);
+}
+.tl-span.interrupted,
+.swatch.tl-interrupted,
+.tl-span.failed {
+  background-color: var(--garnet);
+}
+.swatch.tl-critical {
+  height: 9px;
+  border-radius: 1px;
+  background: var(--bg-muted);
+  box-shadow: inset 0 -2px 0 var(--text-strong);
+}
+.tl-span.cached {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 4px,
+    color-mix(in srgb, var(--bg) 30%, transparent) 4px 6px
+  );
+}
+.tl-span.uncertain {
+  outline: 1.5px dashed var(--cin);
+  outline-offset: 1px;
+}
+/* Derived from the gaps between tool batches (runs finished before turn marks existed). */
+.tl-span.estimated {
+  outline: 1px dashed var(--text-faint);
+  outline-offset: 1px;
+}
+.tl-span.open {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--bg) 22%, transparent) 6px 9px
+  );
+  background-size: 25.5px 100%;
+  animation: tl-flow 1.2s linear infinite;
+}
+@keyframes tl-flow {
+  to {
+    background-position: 25.5px 0;
+  }
+}
+.tl-label {
+  overflow: hidden;
+  padding: 0 var(--s-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--bg);
+}
+.tl-span.model .tl-label {
+  color: var(--tide-ink);
+}
+.tl-span.queue .tl-label {
+  color: var(--text-strong);
+}
+.tl-axis {
+  position: relative;
+  height: 18px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-soft);
+}
+.tl-tick {
+  position: absolute;
+  top: 3px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.tl-tick:first-child {
+  transform: none;
+}
+.tl-tick.end {
+  transform: translateX(-100%);
+}
+.tl-tick.cut {
+  color: var(--text-strong);
+}
+.tl-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  margin-top: var(--s-3);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.timeline .breakdown {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+}

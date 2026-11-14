@@ -1,0 +1,246 @@
+/* Responsive rules and reduced motion. Tables fit themselves (stack.js), so none are listed here. */
+/* Wide screens: a little more room, the same left edge for header and page. */
+@media (min-width: 1600px) {
+  .wrap {
+    max-width: 1240px;
+  }
+}
+/* The account button shows the address while there is room, then just "Account". */
+@media (max-width: 1080px) {
+  .account-trigger .acct-email {
+    display: none;
+  }
+  .account-trigger .acct-name {
+    display: inline;
+  }
+}
+@media (max-width: 900px) {
+  .diff,
+  .steps {
+    grid-template-columns: 1fr;
+    border-top: 0;
+  }
+  .diff > div,
+  .steps > li {
+    padding: var(--s-5) 0 var(--s-5);
+    border-top: 1px solid var(--border);
+  }
+  .step-link,
+  .steps > li + li .step-link {
+    padding: 0;
+  }
+  .diff > div + div,
+  .steps > li + li {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .diff > div:first-child,
+  .steps > li:first-child {
+    border-top: 0;
+  }
+  .agent-grid > .cells,
+  .agent-grid > .cells.cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-7);
+  }
+  .run-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .play-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-6);
+  }
+  .play-out .output-block {
+    flex: none;
+    min-height: 0;
+    height: min(60vh, 480px);
+  }
+}
+/* Header on a phone or a small tablet: brand and tools on one line, the links under them. The
+   links wrap rather than scroll, so no word is ever cut. */
+@media (max-width: 720px) {
+  .head-inner {
+    flex-wrap: wrap;
+    gap: 0 var(--s-3);
+    min-height: 0;
+    padding-top: var(--s-2);
+  }
+  .brand {
+    flex: 1;
+    gap: var(--s-2);
+  }
+  .brand .mark {
+    width: 24px;
+    height: 23px;
+  }
+  .brand-word {
+    font-size: var(--fs-xl);
+  }
+  .site-nav {
+    order: 3;
+    flex: 1 0 100%;
+    flex-wrap: wrap;
+    margin-inline: calc(var(--s-3) * -1);
+  }
+  .site-nav a {
+    height: 40px;
+  }
+  .site-nav a[aria-current='page']::after {
+    bottom: 0;
+  }
+  .head-tools {
+    gap: 2px;
+  }
+  .head-tools a.plain {
+    height: 36px;
+    padding: 0 var(--s-2);
+  }
+}
+@media (max-width: 640px) {
+  .wrap {
+    padding-inline: var(--s-4);
+  }
+  .page {
+    padding-block: var(--s-6) calc(var(--s-7) + var(--s-5));
+  }
+  .page > * + * {
+    margin-top: var(--s-7);
+  }
+  .agent-grid > .cells,
+  .agent-grid > .cells.cols-2 {
+    grid-template-columns: 1fr;
+  }
+  .agent-cell {
+    grid-row: span 5;
+  }
+  .agent-row {
+    grid-template-columns: 1fr;
+    gap: var(--s-2);
+  }
+  .agent-row .price {
+    justify-items: start;
+    text-align: left;
+  }
+  .balance .figure {
+    font-size: 44px;
+  }
+  .balance-side {
+    justify-content: flex-start;
+  }
+  .stats {
+    grid-template-columns: 1fr;
+  }
+  .stat {
+    padding: var(--s-4) 0;
+  }
+  .stat + .stat {
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .kv {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+  .token-line {
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--s-3) var(--s-3);
+  }
+  .token-line button {
+    align-self: flex-start;
+  }
+  .reveal {
+    padding: var(--s-4);
+  }
+  .code-block pre {
+    padding: var(--s-7) var(--s-4) var(--s-4);
+  }
+  .auth-wrap {
+    padding-block: var(--s-6) calc(var(--s-7) + var(--s-5));
+  }
+  .endpoint {
+    max-width: none;
+    flex-wrap: wrap;
+    padding-block: var(--s-2) var(--s-1);
+  }
+  .endpoint-label {
+    flex-basis: 100%;
+    padding: 0;
+    margin: 0;
+    border-right: 0;
+  }
+  .endpoint code {
+    flex-basis: 0;
+  }
+  .run-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fact {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    column-gap: var(--s-3);
+    padding: var(--s-3) 0;
+  }
+  .fact .value {
+    margin-top: 0;
+    font-size: var(--fs-md);
+  }
+  .fact .sub {
+    grid-column: 2;
+  }
+  .span {
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'rail kind dur'
+      'rail name name'
+      'rail track status';
+    column-gap: var(--s-3);
+    row-gap: var(--s-1);
+    padding: var(--s-3) 0;
+  }
+  .span:first-child::before {
+    top: 22px;
+  }
+  .span:last-child::before {
+    height: 22px;
+  }
+  .span-track {
+    margin-top: 0;
+    align-self: center;
+  }
+  .span-status {
+    justify-self: end;
+  }
+  .span-sub {
+    margin-left: 0;
+    display: block;
+  }
+  .output {
+    padding: var(--s-4) var(--s-4);
+  }
+  .foot-note {
+    margin-inline-start: 0;
+    flex-basis: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+  }
+  .live-dot {
+    animation: none;
+  }
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+@media (max-width: 640px) {
+  /* The address is the one string a visitor must read whole: let it wrap rather than cut it. */
+  .endpoint code {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+}

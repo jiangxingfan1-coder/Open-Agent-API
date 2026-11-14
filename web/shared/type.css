@@ -1,0 +1,45 @@
+/*
+ * Heading roles, defined once for the console and the portal. Three levels, no others:
+ *   page title     display serif, --fs-page   (one per page)
+ *   section title  display serif, --fs-xl     (a titled block inside a page)
+ *   panel title    sans 600,      --fs-lg     (the head of a card, panel or side block)
+ * New markup uses the role classes (.title-page, .title-section, .title-panel); the selectors
+ * below keep the existing headings on the same three roles. Layout (margins, flex) stays with
+ * the view; only type belongs here.
+ */
+.title-page,
+.page-heading h1,
+.page-head h1,
+.run-head h1,
+.auth h1 {
+  font-family: var(--title-font);
+  font-size: var(--fs-page);
+  font-weight: var(--title-weight);
+  letter-spacing: var(--title-tracking);
+  line-height: 1.3;
+  color: var(--text-strong);
+}
+.title-section,
+.section-title h2,
+.settings-section > h2,
+.checklist-head h2,
+.section-head h2,
+.doc-section h2 {
+  font-family: var(--title-font);
+  font-size: var(--fs-xl);
+  font-weight: var(--title-weight);
+  letter-spacing: var(--title-tracking);
+  line-height: 1.35;
+  color: var(--text-strong);
+}
+.title-panel,
+.panel-head h2,
+.side h2,
+.stack h2.minor,
+.form-title {
+  font-family: var(--sans);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-strong);
+}

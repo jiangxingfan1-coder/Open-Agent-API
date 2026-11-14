@@ -1,0 +1,1066 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Open Agent API</title>
+    <link rel="icon" type="image/svg+xml" href="/brand.svg" />
+    <script src="/boot.js"></script>
+    <link rel="stylesheet" href="/console.css" />
+    <script defer src="/icons.js"></script>
+    <script type="module" src="/console.js"></script>
+  </head>
+  <body>
+    <!--
+      Static text carries no copy of its own: lib/static-text.js fills it from the message
+      dictionaries before first paint. Markers: data-i18n="key" (text), data-i18n-html="key"
+      (text with <code>), data-i18n-attr="title,aria-label:key;placeholder:key2" (attributes).
+    -->
+    <div class="shell">
+      <aside class="sidebar" data-i18n-attr="aria-label:html.nav.console">
+        <div class="sidebar-head" data-drag-region>
+          <button
+            id="collapse-sidebar"
+            type="button"
+            class="icon-button"
+            data-i18n-attr="title:html.sidebar.collapseTitle;aria-label:html.sidebar.collapse"
+          >
+            <i data-lucide="panel-left-close"></i>
+          </button>
+        </div>
+        <a class="brand" href="#overview" data-i18n-attr="aria-label:html.brand.overview">
+          <svg class="mark" viewBox="40.11 43 175.78 170" aria-hidden="true">
+            <g>
+              <path d="M209.89 207L150.11 49L108.57 155" />
+              <path d="M94.7 190.38L88.19 207" />
+              <path d="M143.36 106.65A50 50 0 1 1 119.1 78.6" />
+            </g>
+          </svg>
+          <span class="brand-word" translate="no">Open Agent API</span>
+        </a>
+        <nav class="nav" data-i18n-attr="aria-label:html.nav.workspace">
+          <a href="#overview" data-view="overview"
+            ><i data-lucide="layout-dashboard"></i><span data-i18n="view.overview.title"></span
+          ></a>
+          <a href="#agents" data-view="agents"
+            ><i data-lucide="bot"></i><span data-i18n="view.agents.title"></span
+            ><small id="agent-count"></small
+          ></a>
+          <a href="#requests" data-view="requests"
+            ><i data-lucide="activity"></i><span data-i18n="view.requests.title"></span
+            ><small id="active-count"></small
+          ></a>
+          <div class="nav-label" data-i18n="view.group.runtime"></div>
+          <a href="#nodes" data-view="nodes"
+            ><i data-lucide="server"></i><span data-i18n="view.nodes.title"></span
+            ><small id="node-count"></small
+          ></a>
+          <div class="nav-label" data-i18n="view.group.connect"></div>
+          <a href="#access" data-view="access"
+            ><i data-lucide="plug"></i><span data-i18n="view.access.title"></span
+          ></a>
+          <a href="#keys" data-view="keys"
+            ><i data-lucide="key-round"></i><span data-i18n="view.keys.title"></span
+          ></a>
+          <a href="#platform" data-view="platform"
+            ><i data-lucide="store"></i><span data-i18n="view.platform.title"></span
+          ></a>
+        </nav>
+        <div class="sidebar-foot">
+          <nav class="nav" data-i18n-attr="aria-label:view.settings.title">
+            <a href="#settings" data-view="settings"
+              ><i data-lucide="settings"></i><span data-i18n="view.settings.title"></span
+              ><kbd>⌘,</kbd></a
+            >
+          </nav>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar" data-drag-region>
+          <button
+            id="expand-sidebar"
+            type="button"
+            class="icon-button"
+            data-i18n-attr="title:html.sidebar.expandTitle;aria-label:html.sidebar.expand"
+          >
+            <i data-lucide="panel-left-open"></i>
+          </button>
+          <div class="crumbs">
+            <span id="page-group"></span><span class="crumb-sep">/</span
+            ><strong id="page-crumb"></strong>
+          </div>
+          <div class="topbar-actions">
+            <button
+              id="open-command"
+              type="button"
+              class="search-trigger"
+              data-i18n-attr="aria-label:html.search.aria"
+            >
+              <i data-lucide="search"></i><span data-i18n="html.search.label"></span
+              ><kbd>⌘K</kbd>
+            </button>
+            <button
+              id="live-status"
+              type="button"
+              class="live-status"
+              data-i18n-attr="aria-label:html.live.aria"
+            >
+              <span class="dot"></span><span id="update-time"></span>
+            </button>
+            <button
+              id="refresh"
+              type="button"
+              class="icon-button"
+              data-i18n-attr="title,aria-label:common.refresh"
+            >
+              <i data-lucide="refresh-cw"></i>
+            </button>
+          </div>
+        </header>
+        <div class="page">
+          <section class="page-heading">
+            <div class="page-title-group">
+              <h1 id="page-title"></h1>
+              <p id="page-desc" class="page-desc"></p>
+            </div>
+            <div class="page-actions">
+              <button id="primary-action" type="button" class="primary">
+                <i data-lucide="plus"></i><span data-i18n="common.publishAgent"></span>
+              </button>
+            </div>
+          </section>
+          <div id="error-banner" role="alert" hidden></div>
+          <div id="view"></div>
+          <footer class="page-foot">
+            <span id="footer-status"></span>
+            <span data-i18n-html="html.footer.protocol"></span>
+          </footer>
+        </div>
+      </main>
+    </div>
+
+    <dialog id="connection-dialog" class="modal">
+      <form id="connection-form">
+        <div class="dialog-heading">
+          <div>
+            <h2 data-i18n="html.connect.title"></h2>
+            <p class="dialog-desc" data-i18n="html.connect.desc"></p>
+          </div>
+          <button
+            type="button"
+            class="icon-button close-dialog"
+            data-i18n-attr="aria-label:common.close"
+          >
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <label class="field"
+          ><span data-i18n="html.connect.keyLabel"></span
+          ><input
+            id="api-key"
+            type="password"
+            autocomplete="off"
+            data-i18n-attr="placeholder:html.connect.keyPlaceholder"
+            required
+        /></label>
+        <label class="file-row"
+          ><i data-lucide="file-key"></i><span data-i18n="html.connect.file"></span
+          ><small data-i18n-html="html.connect.fileHint"></small
+          ><input id="token-file" type="file" data-i18n-attr="aria-label:html.connect.file"
+        /></label>
+        <div class="dialog-actions">
+          <button id="disconnect" type="button" class="subtle" data-i18n="html.connect.disconnect"></button
+          ><button type="submit" class="primary">
+            <span data-i18n="html.connect.submit"></span><i data-lucide="arrow-right"></i>
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="publish-dialog" class="modal wide-modal">
+      <form id="publish-form">
+        <div class="dialog-heading">
+          <div>
+            <h2 data-i18n="common.publishAgent"></h2>
+            <p class="dialog-desc" data-i18n="html.publish.desc"></p>
+          </div>
+          <button
+            type="button"
+            class="icon-button close-dialog"
+            data-i18n-attr="aria-label:common.close"
+          >
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div class="segmented" role="group" data-i18n-attr="aria-label:html.publish.method">
+          <button
+            type="button"
+            id="native-mode"
+            class="active"
+            aria-pressed="true"
+            data-i18n="html.publish.external"
+          ></button
+          ><button
+            type="button"
+            id="oaa-mode"
+            aria-pressed="false"
+            data-i18n-attr="title:html.publish.oaaTitle"
+          >
+            OAA-Lang 2.0</button
+          ><button
+            type="button"
+            id="bundle-mode"
+            aria-pressed="false"
+            data-i18n="html.publish.bundle"
+          ></button>
+        </div>
+        <small id="publish-mode-hint" class="muted" data-i18n="html.publish.nativeHint"></small>
+        <div id="native-fields">
+          <div class="field">
+            <span data-i18n="html.publish.external"></span>
+            <div
+              id="runtime-picker"
+              class="runtime-picker"
+              role="radiogroup"
+              data-i18n-attr="aria-label:html.publish.external"
+            ></div>
+            <input id="native-engine" type="hidden" value="codex" />
+          </div>
+          <label class="field"
+            ><span data-i18n="html.publish.callName"></span
+            ><input id="native-id" value="agent/codex" required translate="no" /><small
+              id="native-id-hint"
+              data-i18n-html="html.publish.callNameHint"
+            ></small
+          ></label>
+          <div class="field">
+            <span class="field-row"
+              ><span data-i18n="html.publish.model"></span
+              ><small data-i18n="html.publish.modelHint"></small
+            ></span>
+            <div
+              id="model-picker"
+              class="model-picker"
+              role="group"
+              data-i18n-attr="aria-label:html.publish.pickModel"
+            ></div>
+            <div class="model-custom">
+              <input
+                id="model-custom"
+                type="text"
+                data-i18n-attr="placeholder:html.publish.modelCustom"
+                autocomplete="off"
+                spellcheck="false"
+                translate="no"
+              /><button type="button" id="model-add" class="subtle small-btn">
+                <i data-lucide="plus"></i><span data-i18n="common.add"></span>
+              </button>
+            </div>
+            <input id="native-models" type="hidden" value="default" />
+          </div>
+          <div>
+            <label class="inline-check"
+              ><input id="publish-then-key" type="checkbox" checked /><span
+                data-i18n="html.publish.thenKey"
+              ></span
+            ></label>
+          </div>
+          <div>
+            <label class="inline-check"
+              ><input id="publish-auto-approve" type="checkbox" /><span
+                data-i18n="html.publish.autoApprove"
+              ></span
+            ></label>
+          </div>
+          <p id="publish-auto-approve-note" class="callout" hidden>
+            <i data-lucide="shield-alert"></i
+            ><span data-i18n="html.publish.autoApproveNote"></span>
+          </p>
+          <p class="callout">
+            <i data-lucide="shield-alert"></i
+            ><span data-i18n="html.publish.externalNote"></span>
+          </p>
+        </div>
+        <div id="oaa-fields" hidden>
+          <div class="oaa-studio-bar">
+            <span class="field-label" data-i18n-html="html.publish.oaaSource"></span>
+            <button type="button" id="oaa-verify-btn" class="subtle small-btn">
+              <i data-lucide="sparkles"></i><span data-i18n="html.publish.oaaVerify"></span>
+            </button>
+          </div>
+          <textarea
+            id="oaa-source-editor"
+            class="oaa-editor"
+            rows="11"
+            spellcheck="false"
+            translate="no"
+          ></textarea>
+          <pre id="oaa-compile-output" class="code small" translate="no" data-i18n="html.publish.oaaIdle"></pre>
+        </div>
+        <div id="bundle-fields" hidden>
+          <label class="field"
+            ><span data-i18n="html.publish.bundleJson"></span
+            ><input id="bundle-file" type="file" accept="application/json,.json"
+          /></label>
+          <pre id="bundle-preview" class="code small" translate="no" data-i18n="html.publish.bundleNone"></pre>
+        </div>
+        <div class="dialog-actions">
+          <span id="publish-error" class="form-error" role="alert"></span
+          ><button type="submit" class="primary">
+            <i data-lucide="upload"></i><span data-i18n="html.publish.submit"></span>
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="key-dialog" class="modal wide-modal key-modal">
+      <form id="key-form" novalidate>
+        <div class="dialog-heading">
+          <div>
+            <h2 id="key-dialog-title" data-i18n="common.createKey"></h2>
+            <p class="dialog-desc" id="key-dialog-desc" data-i18n="html.key.desc"></p>
+          </div>
+          <button
+            type="button"
+            class="icon-button close-dialog"
+            data-i18n-attr="aria-label:common.close"
+          >
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div id="key-step-config">
+          <section class="key-section">
+            <div class="key-section-head">
+              <span class="step-num">1</span>
+              <strong data-i18n="html.key.chooseAgents"></strong>
+              <div class="segmented small" role="group" data-i18n-attr="aria-label:html.key.scope">
+                <button
+                  type="button"
+                  data-agent-mode="pick"
+                  class="active"
+                  aria-pressed="true"
+                  data-i18n="html.key.specific"
+                ></button
+                ><button
+                  type="button"
+                  data-agent-mode="all"
+                  aria-pressed="false"
+                  data-i18n="common.allAgents"
+                ></button>
+              </div>
+            </div>
+            <div id="key-agent-pick">
+              <label class="search key-agent-search"
+                ><i data-lucide="search"></i
+                ><input
+                  id="key-agent-search"
+                  type="search"
+                  data-i18n-attr="placeholder,aria-label:html.key.searchAgents"
+                  autocomplete="off"
+              /></label>
+              <div
+                id="key-agent-list"
+                class="key-agent-list"
+                role="group"
+                data-i18n-attr="aria-label:html.key.accessible"
+              ></div>
+            </div>
+            <p id="key-agent-all" class="callout" hidden>
+              <i data-lucide="globe"></i
+              ><span data-i18n-html="html.key.allNote"></span>
+            </p>
+          </section>
+          <section class="key-section" id="key-model-section">
+            <div class="key-section-head">
+              <span class="step-num">2</span>
+              <strong data-i18n="html.key.defaultModel"></strong>
+              <small class="muted" data-i18n-html="html.key.modelHint"></small>
+            </div>
+            <div id="key-model-list" class="key-model-list"></div>
+          </section>
+          <section class="key-section">
+            <div class="key-section-head">
+              <span class="step-num" id="key-step-3">3</span>
+              <strong data-i18n="html.key.nameAndScopes"></strong>
+            </div>
+            <div class="form-grid key-meta">
+              <label class="field"
+                ><span data-i18n="html.key.name"></span
+                ><input id="key-name" required data-i18n-attr="placeholder:html.key.namePlaceholder"
+              /></label>
+              <label class="field"
+                ><span data-i18n="html.key.expiry"></span
+                ><select id="key-expiry">
+                  <option value="0" data-i18n="html.key.never"></option>
+                  <option value="7" data-i18n="html.key.days7"></option>
+                  <option value="30" data-i18n="html.key.days30"></option>
+                  <option value="90" data-i18n="html.key.days90"></option>
+                  <option value="365" data-i18n="html.key.year1"></option>
+                </select></label
+              >
+            </div>
+            <div class="scope-row">
+              <div
+                class="segmented small"
+                id="scope-presets"
+                role="group"
+                data-i18n-attr="aria-label:html.key.presets"
+              >
+                <button
+                  type="button"
+                  data-preset="invoke"
+                  class="active"
+                  aria-pressed="true"
+                  data-i18n="html.key.presetStandard"
+                ></button
+                ><button
+                  type="button"
+                  data-preset="read"
+                  aria-pressed="false"
+                  data-i18n="html.key.presetRead"
+                ></button
+                ><button
+                  type="button"
+                  data-preset="custom"
+                  aria-pressed="false"
+                  data-i18n="html.key.presetCustom"
+                ></button>
+              </div>
+              <fieldset class="checkboxes" id="key-scopes">
+                <legend class="sr-only" data-i18n="html.key.scopesLegend"></legend>
+                <label
+                  ><input type="checkbox" name="scope" value="read" checked /><span
+                    data-i18n="scope.read"
+                  ></span></label
+                ><label
+                  ><input type="checkbox" name="scope" value="invoke" checked /><span
+                    data-i18n="scope.invoke"
+                  ></span></label
+                ><label
+                  ><input type="checkbox" name="scope" value="files" checked /><span
+                    data-i18n="scope.files"
+                  ></span></label
+                ><label
+                  ><input type="checkbox" name="scope" value="approve" /><span
+                    data-i18n="scope.approve"
+                  ></span
+                ></label>
+              </fieldset>
+            </div>
+          </section>
+          <div class="dialog-actions">
+            <span id="key-error" class="form-error" role="alert"></span
+            ><button type="submit" class="primary" id="key-submit">
+              <i data-lucide="key-round"></i><span data-i18n="common.generateKey"></span>
+            </button>
+          </div>
+        </div>
+        <div id="key-step-result" hidden>
+          <div class="key-success">
+            <span class="key-success-icon"><i data-lucide="circle-check"></i></span>
+            <div>
+              <strong id="key-result-title" data-i18n="html.key.created"></strong>
+              <p data-i18n="html.key.createdNote"></p>
+            </div>
+          </div>
+          <div class="result-item">
+            <span data-i18n="common.baseUrl"></span>
+            <div class="key-reveal">
+              <code id="key-result-base" translate="no"></code
+              ><button
+                type="button"
+                id="copy-base"
+                class="subtle small-btn copy-btn"
+                data-i18n-attr="title,aria-label:common.copyBaseUrl"
+              >
+                <i data-lucide="copy"></i><span data-i18n="common.copy"></span>
+              </button>
+            </div>
+          </div>
+          <div class="result-item">
+            <span data-i18n="html.key.apiKey"></span>
+            <div class="key-reveal">
+              <code id="new-key-value" translate="no"></code
+              ><button
+                type="button"
+                id="copy-key"
+                class="subtle small-btn copy-btn"
+                data-i18n-attr="title,aria-label:html.key.copyKey"
+              >
+                <i data-lucide="copy"></i><span data-i18n="common.copy"></span>
+              </button>
+            </div>
+          </div>
+          <div class="result-item">
+            <span
+              ><span data-i18n-html="html.key.modelName"></span>
+              <small class="muted" data-i18n="html.key.modelNameNote"></small></span
+            >
+            <div id="key-result-models" class="result-models"></div>
+          </div>
+          <div class="result-all">
+            <p id="key-result-all-hint" data-i18n="html.key.copyAllHint"></p>
+            <button
+              type="button"
+              id="copy-all"
+              class="subtle small-btn"
+              data-i18n-attr="aria-label:html.key.copyAllAria"
+            >
+              <i data-lucide="clipboard-copy"></i><span data-i18n="html.key.copyAll"></span>
+            </button>
+          </div>
+          <details class="dev-details key-snippet-fold">
+            <summary data-i18n="html.key.samples"></summary>
+            <div class="snippet-head">
+              <div
+                class="segmented small"
+                id="snippet-tabs"
+                role="group"
+                data-i18n-attr="aria-label:html.key.sampleLang"
+              >
+                <button type="button" data-lang="python" class="active" aria-pressed="true">
+                  Python</button
+                ><button type="button" data-lang="node" aria-pressed="false">Node.js</button
+                ><button type="button" data-lang="curl" aria-pressed="false">cURL</button
+                ><button
+                  type="button"
+                  data-lang="env"
+                  aria-pressed="false"
+                  data-i18n="html.key.sampleEnv"
+                ></button>
+              </div>
+              <button
+                type="button"
+                id="copy-snippet"
+                class="subtle small-btn copy-btn"
+                data-i18n-attr="title,aria-label:html.key.copySample"
+              >
+                <i data-lucide="copy"></i><span data-i18n="common.copy"></span>
+              </button>
+            </div>
+            <pre id="key-snippet" class="code" translate="no"></pre>
+          </details>
+          <div class="dialog-actions">
+            <button type="button" id="key-again" class="subtle">
+              <i data-lucide="plus"></i><span data-i18n="html.key.again"></span></button
+            ><button type="button" id="key-done" class="primary" data-i18n="common.done"></button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="agent-dialog" class="sheet">
+      <div class="sheet-heading">
+        <div class="sheet-title">
+          <span id="agent-icon" class="agent-glyph large"></span>
+          <div>
+            <div class="eyebrow" id="agent-engine"></div>
+            <h2 id="agent-title" translate="no"></h2>
+          </div>
+        </div>
+        <div class="sheet-actions">
+          <button type="button" id="agent-key-btn" class="primary small-btn">
+            <i data-lucide="key-round"></i><span data-i18n="common.createApiKey"></span>
+          </button>
+          <button
+            type="button"
+            class="icon-button close-dialog"
+            data-i18n-attr="aria-label:common.close"
+          >
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+      </div>
+      <div class="sheet-body agent-layout">
+        <form id="invoke-form">
+          <div class="strategy-header">
+            <span class="field-label" data-i18n="html.agent.prefer"></span>
+            <div
+              class="segmented small"
+              id="strategy-pills"
+              role="group"
+              data-i18n-attr="aria-label:html.agent.prefer"
+            >
+              <button
+                type="button"
+                data-strategy="auto"
+                class="active"
+                aria-pressed="true"
+                data-i18n="strategy.auto"
+              ></button>
+              <button
+                type="button"
+                data-strategy="speed"
+                aria-pressed="false"
+                data-i18n="strategy.speed"
+              ></button>
+              <button
+                type="button"
+                data-strategy="quality"
+                aria-pressed="false"
+                data-i18n="strategy.quality"
+              ></button>
+              <button
+                type="button"
+                data-strategy="cost"
+                aria-pressed="false"
+                data-i18n="strategy.cost"
+              ></button>
+            </div>
+          </div>
+          <label class="field"
+            ><span data-i18n="html.agent.modelRoute"></span><select id="model-select"></select
+          ></label>
+          <label class="field"
+            ><span data-i18n="html.agent.chain"></span
+            ><input
+              id="model-chain"
+              type="text"
+              data-i18n-attr="placeholder:html.agent.chainPlaceholder"
+              autocomplete="off"
+              translate="no"
+          /></label>
+          <label class="field" id="fallback-agent-field"
+            ><span data-i18n="html.agent.fallback"></span
+            ><select id="fallback-agent" translate="no"></select
+            ><small class="muted" data-i18n="html.agent.fallbackNote"></small
+          ></label>
+          <div id="continue-strip" class="callout continue-strip" hidden>
+            <i data-lucide="corner-down-right"></i>
+            <div class="continue-copy">
+              <strong data-i18n="html.agent.continueTitle"></strong>
+              <small id="continue-text"></small>
+            </div>
+            <label class="continue-pick"
+              ><span data-i18n="html.agent.continueBy"></span
+              ><select
+                id="continue-agent"
+                data-i18n-attr="aria-label:html.agent.continueAgent"
+                translate="no"
+              ></select
+            ></label>
+            <button
+              id="continue-clear"
+              type="button"
+              class="icon-button"
+              data-i18n-attr="title,aria-label:html.agent.continueClear"
+            >
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <label class="field">
+            <span data-i18n="html.agent.task"></span>
+            <textarea
+              autofocus
+              id="task-input"
+              rows="8"
+              data-i18n-attr="placeholder:html.agent.taskPlaceholder"
+              required
+            ></textarea>
+          </label>
+          <label class="file-row compact"
+            ><i data-lucide="paperclip"></i
+            ><span id="attachments-label" data-i18n="html.agent.addFiles"></span
+            ><input id="input-files" type="file" multiple
+          /></label>
+          <button class="primary run-button" type="submit">
+            <i data-lucide="play"></i><span data-i18n="html.agent.run"></span>
+          </button>
+          <div class="inline-result" id="invoke-result" role="alert" hidden></div>
+        </form>
+        <aside class="agent-aside">
+          <section class="agent-api-card">
+            <div class="section-heading">
+              <h3 translate="no">Agent API</h3>
+              <span class="muted" data-i18n="html.agent.follows"></span>
+            </div>
+            <div class="api-line">
+              <span data-i18n="common.baseUrl" data-i18n-attr="title:html.agent.baseUrlTitle"></span
+              ><code id="agent-api-base" translate="no"></code
+              ><button
+                type="button"
+                id="copy-agent-base"
+                class="subtle small-btn copy-btn"
+                data-i18n-attr="title,aria-label:common.copyBaseUrl"
+              >
+                <i data-lucide="copy"></i><span data-i18n="common.copy"></span>
+              </button>
+            </div>
+            <div class="api-line">
+              <span data-i18n="html.agent.callName"></span
+              ><code id="agent-api-model" translate="no"></code
+              ><button
+                type="button"
+                id="copy-agent-model"
+                class="subtle small-btn copy-btn"
+                data-i18n-attr="title,aria-label:html.agent.copyCallName"
+              >
+                <i data-lucide="copy"></i><span data-i18n="common.copy"></span>
+              </button>
+            </div>
+          </section>
+          <section>
+            <div class="section-heading">
+              <h3 data-i18n="html.agent.availability"></h3>
+              <button
+                id="refresh-route"
+                class="icon-button"
+                type="button"
+                data-i18n-attr="title:html.agent.availabilityTitle;aria-label:html.agent.availabilityRefresh"
+              >
+                <i data-lucide="refresh-cw"></i>
+              </button>
+            </div>
+            <div id="route-summary" role="status"></div>
+            <div id="route-candidates"></div>
+          </section>
+          <section>
+            <div class="section-heading"><h3 data-i18n="html.agent.toolsModels"></h3></div>
+            <small id="agent-tools-note" class="muted"></small>
+            <div id="agent-capabilities"></div>
+          </section>
+          <details class="dev-details">
+            <summary data-i18n="html.agent.devSummary"></summary>
+            <section id="agent-conversion-section" hidden>
+              <div class="section-heading">
+                <h3 data-i18n="html.agent.integration"></h3>
+                <span id="agent-conversion-tier"></span>
+              </div>
+              <small class="muted" data-i18n="html.agent.integrationNote"></small>
+              <dl id="agent-conversion" class="conversion-list"></dl>
+              <p id="agent-conversion-note" class="callout" hidden></p>
+            </section>
+            <section>
+              <div class="section-heading"><h3 data-i18n="html.agent.endpoints"></h3></div>
+              <div
+                class="segmented small dialect-tabs"
+                id="dialect-tabs"
+                role="group"
+                data-i18n-attr="aria-label:html.agent.dialect"
+              >
+                <button
+                  type="button"
+                  data-dialect="uap"
+                  class="active"
+                  aria-pressed="true"
+                  data-i18n-attr="title:html.agent.uapTitle"
+                >
+                  UAP/1
+                </button>
+                <button
+                  type="button"
+                  data-dialect="oaa"
+                  aria-pressed="false"
+                  data-i18n-attr="title:html.agent.oaaTitle"
+                >
+                  OAA/1
+                </button>
+                <button type="button" data-dialect="openai" aria-pressed="false">OpenAI</button>
+                <button type="button" data-dialect="claude" aria-pressed="false">Claude</button>
+                <button type="button" data-dialect="gemini" aria-pressed="false">Gemini</button>
+              </div>
+              <div class="endpoint-code">
+                <code id="endpoint-path" translate="no">POST /v1/uap</code
+                ><button
+                  type="button"
+                  id="copy-request"
+                  class="subtle small-btn copy-btn"
+                  data-i18n-attr="title,aria-label:html.agent.copyRequest"
+                >
+                  <i data-lucide="copy"></i><span data-i18n="common.copy"></span>
+                </button>
+              </div>
+            </section>
+            <section>
+              <div class="section-heading"><h3 data-i18n="html.agent.version"></h3></div>
+              <code id="agent-version" class="digest" translate="no"></code>
+            </section>
+          </details>
+        </aside>
+      </div>
+    </dialog>
+
+    <dialog id="run-dialog" class="sheet">
+      <div class="sheet-heading">
+        <div>
+          <div class="eyebrow" data-i18n="common.task"></div>
+          <h2 id="run-title" translate="no"></h2>
+        </div>
+        <button
+          class="icon-button close-dialog"
+          type="button"
+          data-i18n-attr="aria-label:common.close"
+        >
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="run-toolbar">
+        <span id="run-status"></span><code id="run-model" translate="no"></code>
+        <span id="run-usage" class="muted"></span>
+        <div class="run-commands">
+          <button
+            id="refresh-run"
+            class="icon-button"
+            type="button"
+            data-i18n-attr="title,aria-label:html.run.refresh"
+          >
+            <i data-lucide="refresh-cw"></i>
+          </button>
+          <button id="cancel-run" type="button" class="subtle">
+            <i data-lucide="square"></i><span data-i18n="common.cancel"></span>
+          </button>
+          <button id="resume-run" type="button" class="subtle" hidden>
+            <i data-lucide="rotate-ccw"></i><span data-i18n="html.run.resume"></span>
+          </button>
+          <button
+            id="continue-run"
+            type="button"
+            class="subtle"
+            data-i18n-attr="title:html.run.continueTitle"
+            hidden
+          >
+            <i data-lucide="corner-down-right"></i><span data-i18n="html.run.continue"></span>
+          </button>
+        </div>
+      </div>
+      <div class="sheet-body inspector-body">
+        <div id="run-error" class="callout danger" role="alert" hidden></div>
+        <div id="run-queue" class="callout" role="status" hidden></div>
+        <div class="inspector-heading" id="actions-heading">
+          <h3><span data-i18n="html.run.approvals"></span> <span id="action-count" class="muted"></span></h3>
+          <div class="pager">
+            <button
+              id="actions-prev"
+              class="icon-button"
+              type="button"
+              data-i18n-attr="title,aria-label:html.run.approvalsPrev"
+            >
+              <i data-lucide="chevron-left"></i></button
+            ><span id="actions-page" class="page-label"></span
+            ><button
+              id="actions-next"
+              class="icon-button"
+              type="button"
+              data-i18n-attr="title,aria-label:html.run.approvalsNext"
+            >
+              <i data-lucide="chevron-right"></i>
+            </button>
+          </div>
+        </div>
+        <div id="run-actions"></div>
+        <section id="caller-section" hidden>
+          <div class="inspector-heading">
+            <h3><span data-i18n="html.run.caller"></span> <span id="caller-count" class="muted"></span></h3>
+          </div>
+          <p class="callout" data-i18n="html.run.callerNote"></p>
+          <div id="run-caller"></div>
+        </section>
+        <section id="timeline-section" class="timeline-section" hidden>
+          <div class="inspector-heading">
+            <h3><span data-i18n="html.run.timeline"></span> <span id="timeline-summary" class="muted"></span></h3>
+          </div>
+          <div id="run-timeline" class="timeline"></div>
+        </section>
+        <div class="inspector-heading">
+          <h3><span data-i18n="html.run.output"></span> <span id="output-count" class="muted"></span></h3>
+          <div class="pager">
+            <button
+              id="download-output"
+              class="icon-button"
+              type="button"
+              data-i18n-attr="title,aria-label:html.run.download"
+            >
+              <i data-lucide="download"></i></button
+            ><button
+              id="output-prev"
+              class="icon-button"
+              type="button"
+              data-i18n-attr="title,aria-label:html.run.outputPrev"
+            >
+              <i data-lucide="chevron-left"></i></button
+            ><span id="output-page" class="page-label"></span
+            ><button
+              id="output-next"
+              class="icon-button"
+              type="button"
+              data-i18n-attr="title,aria-label:html.run.outputNext"
+            >
+              <i data-lucide="chevron-right"></i>
+            </button>
+          </div>
+        </div>
+        <pre id="run-output" class="output" translate="no"></pre>
+        <div class="inspector-heading execution-heading">
+          <h3><span data-i18n="html.run.steps"></span> <span id="step-count" class="muted"></span></h3>
+          <div class="pager">
+            <select id="step-filter" data-i18n-attr="aria-label:html.run.stepFilter">
+              <option value="" data-i18n="html.run.stepAll"></option>
+              <option value="uncertain" data-i18n="status.uncertain"></option>
+              <option value="running" data-i18n="status.running"></option>
+              <option value="failed" data-i18n="status.failed"></option>
+              <option value="completed" data-i18n="status.completed"></option>
+              <option value="pending" data-i18n="status.pending"></option></select
+            ><button
+              id="steps-prev"
+              class="icon-button"
+              type="button"
+              data-i18n-attr="title,aria-label:html.run.stepsPrev"
+            >
+              <i data-lucide="chevron-left"></i></button
+            ><span id="steps-page" class="page-label"></span
+            ><button
+              id="steps-next"
+              class="icon-button"
+              type="button"
+              data-i18n-attr="title,aria-label:html.run.stepsNext"
+            >
+              <i data-lucide="chevron-right"></i>
+            </button>
+          </div>
+        </div>
+        <div id="run-steps"></div>
+        <div class="inspector-heading">
+          <h3><span data-i18n="html.run.artifacts"></span> <span id="artifact-count" class="muted"></span></h3>
+          <div class="pager">
+            <button
+              id="artifacts-prev"
+              class="icon-button"
+              type="button"
+              data-i18n-attr="title,aria-label:html.run.artifactsPrev"
+            >
+              <i data-lucide="chevron-left"></i></button
+            ><span id="artifacts-page" class="page-label"></span
+            ><button
+              id="artifacts-next"
+              class="icon-button"
+              type="button"
+              data-i18n-attr="title,aria-label:html.run.artifactsNext"
+            >
+              <i data-lucide="chevron-right"></i>
+            </button>
+          </div>
+        </div>
+        <div id="run-artifacts"></div>
+      </div>
+    </dialog>
+
+    <dialog id="step-dialog" class="modal wide-modal">
+      <div class="dialog-heading">
+        <div>
+          <div class="eyebrow" data-i18n="html.step.eyebrow"></div>
+          <h2 id="step-title" translate="no"></h2>
+          <code id="step-id" class="digest" translate="no"></code>
+        </div>
+        <button
+          class="icon-button close-dialog"
+          type="button"
+          data-i18n-attr="aria-label:html.step.close"
+        >
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="run-toolbar">
+        <span id="step-status"></span><code id="step-node" translate="no"></code
+        ><span id="step-effect" class="muted"></span
+        ><button
+          id="download-step"
+          class="icon-button"
+          type="button"
+          data-i18n-attr="title,aria-label:html.step.download"
+        >
+          <i data-lucide="download"></i>
+        </button>
+      </div>
+      <div class="inspector-body">
+        <div id="step-reconciliation" class="reconciliation-note" role="alert" hidden></div>
+        <h3><span data-i18n="html.step.args"></span> <span id="step-args-size" class="muted"></span></h3>
+        <pre id="step-args" class="code" translate="no"></pre>
+        <h3><span data-i18n="html.step.result"></span> <span id="step-result-size" class="muted"></span></h3>
+        <pre id="step-result" class="code" translate="no"></pre>
+        <form id="reconcile-form" class="seal-card" hidden>
+          <div class="inspector-heading">
+            <h3 data-i18n="html.step.reconcile"></h3>
+          </div>
+          <fieldset class="outcome-options">
+            <legend data-i18n="html.step.confirmed"></legend>
+            <label
+              ><input type="radio" name="outcome" value="completed" required /><span
+                data-i18n="status.completed"
+              ></span></label
+            ><label
+              ><input type="radio" name="outcome" value="not_executed" /><span
+                data-i18n="html.step.notExecuted"
+              ></span
+            ></label>
+          </fieldset>
+          <label class="field" for="reconcile-value"
+            ><span data-i18n="html.step.details"></span
+            ><small class="muted" data-i18n="html.step.detailsHint"></small></label
+          ><textarea
+            id="reconcile-value"
+            rows="4"
+            maxlength="16384"
+            data-i18n-attr="placeholder:html.step.detailsHint"
+          ></textarea>
+          <div id="reconcile-error" class="form-error" role="alert" hidden></div>
+          <div class="dialog-actions">
+            <button type="submit" class="primary" id="record-outcome">
+              <i data-lucide="check-check"></i><span data-i18n="html.step.record"></span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog id="confirm-dialog" class="modal confirm-modal">
+      <form id="confirm-form" method="dialog">
+        <h2 id="confirm-title"></h2>
+        <p id="confirm-message" class="dialog-desc"></p>
+        <div class="dialog-actions">
+          <button
+            type="button"
+            id="confirm-cancel"
+            class="subtle"
+            data-i18n="html.confirm.cancel"
+          ></button
+          ><button
+            type="submit"
+            id="confirm-accept"
+            class="primary"
+            data-i18n="common.confirm"
+          ></button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="command-dialog" class="command" data-i18n-attr="aria-label:html.command.label">
+      <div class="command-input">
+        <i data-lucide="search"></i
+        ><input
+          id="command-input"
+          type="text"
+          data-i18n-attr="placeholder:html.command.placeholder"
+          autocomplete="off"
+          spellcheck="false"
+          role="combobox"
+          aria-expanded="false"
+          aria-controls="command-list"
+        /><kbd>esc</kbd>
+      </div>
+      <div
+        id="command-list"
+        class="command-list"
+        role="listbox"
+        data-i18n-attr="aria-label:html.command.results"
+      ></div>
+      <div class="command-foot">
+        <span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n="html.command.select"></span></span
+        ><span><kbd>↵</kbd> <span data-i18n="html.command.run"></span></span
+        ><span><kbd>esc</kbd> <span data-i18n="common.close"></span></span>
+      </div>
+    </dialog>
+
+    <div id="toast" role="status" hidden></div>
+  </body>
+</html>

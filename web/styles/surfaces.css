@@ -1,0 +1,164 @@
+/* Surfaces and small parts: panels, toolbars, glyphs, toast. Segmented controls, chips, tags, status marks, callouts and empty states live in components.css. */
+/* Surface: a flat sheet with one hairline border and no shadow. Shadows belong to what floats
+   above the page (dialogs, the command palette, toasts: --shadow-float), never to a card. */
+.surface,
+.card,
+.panel,
+.table-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+/* Rows divided by hairlines: group things inside a surface with this, not with a card in a card.
+   <div class="surface rows"><div>…</div><div>…</div></div>; add .tight for denser rows. */
+.rows > * {
+  padding: var(--s-3) var(--s-4);
+}
+.rows.tight > * {
+  padding-block: var(--s-2);
+}
+.rows > * + * {
+  border-top: 1px solid var(--border-soft);
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-4) var(--s-2);
+}
+.panel-body {
+  padding: var(--s-2) var(--s-4) var(--s-4);
+}
+.prose > * + p {
+  margin-top: var(--s-3);
+}
+.view-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-4);
+  flex-wrap: wrap;
+}
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 320px;
+  min-width: 200px;
+}
+.search > svg {
+  position: absolute;
+  left: 12px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+.search input:not([type='checkbox']) {
+  padding-left: 36px;
+  border-radius: var(--r-pill);
+  height: 36px;
+}
+.count {
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+  margin-left: auto;
+}
+td.nowrap {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+th.nowrap {
+  white-space: nowrap;
+}
+/* Agent identification glyphs. */
+.agent-glyph {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  color: var(--text-strong);
+  overflow: hidden;
+}
+.agent-glyph img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+:root[data-theme='dark'] .agent-glyph.mono img {
+  filter: invert(1);
+}
+.agent-glyph .mark {
+  width: 22px;
+  height: 21px;
+}
+.agent-glyph .mark g {
+  stroke-width: 15;
+}
+.agent-glyph.small {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-md);
+}
+.agent-glyph.small img {
+  width: 16px;
+  height: 16px;
+}
+.agent-glyph.small .mark {
+  width: 16px;
+  height: 15px;
+}
+.agent-glyph.large {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-lg);
+}
+.agent-glyph.large img {
+  width: 26px;
+  height: 26px;
+}
+.agent-glyph.large .mark {
+  width: 26px;
+  height: 25px;
+}
+.agent-glyph .initials {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.form-error {
+  font-size: var(--fs-sm);
+  color: var(--garnet);
+  overflow-wrap: anywhere;
+}
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 20;
+  max-width: calc(100% - 40px);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-lg);
+  background: var(--toast-bg);
+  color: var(--toast-text);
+  font-size: var(--fs-sm);
+  box-shadow: var(--shadow-float);
+  transform: translateX(-50%);
+  animation: surface-enter var(--dur-enter) var(--ease);
+}
+.agent-glyph.tiny {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-xs);
+}
+.agent-glyph.tiny img {
+  width: 11px;
+  height: 11px;
+}
+.agent-glyph.tiny .initials {
+  font-size: var(--fs-xs);
+}

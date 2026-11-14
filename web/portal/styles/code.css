@@ -1,0 +1,78 @@
+/* Code blocks and tab lists. */
+/* Code */
+.code-tabs {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  overflow: hidden;
+}
+.tablist {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 var(--s-2);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tablist button {
+  position: relative;
+  height: 42px;
+  padding: 0 var(--s-3);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 450;
+}
+.tablist button:hover:not(:disabled) {
+  color: var(--text-strong);
+}
+.tablist button[aria-selected='true'] {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.tablist button[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--tide);
+}
+.tablist .spacer {
+  flex: 1;
+}
+.code-block {
+  position: relative;
+  background: var(--code-bg);
+}
+.code-block pre {
+  margin: 0;
+  /* Room on the right for the copy button, so a long first line is never under it. */
+  padding: var(--s-4) calc(var(--s-7) + var(--s-7)) var(--s-4) var(--s-5);
+  overflow-x: auto;
+  line-height: 1.7;
+  color: var(--text-strong);
+  tab-size: 2;
+}
+.code-block .copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.code-tabs .code-block {
+  border-radius: 0;
+}
+.code-solo {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.code-label {
+  margin-bottom: var(--s-3);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-strong);
+}

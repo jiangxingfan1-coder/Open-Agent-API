@@ -1,0 +1,133 @@
+/* Usage dashboard: balance, statistics, daily chart. */
+/* Dashboard */
+.balance {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-5);
+  padding-bottom: var(--s-6);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.balance .amount {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  margin-top: var(--s-2);
+}
+.balance .figure {
+  font-family: var(--display);
+  font-size: var(--fs-hero);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+}
+/* An empty balance is the one figure that waits for a person. */
+.balance.low .figure {
+  color: var(--cin-strong);
+}
+.balance .unit {
+  font-size: var(--fs-md);
+  color: var(--text-soft);
+}
+.balance-side {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--border);
+}
+.stat {
+  padding: var(--s-5) var(--s-5) var(--s-5) 0;
+}
+.stat + .stat {
+  padding-left: var(--s-5);
+  border-left: 1px solid var(--border);
+}
+.stat .label {
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+.stat .value {
+  margin-top: var(--s-2);
+  font-family: var(--display);
+  font-size: var(--fs-figure);
+  line-height: 1.15;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.chart-box {
+  padding-top: var(--s-4);
+}
+.chart-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-4);
+  flex-wrap: wrap;
+}
+.chart-summary {
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+.pills {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 2px;
+}
+.pills button {
+  height: 26px;
+  padding: 0 var(--s-3);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: 450;
+}
+.pills button[aria-pressed='true'] {
+  background: var(--tide-wash);
+  color: var(--tide-deep);
+  font-weight: 600;
+}
+.chart {
+  margin-top: var(--s-4);
+  min-height: 220px;
+}
+.chart svg {
+  display: block;
+  overflow: visible;
+}
+.chart .grid-line {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+}
+.chart .axis-line {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.chart .tick {
+  fill: var(--text-soft);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+.chart .bar {
+  fill: var(--tide);
+}
+.chart .bar-zero {
+  fill: var(--border-strong);
+}
+.chart .bar-hit:hover + .bar {
+  fill: var(--tide-deep);
+}
+.chart .bar-hit {
+  fill: transparent;
+}
