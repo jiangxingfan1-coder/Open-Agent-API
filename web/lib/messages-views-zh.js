@@ -54,6 +54,10 @@ export const zh = {
   'agents.copied': '已复制 {id}',
   'agents.noDescription': '没有描述',
   'agents.tools': '{n} 个工具',
+  'agents.provider': '模型 {name}',
+  'agents.providerNoKey': '{name} 缺密钥',
+  'agents.providerNoKeyHint':
+    '网关进程读不到这个提供方的密钥（{ref}）。设置后重启网关，或改用密钥文件。',
   'agents.skills': '{n} 个技能',
   'agents.autoApprove': '自动批准',
   'agents.noTasks': '暂无任务',
@@ -221,6 +225,8 @@ export const zh = {
   'access.callerTitle': '调用方自己也是智能体时',
   'access.callerText':
     '调用方（如 Cursor、Claude Code 或各种 Agent SDK）自己也带着工具时，可以用请求头 X-OAA-Client-Tools 选择这些工具怎么处理。不传时按自动处理：智能体能接管就桥接，否则照旧。',
+  'access.progressText':
+    '流式响应可以把智能体正在做的事（排队、调用工具、审批）显示在普通聊天客户端的思考过程里。请求头 X-OAA-Progress（reasoning | off）按次选择；缺省时 Responses 与 Gemini 的流带过程，Chat 与 Claude 的流不带。',
   'access.colMode': '模式',
   'access.colMeaning': '含义',
   'access.modeAuto': '自动 auto（默认）',

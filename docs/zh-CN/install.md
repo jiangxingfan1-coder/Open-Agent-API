@@ -113,8 +113,10 @@ tar -xzf Open-Agent-API-<version>-linux-x64.tar.gz
 （`127.0.0.1:8787`）上，其他机器访问不到；要对外开放，请在前面放一个带 TLS 的反向代理（见 [deploy-public.md](deploy-public.md)），并设置
 `OAA_PUBLIC_BASE_URL` / `OAA_ALLOWED_HOSTS`。
 
-> **状态：这份 Dockerfile 没有在开发机上构建过（那里没有 Docker），首次由 CI 验证**（`.github/workflows/docker.yml` 在每次 push 与 pull request
-> 时构建它，并在发布任何东西之前跑一遍容器烟雾测试）。首次构建如果失败，看那个工作流的日志；排查清单见 [releasing.md](releasing.md)。
+> **状态：这份 Dockerfile 没法在开发机上构建（那里没有 Docker），构建发生在 CI 里。**
+> `.github/workflows/docker.yml` 在每次 push 与 pull request 时构建 amd64 镜像并跑一遍容器烟雾测试（首次启动、密钥文件、一次 API 调用、重启、
+> `docker stop`），2026-11-14 在 GitHub 的 Ubuntu 运行器上通过。arm64 镜像与推送到 ghcr 只在发布 Release 时才进行，还没有运行过。构建如果失败，
+> 看那个工作流的日志；排查清单见 [releasing.md](releasing.md)。
 
 **安装与 quickstart。** 在本仓库的检出目录里（镜像还没发布时也能用）：
 

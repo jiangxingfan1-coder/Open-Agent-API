@@ -701,4 +701,45 @@ def _():
     raise AssertionError("a schema that cannot be enforced was accepted")
 
 
+# Stream progress (docs/progress.md): the same answer on and off; progress readable where exposed.
+ON = {"X-OAA-Progress": "reasoning", "Accept-Language": "en"}
+OFF = {"X-OAA-Progress": "off"}
+
+
+@lab.scenario("chat.stream_progress")
+def _():
+    def read(headers):
+        content, reasoning = "", ""
+        for c in client.chat.completions.create(model=FIXTURE, messages=[{"role": "user", "content": "LONG"}], stream=True, extra_headers=headers):
+            if c.choices:
+                content += c.choices[0].delta.content or ""
+                reasoning += getattr(c.choices[0].delta, "reasoning_content", None) or ""
+        return content, reasoning
+
+    on, off = read(ON), read(OFF)
+    equal(on[0], off[0], "content with progress on")
+    check(on[1].startswith("Started"), f"reasoning_content: {on[1]!r}")
+    equal(off[1], "", "no reasoning when off")
+    return "reasoning_content readable as an extra delta field"
+
+
+@lab.scenario("responses.stream_progress")
+def _():
+    def read(headers):
+        summary = ""
+        with client.responses.stream(model=FIXTURE, input="LONG", extra_headers=headers) as stream:
+            for e in stream:
+                if e.type == "response.reasoning_summary_text.delta":
+                    summary += e.delta
+            final = stream.get_final_response()
+        return final.output_text, summary, final
+
+    on, off = read(ON), read(OFF)
+    equal(on[0], off[0], "output_text with progress on")
+    check(on[1].startswith("Started"), f"summary: {on[1]!r}")
+    equal(on[2].output[0].type, "reasoning", "reasoning item first")
+    equal(off[1], "", "no summary when off")
+    return "reasoning summary events; output_text unchanged"
+
+
 lab.done()

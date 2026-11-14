@@ -131,10 +131,11 @@ The image runs the gateway as the non-root `node` user, keeps all state in the `
 (`127.0.0.1:8787`), so it is not reachable from other machines; to expose it put a TLS reverse proxy in front
 (see [deploy-public.md](deploy-public.md)) and set `OAA_PUBLIC_BASE_URL` / `OAA_ALLOWED_HOSTS`.
 
-> **Status: the Dockerfile has not been built on a developer machine (there is no Docker there). It is validated
-> for the first time by CI** (`.github/workflows/docker.yml` builds it on every push and pull request and runs a
-> container smoke test before anything is published). If a first build fails, the log in that workflow is the place to
-> look; the troubleshooting list is in [releasing.md](releasing.md).
+> **Status: the Dockerfile cannot be built on a developer machine (there is no Docker there); CI is where it is built.**
+> `.github/workflows/docker.yml` builds the amd64 image on every push and pull request and runs a container smoke test
+> (first start, key files, an API call, restart, `docker stop`); that passed on GitHub's Ubuntu runner on 2026-11-14.
+> The arm64 image and the push to ghcr only happen when a release is published and have not run yet. If a build fails,
+> the log of that workflow is the place to look; the troubleshooting list is in [releasing.md](releasing.md).
 
 **Install and quickstart.** From a checkout of this repository (this works before an image has been published):
 

@@ -162,6 +162,10 @@ The gateway persistently records events where an **authenticated** request is re
 
 Requests through a reverse proxy and remote requests do not see `pid`; the other fields are unchanged.
 
+### Local shutdown (`POST /v1/gateway/shutdown`)
+
+Asks the gateway to close itself: it answers `{"stopping": true, "pid": <pid>}`, then drains open requests and closes the database. It needs an owner-wide admin key and is accepted only when the peer address is loopback (any other caller gets 403 `scope_denied`), so a remote caller can never stop a gateway this way. `oaa stop` uses it on Windows, where a signal cannot ask a process to stop cleanly (see [windows.md](windows.md#stopping-processes)); on other systems `oaa stop` sends SIGTERM.
+
 ## Compatibility
 
 | Interface                        | Implemented subset                                                                                                                        |
@@ -554,6 +558,10 @@ Within one session you can hand over to another agent to carry on, or let the sa
 
 A request that asks for JSON (Chat `response_format` `json_object` / `json_schema`, Responses `text.format`, Gemini `generationConfig.responseMimeType: "application/json"` with `responseSchema` / `responseJsonSchema`, Claude `output_config.format`) becomes an output contract of the run: a successful response is JSON that parses and fits the schema (Ajv: draft-07, 2019-09 and 2020-12, with `format` enforced), or the run fails with `structured_output_invalid` (422; Responses: `status: "failed"`). The agent's answer is held until it is checked, so a stream delivers the final JSON in one piece, with heartbeats in between. A wrong answer is sent back for correction (`structuredOutput.maxRepairs`, default 1; external agents only when their session can be continued). A schema the gateway cannot honestly enforce is refused at request time with `output_schema_unsupported` (or `invalid_schema` / `schema_dialect_unsupported`). Details, limits and the exact rules: [structured-output.md](structured-output.md).
 
+## Stream progress (`stream-progress-v1`)
+
+Compat streams can carry a short line per run phase (queued, started, each tool call and its outcome, approvals, fallbacks, structured-output correction rounds) in each protocol's thinking shape: Chat `delta.reasoning_content`, Responses a `reasoning` output item at `output_index` 0 with `response.reasoning_summary_*` frames (later `output_index` values shift by one), Claude a `thinking` block at index 0 (signature `oaa-progress-v1`), Gemini `thought: true` parts. Answer text, non-streaming bodies and usage are unchanged. Per request `X-OAA-Progress: reasoning | off` or `metadata["oaa.progress"]`; gateway defaults `streamProgress` (Chat off, Responses on, Claude off, Gemini on). The `response.reasoning_summary_*` frames are wire frames, not run events. A structured-output correction round writes a `tool.progress` event `{source: "gateway", event: "output_repair", round}`. Details and the client table: [progress.md](progress.md).
+
 ## Workflow return contract
 
 `workflow-output-v1` in `GET /health` means the gateway supports a workflow's `output` / `outputSchema` and the dynamic `execute_graph.output`; `oaa-lang-roundtrip-v1` means DSL formatting recompiles and compares the contract. Neither requires clients to change existing requests: when no return projection is specified, the full step results are still returned. See the [OAA-Lang execution contract](language.md).
@@ -880,6 +888,9 @@ Error codes and response shapes do not depend on language; only the text of `mes
 | `model_not_configured` | 503 | The provider API key environment variable is not set |
 | `upstream_rate_limited` | 429/502 | The upstream model is rate limited |
 | `upstream_failed` | 429/502 | The upstream model response failed |
+| `upstream_auth_failed` | 502 | The upstream model service rejected the provider API key (HTTP 401/403) |
+| `upstream_model_not_found` | 502 | The upstream model service does not know this model name or endpoint path (HTTP 404) |
+| `upstream_incompatible` | 502 | A compatible service refused a request field (such as max_completion_tokens, stream_options, tools or images) |
 | `upstream_incomplete` | 502 | The upstream model ended for an abnormal reason |
 | `upstream_truncated` | 502 | The upstream response ended without a final message |
 | `upstream_output_limit` | 502 | The upstream HTTP response exceeded 8 MiB in total, or an SSE event exceeded 2 MiB; reading stopped and the connection was released |
@@ -994,4 +1005,4 @@ These appear in the `reasons` of agent availability and route checks and explain
 
 ### CLI and client-local only
 
-These are produced locally only by the `oaa` command line or `GatewayClient` and are never returned by the gateway: `arguments`, `unknown_command`, `dsh_overlay_required`, `exposure_conflict`, `native_not_installed`, `node_startup_failed`, `startup_failed`, `startup_timeout`, `tunnel_binary_missing`, `tunnel_exited`, `tunnel_timeout`, `worker_required`, `output_exists`, `tool_conflict`, `mcp_descriptor_too_large`, `mcp_task_mode_unsupported`, `host_binding` (on tool import, the selected tool belongs to another node), `gateway_error`, `gateway_response_too_large`, `gateway_timeout`, `invalid_gateway_path`, `invalid_gateway_response`, `request_cancelled`, `token_required`, `gateway_unreachable` (the gateway cannot be reached), `not_running` (`oaa stop` finds no gateway started with `--detach`), `port_in_use` (the port `oaa quickstart` needs is taken), `sample_agent_missing` (the bundled offline sample agent cannot be found), `agent_conflict` (`oaa connect` does not overwrite an agent of the same name on another engine), `approval_ambiguous` (the run given to `oaa approve` / `oaa deny` has several pending approvals and none was chosen), `approval_declined` (the answer at the `oaa approve` confirmation was no).
+These are produced locally only by the `oaa` command line or `GatewayClient` and are never returned by the gateway: `arguments`, `unknown_command`, `dsh_overlay_required`, `exposure_conflict`, `native_not_installed`, `node_startup_failed`, `startup_failed`, `startup_timeout`, `tunnel_binary_missing`, `tunnel_exited`, `tunnel_timeout`, `worker_required`, `output_exists`, `tool_conflict`, `mcp_descriptor_too_large`, `mcp_task_mode_unsupported`, `host_binding` (on tool import, the selected tool belongs to another node), `gateway_error`, `gateway_response_too_large`, `gateway_timeout`, `invalid_gateway_path`, `invalid_gateway_response`, `request_cancelled`, `token_required`, `gateway_unreachable` (the gateway cannot be reached), `not_running` (`oaa stop` finds no gateway started with `--detach`), `port_in_use` (the port `oaa quickstart` needs is taken), `sample_agent_missing` (the bundled offline sample agent cannot be found), `agent_conflict` (`oaa connect` does not overwrite an agent of the same name on another engine), `provider_conflict` (`oaa connect <preset>` does not overwrite a model provider of the same name with other settings), `provider_unreachable` (the model provider endpoint cannot be reached), `key_file_insecure` (the key file given to `oaa connect --key-file` is not private or not a single-line key), `approval_ambiguous` (the run given to `oaa approve` / `oaa deny` has several pending approvals and none was chosen), `approval_declined` (the answer at the `oaa approve` confirmation was no).

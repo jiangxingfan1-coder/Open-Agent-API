@@ -4,6 +4,97 @@
 
 ## 未发布
 
+## 0.0.65（2026-11-14）
+
+这一版让网关能装在更多地方，也拿更多的客户端检验了它，并让一次请求可以带上文字以外的东西。它可以装在 Linux（自带 Node.js 的 tar.gz 与 `install.sh`）、Docker 里和用 npm tarball 安装，支持 Node 24 与 26，完整测试在 CI 的 Windows 上通过。一个兼容性实验室让官方 Python 与 Node SDK 和几个框架实际对着网关运行，并回放十几个聊天客户端的请求；实验室发现不兼容的地方，网关都做了修改。调用方可以发图片，也可以要求保证符合某个 schema 的 JSON；运行事件可以推送到你自己的端点；审批可以在命令行里处理。一次安全审查带来了一批修复。有几处默认值是有意改变的，列在「行为变化」里，有办法恢复旧行为的会写明怎么恢复。没有验证过的部分列在「尚未验证」里。
+
+下面出现的文件名、命令与配置项都是仓库里的；提到的文档在 `docs/` 下。
+
+### 行为变化
+
+- **调用方带工具时的缺省模式是 `auto`。** 请求带了 `tools` 又没有选模式时，以前在兼容入口、Claude Messages 与 Gemini 上按 `managed` 处理（智能体用自己的工具完成，响应里写 `X-OAA-Client-Tools: ignored`），在 OpenAI 的默认端点（`/v1/chat/completions`、`/v1/responses`）上则以 400 `unsupported_parameter` 拒绝。现在缺省是 `auto`：智能体能接管这些工具时（内置内核智能体，或执行机器为它声明了 `client-tools-v1` 的 ACP 智能体）就桥接：智能体的调用以 `tool_calls`（或该协议的对应形式）交回，调用方执行后，同一个任务继续；响应带 `X-OAA-Client-Tools: bridge`。其他所有智能体（Codex、Claude Code、Antigravity、A2A、HTTP 适配器）在每个入口上的行为与以前完全一样。要让所有智能体回到旧的处理方式，请求里发 `X-OAA-Client-Tools: managed`，或把 `clientTools.default` 设为 `managed`。仍有一处差别：缺省设为 `managed` 后，OpenAI 的默认端点会忽略工具而不是拒绝，以前只有 `/v1/compat` 是这样。强制的 `tool_choice` 永远不桥接。
+- **要求的 JSON 格式现在会被强制保证。** `response_format`（`json_object`、`json_schema`）、Responses 的 `text.format`、Gemini 的 `responseMimeType` 加 `responseSchema`、Claude 的 `output_config.format`，以前在 OpenAI 默认端点上被拒绝，或作为一个从未被检查的愿望交给智能体。现在成功的响应一定是能解析且符合 schema 的 JSON；答错了，会发回给智能体修正，最多 `structuredOutput.maxRepairs` 次（0 到 3，缺省 1），仍然不对则运行以 `structured_output_invalid`（422）失败。流式响应会先扣住，等答案检查通过后一次发出。旧的透传没有开关可以恢复：不要再发这个格式，或把 `structuredOutput.maxRepairs` 设为 `0` 让它在第一次答错时就失败。
+- **只影响采样的参数在 OpenAI 默认端点上不再报错。** `top_k`、`min_p`、`repeat_penalty`、`logit_bias`、任意长度的 `stop` 列表以及类似的厂商参数会被接受并忽略，被忽略的名字列在响应头 `X-OAA-Ignored-Params` 里。会改变网关该做什么的参数（强制的 `tool_choice`、`logprobs: true`、大于 1 的 `n`、未知字段）仍然被拒绝。
+- **图片被接受了。** 图片内容段以前在每个入口都被 400 `unsupported_content` 拒绝。现在能用图片的智能体会接受；不能的智能体仍会在运行创建之前拒绝它。除非打开 `images.fetchRemote`，否则不会去抓远程 URL。
+- **开发者平台的计费不再透支。** 每个任务的价格现在在任务开始时预扣，任务没有完成就退回。以前是在结束时才扣，并发的调用可以全都通过余额检查，把余额扣成负数。按 token 计的那一部分现在到余额为 0 就停止，不会扣成负数。本来就是负数的余额不会被进一步压低。旧行为没有开关可以恢复。
+- **不上报 token 用量的智能体设置按 token 的价格会被拒绝**（`usage_pricing_unsupported`，400）：这样的智能体只能按次定价。以前保存的上架项保留原价。
+- **限定智能体的管理员密钥有了边界。** 只限某些智能体的 `admin` 密钥，不能再吊销或修改它的智能体范围之外的密钥的额度，也不能改自己。它有额度时，不能创建或修改出高于这个额度的密钥（`quota_exceeds_own`，403）。要管理那些密钥，请用覆盖整个所有者的管理员密钥。
+- **桥接的 ACP 回合里，自动批准的权限请求变少了。** 只有当请求的标题恰好点名了中继提供的一个调用方工具（其余的词只能是「run」「call」之类的填充词），并且智能体自己没有把这次调用归为执行命令或修改文件时，才不经所有者放行。标题里只是提到中继名与工具名的 shell 命令，现在要等所有者批准。
+- **未鉴权的门户表单**（登录、注册、重置密码）接受的请求体最大 64 KiB。
+
+### 安装
+
+- **Linux**：`Open-Agent-API-<版本>-linux-x64.tar.gz` 与 `…-linux-arm64.tar.gz` 自带官方 Node.js 运行时和 `oaa` 启动脚本（没有桌面外壳；需要 glibc 2.28 及以上）。`install.sh`（`curl -fsSL …/releases/latest/download/install.sh | sh`）不需要 root：它用发布页的 `SHA256SUMS` 校验下载，安装到 `~/.local/share/open-agent-api`，并把 `~/.local/bin/oaa` 链接过去，支持 `--version`、`--prefix` 与 `--uninstall`。下载中途被截断时什么都不会运行。
+- **Docker**：多阶段的 `Dockerfile`（`node:24-slim`、非 root 用户、状态放在 `/data` 卷、对 `/healthz` 的健康检查）与 `docker-compose.yml`，后者只把端口发布在宿主机的 `127.0.0.1:8787`。首次启动会初始化数据目录并发布离线示例智能体。发布 Release 时会把 `ghcr.io/jiangxingfan1-coder/open-agent-api` 推送为 `linux/amd64` 与 `linux/arm64`。容器里没有你宿主机上的那些智能体命令行，所以它适合内置智能体、ACP 与 A2A 远程智能体，以及主动连进来的执行节点。
+- **npm tarball**：每个发布版本都带 `open-agent-api-<版本>.tgz`，用 `npm install -g <文件的 URL>` 安装。这个包仍是 `private`：不在 npm 官方仓库里。
+- **更小的包**：去掉了第三方的 source map、测试与文档目录、图标库里用不到的构建，以及其他平台的沙箱程序（macOS 的 `.dmg` 从 123 MB 降到 86 MB，实测）。
+- **Node.js 24 与 26**：`engines` 现在是 `>=24.18.0 <27`，CI 在两条线上都跑完整测试。安装包里自带的运行时仍是 24.18.0。
+- **发布工作流**：`release.yml` 还会构建两个 Linux 包与 npm 包，把版本号盖进 `install.sh`，并把每个文件写进 `SHA256SUMS`。对每个包运行的烟雾测试现在会逐个 import 所有模块，对示例智能体在三种协议上做首次调用，经 API 与经 `oaa approve` 各处理一次审批，检查第二次 `quickstart` 不重复创建任何东西，并检查 `oaa stop` 之后没有残留进程。
+- **修复**：经符号链接启动的 `oaa`（例如 `npm install -g` 创建的命令）没有任何输出；npm 把依赖提升之后（`npx`、装进项目），控制台的图标库返回 HTTP 500。
+
+### Windows
+
+- 命令经 `PATH` 与 `PATHEXT` 发现（`oaa init`、`quickstart`、`connect`、`doctor`、ACP 预设），记录带扩展名的完整路径。npm 的启动器（`codex.cmd` 之类）直接用 node 启动；其他 `.cmd` 与 `.bat` 经 `cmd.exe /d /s /c` 启动，每个参数都做了转义，所以调用方输入里的 `&`、`|`、`%VAR%` 与引号都按文本传递。给这类文件的参数里带换行会被拒绝（`invalid_request`）。
+- 取消、超时与关机时，用 `taskkill /T /F` 结束智能体的整棵进程树。`oaa stop` 先通过新增的 `POST /v1/gateway/shutdown`（覆盖整个所有者的管理员密钥，只接受来自回环地址的请求）请网关自己关闭，十秒后仍在运行才终止进程。
+- 调用方工具中继用命名管道代替 Unix socket。私有文件（管理员密钥、调用方密钥、`server.pid`）尽力用 `icacls` 收紧权限。Windows 会特殊处理的文件名（保留的设备名、含 `:`、以点或空格结尾）会被 `invalid_path` 拒绝。`oaa status` 与 `oaa verify` 在没有 `ps` 时也能工作。
+- 完整的测试集现在在 CI 的 `windows-latest` 上运行（`windows.yml`，每个测试文件一个进程）；只在 POSIX 上有意义的测试带明确原因跳过。PowerShell 启动器脚本的提示文字跟随 Windows 的显示语言。细节与限制（没有沙箱、强制结束、安装包未签名）见 `docs/windows.md`。
+
+### 安全
+
+- 对网关做了一次安全审查，并做了修复：限定智能体的管理员密钥的边界、桥接 ACP 回合里收紧的自动批准、门户表单的上限，都在「行为变化」里。
+- 日志与错误信息的脱敏现在还覆盖执行节点令牌（`oan_…`）、门户会话令牌（`oas_…`）和常见的上游密钥格式（Google `AIza…`、GitHub、Slack、AWS 访问密钥）。
+- 新增可选的 `maxStoredBytesPerSubject`：限制一个调用方存储的文件字节数（包括从请求里存下的图片）；超过后上传以 `storage_quota_exceeded`（413）失败。不设置时没有变化。
+- 新增可选的 `security.profile`：`local`（缺省，没有变化）或 `public`；后者为配置里没有设置的每一项换上更安全的默认值：`defaultKeyExecution: workspace`、外部智能体继承的环境变量改为白名单、`maxStoredBytesPerSubject` 为 256 MiB、接收一个请求的时限为 120 秒。配置看起来能被外部访问、档位却还是 `local` 时，`oaa doctor` 与 `oaa status` 会警告。
+- 新增 `docs/security-model.md`：谁能做什么、默认暴露什么、对外开放之前该做什么、哪些没有防护（比如：门户注册会回答 `email_taken`，因为没有邮箱验证；登录失败计数只在内存里）。补了 Host 与 Origin 检查、静态资源路径的回归检查。
+
+### 兼容性
+
+- **兼容性实验室**（`integrations/compat/`、`npm run compat`，CI 里的 `compat.yml` 每次 push 与每周各跑一次）：官方的 `openai`、`anthropic`、`google-genai` Python SDK，Node 的 `openai`、`@anthropic-ai/sdk`、`@google/genai`，Vercel AI SDK、LangChain、LiteLLM、OpenAI Agents SDK 与 LlamaIndex，对着一个带离线智能体的隔离网关实际运行；Open WebUI、LibreChat、Chatbox、Cherry Studio、LobeChat、NextChat、Dify、n8n、Continue、Cline、Roo Code、Zed 与 Cursor 的请求（读自它们的源码或文档）被回放。哪个客户端实际运行过、哪个只是回放、哪个未核实，以及版本与配置，见 `docs/compatibility.md`。
+- 根据实验室的发现做的修改：采样与厂商参数被宽容（见「行为变化」）；`reasoning_effort` 与 `reasoning.effort` 是选路提示；Responses 接受 `instructions`、带类型的 message 项与 `output_text` 历史；`GET /v1/models/{id}` 以 OpenAI、Claude、Gemini 各自的形状回答；`POST` 上长度为零的 JSON 请求体（官方 SDK 的 `responses.cancel` 会这样发）不再报 `invalid_json`；CORS 预检的回答列出浏览器问到的请求头；Gemini 的请求体可以用 snake_case 字段名（`google-genai` 3.3 的工具参数以前会丢），`/v1beta/{agent}:generateContent`（不带 `models/`）被接受；Base URL 末尾或中间多出的斜杠照常路由，缺少或重复 `/v1` 造成的 404 会说明原因。
+
+### 新增能力
+
+- **结构化输出**（`structured-output-v1`）：「行为变化」里说明的契约，覆盖四种线上格式，请求到达时检查 schema（`invalid_schema`、`schema_dialect_unsupported`、`output_schema_unsupported`），并对内核智能体和会话可以继续的外部智能体做修复轮。任务检查器显示契约与已用的修复次数。schema 不会交给模型提供方自己的结构化输出功能。见 `docs/structured-output.md`。
+- **图片输入**（`image-input-v1`）：PNG、JPEG、GIF 与 WebP，经 OpenAI Chat 与 Responses、Claude Messages、Gemini、UAP 与原生请求体，可以是内联、已上传的文件或 `https` URL。上限是每张 5 MiB、每个请求 10 张与 8 MiB（`images.*`）。图片会存为调用方的输入文件。每个智能体按它能用的形式接收，否则请求在运行创建之前被拒绝；`GET /v1/models` 里有 `image_input`。网关缺省不抓取远程 URL。新增错误码：`image_invalid`、`image_too_large`、`too_many_images`、`image_fetch_failed`、`image_delivery_failed`。见 `docs/images.md`。
+- **运行事件回调**（`webhooks-v1`）：带签名（HMAC-SHA256）的 HTTPS 回调，事件有 `run.requires_action`、`run.completed`、`run.failed`、`run.cancelled`、`run.incomplete` 与 `run.interrupted`；有持久队列、大约 40 分钟内共 6 次尝试、`/v1/webhooks` 下的端点与投递管理、出站地址检查（`security.profile: "public"` 下更严）、控制台里的只读列表。`examples/webhook-receiver.mjs` 是一个可以批准待办的接收端示例。只有覆盖整个所有者的管理员密钥能配置端点。见 `docs/webhooks.md`。
+
+### 开发者平台
+
+- 上架项可以打开 `host_execution`，让平台账号能调用那一个外部智能体（Codex、Claude Code、ACP 智能体、适配器、带本机工具的内核智能体）。默认关闭并有审计，它委派的智能体需要各自的开关。控制台的上架对话框有这个开关和它的说明，上架列表会标出账号暂时调不了的智能体。见 `docs/platform.md`。
+- 计费：每个任务的价格在开始时预扣、任务没有完成就退回，按 token 的扣费不再透支，不上报用量的智能体只能按次定价（见「行为变化」）。
+- `examples/platform-walkthrough.ts` 用示例智能体离线走一遍整条路径：上架、打开开关、兑换码、注册、密钥、调用、扣费、充值。
+
+### 命令行
+
+- 新增 `oaa approvals`（带 `--watch`）、`oaa approve` 与 `oaa deny`：在终端里列出并处理审批。决定之前先打印要决定的操作。
+- 新增 `oaa status`：用一个只读的回答说明网关和它的智能体怎么样了，支持 `--json`。
+- 新增 `oaa verify AGENT`：打印计划；加 `--confirm-live-cost` 才会在隔离网关上运行真实智能体的验收场景，并写出脱敏的 `report.md` 与 `report.json`，可以附到 issue 里（模板：「智能体验证报告」）。`examples/live-agents-acceptance.ts` 现在与它共用场景。
+- 新增 `oaa webhook add|list|remove|test|deliveries`。
+- 命令参考见 `docs/cli.md`。
+
+### 桌面应用
+
+- macOS 应用的菜单、对话框与提示跟随系统语言。「关于」读取真实的版本号。端口取自 `config.json`，并且应用只连接它能确认属于自己数据目录的网关。隔离运行（`OAA_DESKTOP_HOME`、`OAA_DESKTOP_PORT`）不碰已安装的副本和它们的数据。管理员密钥只注入主框架里控制台的 `sessionStorage`，旧版本留在 `localStorage` 里的副本会被清除。首次启动会弹出一次对话框，列出发布了什么、启用了什么，以及去哪里关掉某个引擎。Windows 包的 PowerShell 启动器用中文或英文显示提示。
+- 项目所有者于 2026-11-14 在一台 Apple 芯片的 Mac 上，用隔离方式运行发布模式构建的包，亲手确认了五处（只做了一次）：控制台直接是已连接状态，没有连接对话框；首次启动的一次性说明出现；刷新（⌘R）后仍然已连接（这检验了管理员密钥经 `sessionStorage` 交接）；「关于」里的版本号正确；菜单与对话框跟随系统语言。桌面应用的其余部分都没有验证，见「尚未验证」。
+
+### 文档
+
+- 每份文档都是英文为主，中文版在 `docs/zh-CN/`（以及 `README.zh-CN.md`、`CHANGELOG.zh-CN.md`、`ROADMAP.zh-CN.md`）。一个测试会检查链接与锚点有效、每份文档都有对应的另一语言版本、语言切换行在、错误码表与错误目录一致，以及这份变更记录以一个空的「未发布」小节开头。
+- 新增：`ROADMAP.md`、`docs/cli.md`、`docs/install.md`、`docs/windows.md`、`docs/security-model.md`、`docs/compatibility.md`、`docs/structured-output.md`、`docs/images.md`、`docs/webhooks.md`，以及智能体验证报告的 issue 模板。`docs/evidence.md` 现在把离线测试与 CI 能说明的，和用真实智能体跑过的，分开写。
+
+### 尚未验证
+
+- **真实智能体。** 用真实智能体做过的端到端验证只有一次：2026-11-13 对 Antigravity，用的是验收脚本的早期版本。Codex 与 Claude Code 没有经过它；装了其中之一的人可以用 `oaa verify` 来做。
+- **向 Codex 与 Claude Code 交付图片**是按厂商文档实现的，没有对着真实的智能体运行过。Claude Agent SDK 在带图片的那一条流式消息之后是否正常结束会话，是个悬而未决的问题。Antigravity 与 DSH 以工作区文件的形式接收图片，同样没有对真实智能体运行过。
+- **结构化输出的修复轮在真实外部智能体上的表现**，以及 2026-11-11 那次手工联调（Antigravity 与 Qoder）之外的调用方工具桥接，只用替身智能体测过。
+- **向真实的公网 HTTPS 端点投递事件回调**：测试只用本机的明文 http 接收端。
+- **桌面应用里那五处之外的部分。** 没有验证的有：端口被占用时的三种提示；系统语言在中文与英文之间的两个方向切换（只看了所有者当前的系统语言）；同一数据目录第二次启动不再弹首次启动说明；应用崩溃后遗留的网关的识别与复用；Intel 芯片的包；这个版本在正常的、非隔离安装下（数据目录在默认位置、端口 8787）的表现；Windows 启动器的双语提示（没有 Windows 机器，CI 里只有 PowerShell 语法检查）。macOS 应用背后的逻辑有离线测试覆盖。
+- **Windows 上的真实智能体。** CI 用替身智能体在 Windows 上通过了完整测试。
+- **发布工作流的新增部分。** Linux 包、`install.sh`、npm tarball、扩充后的烟雾测试与多架构的 Docker 推送，还没有在 GitHub 上运行过：第一次运行就是这个版本的发布，这个版本的 Windows 包也是。Docker 镜像已经在 CI 里构建（amd64）并通过烟雾测试。
+- **兼容性实验室用的是确定性的夹具模型和示例智能体**，从来不是真实智能体。回放只说明网关接受客户端记录下来的请求、并以它能解析的形式回答，不说明整个应用可用。Cursor 未核实，LibreChat 与 LobeChat 只是部分从源码推出。
+- **开发者平台**：真实外部智能体的计费成功路径，以及公网部署，都没有见到过。
+- **没有做的**：把 schema 交给模型提供方自己的结构化输出功能、强制工具选择、真实的支付渠道。
+
 ## 0.0.64（2026-11-14）
 
 公开版本从 0.0.64 起重新编号；下面 0.1.0–0.6.4 是公开之前的内部版本号，保留作为变更记录。

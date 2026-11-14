@@ -9,6 +9,7 @@ Find documents by "I want to…". Every document is available in English (this f
 - Install, initialize, start and open the console: [README, "Running in three minutes"](../README.md#running-in-three-minutes)
 - Installation options (installers, Linux packages, Docker, npm tarball): [install.md](install.md)
 - Running on Windows: [windows.md](windows.md)
+- Every `oaa` command, grouped by what you want to do (start and look after a gateway, connect an agent, approve from the terminal, webhooks, verify an agent, keys, publish, call): [cli.md](cli.md)
 - How to use each console page: [console.md](console.md)
 - More details on starting locally (configuration file, running in the background): [operations.md, "Local start"](operations.md#local-start)
 
@@ -45,6 +46,14 @@ Find documents by "I want to…". Every document is available in English (this f
 
 - Image parts on every entry, limits, storage, URL policy and how each agent receives them: [images.md](images.md)
 
+## I want the built-in agent to use my model
+
+- `oaa connect <preset>` (Ollama, LM Studio, OpenAI, Anthropic, Gemini, DeepSeek and more), keys, `oaa models` and provider settings: [models.md](models.md)
+
+## I want chat clients to show what the agent is doing
+
+- Run progress in each protocol's thinking / reasoning shape, the switch and the client table: [progress.md](progress.md)
+
 ## I want the caller's tools to take part
 
 - The auto / managed / bridge / reject modes for caller tools and the support matrix: [harness.md](harness.md)
@@ -74,7 +83,7 @@ Find documents by "I want to…". Every document is available in English (this f
 - The architecture and its rationale: [architecture.md](architecture.md)
 - The run state machine: [architecture.md, 3.2](architecture.md#32-run-state-machine)
 - What the tests and benchmarks prove and what they do not: [architecture.md, section 10](architecture.md#10-evidence-and-performance) and the [paired benchmark](../bench/paired/README.md)
-- Which real agents were integration tested, with the results and what was not verified: [evidence.md](evidence.md)
+- Which real agents were integration tested, with the results and what was not verified: [evidence.md](evidence.md); to check an agent on your own machine, see [cli.md, "Verify an agent yourself"](cli.md#verify-an-agent-yourself)
 - How the gateway defends itself and where it does not: [security-model.md](security-model.md)
 - What changed between versions: [CHANGELOG.md](../CHANGELOG.md)
 - What is planned next, and what is verified and what is not: [ROADMAP.md](../ROADMAP.md)

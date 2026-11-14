@@ -207,6 +207,10 @@ test('准入：同一个运行不会重复入队', async () => {
 const OLD_ROUTE_RETRYABLE = [
   'upstream_rate_limited',
   'upstream_failed',
+  // Split out of upstream_failed (401/403, 404, incompatible field); still retried on another route.
+  'upstream_auth_failed',
+  'upstream_model_not_found',
+  'upstream_incompatible',
   'upstream_truncated',
   'node_disconnected',
   'work_timeout',

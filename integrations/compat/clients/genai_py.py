@@ -371,4 +371,24 @@ def _():
     raise AssertionError("an answer that does not fit was returned as a success")
 
 
+# Stream progress (docs/progress.md): thought parts; `.text` skips them.
+@lab.scenario("generate.stream_progress")
+def _():
+    def read(headers):
+        text, thoughts = "", ""
+        g = make(headers=headers)
+        for c in g.models.generate_content_stream(model=FIXTURE, contents="LONG"):
+            text += c.text or ""
+            for p in (c.candidates[0].content.parts if c.candidates and c.candidates[0].content else None) or []:
+                if p.thought:
+                    thoughts += p.text or ""
+        return text, thoughts
+
+    on, off = read({"X-OAA-Progress": "reasoning", "Accept-Language": "en"}), read({"X-OAA-Progress": "off"})
+    equal(on[0], off[0], "text with progress on")
+    check(on[1].startswith("Started"), f"thoughts: {on[1]!r}")
+    equal(off[1], "", "no thoughts when off")
+    return "thought parts; .text skips them"
+
+
 lab.done()

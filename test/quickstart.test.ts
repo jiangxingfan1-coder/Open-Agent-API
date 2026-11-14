@@ -113,8 +113,8 @@ test('quickstart: next steps name installed agents, otherwise built-in agent wit
     { localWorker: workerSchema.parse({ nodeId: 'local', dataDir: bin }) },
     p,
   ).join('\n');
-  assert.match(none, /OPENAI_API_KEY/);
-  assert.match(none, /examples[\\/]research\.oaa/);
+  assert.match(none, /^    oaa connect ollama$/m);
+  assert.match(found, /connect deepseek --key-file/);
 });
 
 test('sample agent: offline ACP process does steps, a tool call and an approved write', async (t) => {

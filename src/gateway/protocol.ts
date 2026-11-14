@@ -25,6 +25,7 @@ import {
 import { chatContract, instructionFor, responsesContract } from './structured-output.js';
 import {
   rejectNonMessageItems,
+  withoutReasoningItems,
   rejectUnsupportedParts,
   renderOpenAIPart,
   renderToolOutput,
@@ -143,6 +144,7 @@ export function parseInvocation(value: unknown, headers?: Record<string, unknown
 }
 
 export function parseResponse(value: unknown, headers?: Record<string, unknown>): Invocation {
+  value = withoutReasoningItems(value);
   const compatHeader = String(headers?.['x-oaa-compat'] ?? '').toLowerCase();
   if (compatHeader === 'true' || compatHeader === '1') {
     return parseCompatResponse(value, headers);
@@ -241,7 +243,7 @@ export function parseCompatResponse(
   headers?: Record<string, unknown>,
   fallback: ToolsFallback = 'managed',
 ): Invocation {
-  const req = compatResponsesSchema.parse(value);
+  const req = compatResponsesSchema.parse(withoutReasoningItems(value));
   const files: string[] = [];
   const images: ImageInput[] = [];
   const sections: string[] = [];

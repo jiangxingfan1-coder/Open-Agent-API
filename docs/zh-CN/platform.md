@@ -461,6 +461,23 @@ AdminAccount = Account + { keys, runs, spent, last_active_at }
 - `GET /v1/keys`（控制台的密钥列表）不包含账号密钥，输出与之前相同。
 - 带 `billing` 权限的充值专用密钥（owner 等于 `platform.owner`）可以调用上表中的 `POST /v1/platform/accounts/:id/credit` 与 `GET /v1/platform/accounts?query=`，不受 `consoleHosts` 限制，但 `credit` 只能加点数（`amount` 必须大于 0）。其它运营者接口仍只接受 owner 级管理员密钥。
 
+## 错误处理
+
+每个兼容入口都按自己协议的形状返回错误：
+
+- **OpenAI 兼容入口**返回 `{"error":{"code","message","type","param"}}`。网关的稳定错误码在 `error.code`。
+- **Claude Messages** 返回 `{"type":"error","error":{"type","message","code"}}`。`error.type` 跟随 HTTP 状态（例如 429 对应 `rate_limit_error`）。网关的错误码在 `error.code`。`/v1/messages/` 下网关不提供的路径（如 `count_tokens`）返回同样形状的 `not_found_error`，Anthropic SDK 把它抛成 `NotFoundError`。
+- **Gemini** 返回 `{"error":{"code","message","status","details"}}`。网关的错误码在 `details[0].reason`。
+
+任务已经创建时，错误里还带它的运行 ID（`run_id`，Gemini 为 `details[0].metadata.run_id`）。
+
+- **422，不重试。** 非流式的 Chat Completions、Claude Messages 或 Gemini 调用，如果任务已创建但没有完成（失败、取消、中断或在等审批），返回 422 并带 `x-should-retry: false`。Responses 则返回带 `status` 的响应对象。
+- **Retry-After。** 被限流的 429（`rate_limited`）给出当前 60 秒窗口里剩余的秒数。其他可重试的容量限制给 10 秒。密钥额度用尽的 429 带 `x-should-retry: false`，没有 `Retry-After`。
+- **被忽略的参数。** `temperature` 这类采样参数会被接受但不转发。它们的名字列在响应头 `X-OAA-Ignored-Params` 里；什么都没忽略时没有这个头。
+- **输出上限。** `max_tokens`、`max_output_tokens` 与 `maxOutputTokens` 生效，网关取请求值与智能体自身上限中较小的一个。只适用于内置内核智能体，外部智能体不受影响。
+- **截断不是错误。** Chat Completions 返回状态 200 与 `finish_reason: "length"`（流式仍以 `[DONE]` 结束）。Claude 返回 `stop_reason: "max_tokens"`，Gemini 返回 `finishReason: "MAX_TOKENS"`，Responses 返回 `status: "incomplete"`。
+- **不支持的输入。** 严格入口上的未知字段返回 400 `unsupported_parameter`，字段名在 `param` 里。音频与其他内联二进制内容在所有兼容入口（OpenAI、Claude、Gemini）返回 400 `unsupported_content`；图片可以发送（见 [images.md](images.md)）；详见 [protocol.md](protocol.md#兼容入口的参数错误与结束原因060)。
+
 ## 错误码
 
 以下错误码的类别为 `platform`。完整的错误码目录见 [protocol.md「错误码」](protocol.md#错误码errorcode)。门户接口还可能返回 `run_not_found`、`rate_limited` 等通用码，同样见 protocol.md。
@@ -514,6 +531,6 @@ AdminAccount = Account + { keys, runs, spent, last_active_at }
 - **命令行没有平台管理命令**。运营操作在控制台或 `/v1/platform/*` 接口上完成。
 - **反向代理后面必须开启 `trustProxy`**。网关在反向代理后面时，必须开启 `trustProxy`（见 [deploy-public.md 第 4 节](deploy-public.md#4-网关配置)），否则所有访客的来源 IP 都是代理的地址，会共用同一个限流计数。
 - **登录按邮箱限流有副作用**。有人反复用错误密码尝试某个邮箱，会让这个邮箱在 10 分钟内无法登录，包括正确的密码。这是防暴力破解的取舍。
-- **不支持内联图片**（base64 或 URL）。先经 `POST /v1/files` 上传，再以文件 ID 引用。所有兼容入口都明确拒绝内联图片与音频（400 `unsupported_content`），见 [protocol.md](protocol.md#兼容入口的参数错误与结束原因060)。
+- **不支持内联音频与其他二进制输入。** 所有兼容入口都以 400 `unsupported_content` 拒绝：先经 `POST /v1/files` 上传，再以文件 ID 引用，见 [protocol.md](protocol.md#兼容入口的参数错误与结束原因060)。图片可以内联发送（见 [images.md](images.md)）。
 - **并发事件流有上限**。每把密钥最多同时保持 64 条运行事件流（`/events`、`/wait`、`GET /v1/responses/{id}?stream=true` 与兼容入口的流式请求），每个 owner 256 条；超限返回 429 `too_many_streams`，并带 `Retry-After`。
 - **不做订阅池，不中转登录态**。

@@ -167,7 +167,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Headers come from the `openai` npm SDK (adapters ^5.23.2, core ^5.13.1; header builder read at v5.23.2): Accept, User-Agent 'OpenAI/JS <ver>', X-Stainless-*, Authorization. X-Stainless-* values (package version, OS, arch, runtime version) vary per machine. The SDK path does NOT send x-api-key or api-key. Continue's fetch wrapper (@continuedev/fetch) was not audited for extra header injection, and requestOptions.headers from config.yaml would be merged in. Stream parsing is the openai SDK SSE parser: [DONE] ends the stream but is not required, delta.role is not read, finish_reason is not read, a trailing usage chunk with `choices: []` is tolerated and re-emitted last by the adapter (usage itself is not consumed by fromChatCompletionChunk). Any chunk with a truthy top-level `error` field throws. A `data:` line that is not valid JSON throws (the SDK JSON.parse()s every non-[DONE] data line, so an empty `data:` keep-alive would fail). temperature/top_p/stop are NOT sent unless configured."
     },
@@ -229,7 +230,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "stop is sliced to getMaxStopWords(): unlimited for a custom host (4 only for api.openai.com/api.groq.com/azure/port 1337, 16 for deepseek), so more than 4 stop sequences can reach the gateway. requestOptions.extraBodyProperties (config.yaml) would additionally be merged into the body (merge point not audited)."
     },
@@ -325,7 +327,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "The title prompt text is verbatim from ChatDescriber.prompt (core/util/chatDescriber.ts L12-L13); the trailing user text is illustrative. Fires after the first exchange of a chat; a failure only loses the title."
     },
@@ -398,7 +401,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Tool name/description/schema are illustrative; the wrapper keys are verified: type:'function', function.{name,description,parameters}; `strict` is omitted because Continue passes undefined. `parallel_tool_calls:false` is set by OpenAI.modifyChatBody for ANY host whenever tools are present (except model names starting with 'o3'); `tool_choice` is omitted unless Continue sets options.toolChoice. Streamed tool calls are read from delta.tool_calls[].{id,type,function.name,function.arguments}; a chunk that has non-empty delta.content wins over delta.tool_calls in the same chunk (else-if), and finish_reason is never read."
     },
@@ -477,7 +481,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Use only to check the gateway tolerates the object form of tool_choice."
     },
@@ -569,7 +574,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "No `name` field on tool messages. If a preceding 'thinking' message exists it is merged away (role 'thinking' returns null and is filtered); reasoning/reasoning_content/reasoning_details fields are only added for providers flagged supportsReasoning* (not the plain openai provider). Assistant content given as an array is filtered down to text parts only."
     },
@@ -620,7 +626,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "ONLY applicable if the published agent name matches /^o[0-9]+/ or /gpt-[5-9]/ (e.g. `gpt-5-helper`, `o3-research`); with the default useResponsesApi the same agent is called on /v1/responses with {model, input, temperature:null, top_p:null, reasoning:{effort:'medium',summary:'auto'}, include:['reasoning.encrypted_content'], stream:true, max_output_tokens?}. Recommend avoiding such agent names or documenting useResponsesApi:false for Continue users."
     },
@@ -679,7 +686,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
@@ -723,7 +731,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "OUT OF SCOPE for a chat-completions-only gateway: requires POST /v1/completions with a text_completion SSE stream (chunk.choices[0].text; Continue also checks a top-level finish_reason !== 'eos'). Skip this case if the gateway does not serve /v1/completions; Continue then shows an autocomplete error only. Not sent via the SDK: no stream_options, no X-Stainless-*; stream parsing uses Continue's streamSse (requires HTTP 200; `data: [DONE]` or `: ping` ends it; a malformed data line throws). max_tokens is the model's configured maxTokens (4096 default)."
     },
@@ -772,7 +781,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Parsed with Continue's streamSse: response status must be exactly 200; `data: [DONE]` ends; a line starting with ': ping' ends the inner loop; any `data:` line that is not valid JSON, or has a top-level truthy `error`, throws. Chunks are mapped with fromChatCompletionChunk (delta.content only). The prompt text is illustrative."
     }

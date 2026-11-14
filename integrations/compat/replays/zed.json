@@ -118,7 +118,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.usage_chunk"
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Headers (chat_completion_request, open_ai.rs L1216-L1241): Content-Type: application/json, Authorization: Bearer <key trimmed>, plus the user's `custom_headers`; the shared reqwest client adds User-Agent 'Zed/<version> (<os>; <arch>)' (main.rs L512-L522). No Accept header, no x-stainless-*, no HTTP-Referer/X-Title. Stream parsing (language_model_core chat_completion.rs): each `data:` line must be JSON with a `choices` or `usage` key (else 'unrecognized chat completion stream chunk' error); `choices` may be missing/null/empty; delta.role is not read; delta.content may be a string or an array of parts; finish_reason is read ('stop'->EndTurn, 'tool_calls' flushes accumulated tool calls, 'length'->MaxTokens, 'content_filter'->refusal, unknown values logged and treated as EndTurn); `usage` is read when both prompt_tokens and completion_tokens are present. A non-null top-level `error` object fails the stream. `data: [DONE]` ends the stream, but EOF without [DONE] is also accepted. The system role is sent as role 'system' (never 'developer'). Whitespace-only user text parts are dropped. Special cases in into_open_ai: an agent name starting with 'o1-' is sent with stream:false and no stream_options; temperature is dropped for a few gpt-6 model ids (completion.rs L45-L57). Zed requires an API key to be configured (placeholder key if the gateway does not need one) - otherwise it fails with NoApiKey before sending anything."
     },
@@ -183,7 +184,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Tool name/description/schema are illustrative. Wrapper verified: {type:'function', function:{name, description, parameters}} - no `strict` field exists in Zed's FunctionDefinition. Tool-call deltas are accumulated by `index`; tool arguments are JSON-parsed on finish_reason 'tool_calls' (a parse failure becomes a ToolUseJsonParseError, not a crash). A tool_call delta with index -1/null or function null is tolerated (unit tests in chat_completion.rs L757-L810)."
     },
@@ -254,7 +256,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.usage_chunk"
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "`stop` is only set by features that pass stop sequences (omitted here). service_tier is never sent to OpenAI-compatible providers (the provider clears request.speed, open_ai_compatible.rs L308-L310). A model with capabilities.chat_completions:false is called on POST /v1/responses instead (Responses API), which is a different protocol and is not covered by these cases."
     },
@@ -302,7 +305,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Uses the thread's summarization model (OpenAI-compatible providers define no separate default fast model, open_ai_compatible.rs L252-L254; which model is chosen as summarization model was not traced). temperature comes from AgentSettings::temperature_for_model, otherwise 1.0."
     },
@@ -355,7 +359,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Zed can also serialize `content: []` (an empty Multipart) for a message that ended up with no parts, since MessageContent::empty() is Multipart(vec![]); not expected in normal flows."
     },
@@ -439,7 +444,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "tool_call.function carries `thought_signature` and the assistant message carries `reasoning_content`/`reasoning_details` ONLY when capabilities.interleaved_reasoning is true (default false). No `name` field on tool messages."
     },
@@ -484,7 +490,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Streamed reasoning is read from delta.reasoning_content or delta.reasoning (strings), and delta.content as an array may contain {type:'thinking'} parts. The gateway must tolerate an unknown reasoning_effort value such as 'xhigh'/'max'."
     },
@@ -534,7 +541,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
@@ -567,7 +575,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "OUT OF SCOPE for a chat-completions-only gateway: needs POST /v1/completions. Skip if not served. Unlike language_models.openai_compatible.api_url (which excludes /chat/completions), edit_predictions.open_ai_compatible_api.api_url must be the FULL URL including /v1/completions. This is configured separately from the Agent model, so it only runs if the user enables that edit-prediction provider."
     }

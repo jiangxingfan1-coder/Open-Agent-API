@@ -121,4 +121,25 @@ await lab.scenario('unsupported.count_tokens_and_batches_are_clean_404', async (
 await lab.scenario('messages.tools_explicit_bridge_mode', async () => {
   equal((await ask('CALLTOOL', { tools: [TOOL] }, bridge)).stop_reason, 'tool_use', 'stop_reason');
 });
+// Stream progress (docs/progress.md): a thinking block before the text; the text is the same as off.
+await lab.scenario('messages.stream_progress', async () => {
+  const run = async (headers) => {
+    const stream = client.messages.stream({ model: M, max_tokens: 256, messages: [{ role: 'user', content: 'LONG' }] }, { headers });
+    let thinking = '';
+    stream.on('thinking', (delta) => (thinking += delta));
+    const final = await stream.finalMessage();
+    return { text: text(final), thinking, final };
+  };
+  const on = await run({ 'X-OAA-Progress': 'reasoning', 'Accept-Language': 'en' });
+  const off = await run({ 'X-OAA-Progress': 'off' });
+  equal(on.text, off.text, 'text with progress on');
+  check(on.thinking.startsWith('Started'), `thinking: ${JSON.stringify(on.thinking)}`);
+  equal(on.final.content[0].type, 'thinking', 'thinking block first');
+  check(typeof on.final.content[0].signature === 'string' && on.final.content[0].signature, 'signature');
+  // Sending the thinking block back on the next turn is accepted.
+  const next = await client.messages.create({ model: M, max_tokens: 64, messages: [{ role: 'user', content: 'first' }, { role: 'assistant', content: on.final.content }, { role: 'user', content: 'hi' }] });
+  equal(text(next), 'Hello world from the fixture.', 'next turn after echoed thinking');
+  return 'thinking events; text unchanged; echo accepted';
+});
+
 lab.done();

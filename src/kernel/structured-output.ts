@@ -66,6 +66,12 @@ export function settleStructuredOutput(
   const prompt = repairPrompt(contract, verdict.problem, answer);
   contract.used = used + 1;
   run.metadata['oaa.output_repairs'] = String(contract.used);
+  // Visible as stream progress (docs/progress.md); no answer text, only the round.
+  rt.store.emit(run.id, 'tool.progress', {
+    source: 'gateway',
+    event: 'output_repair',
+    round: contract.used,
+  });
   if (external) return { again: true, nativeInput: prompt };
   run.checkpoint.messages.push({ role: 'user', content: prompt });
   run.checkpoint.phase = 'model';

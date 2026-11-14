@@ -20,6 +20,17 @@ export const providerSchema = z
     kind: z.enum(['openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-generate']),
     baseUrl: z.string().url().default('https://api.openai.com/v1'),
     apiKeyEnv: z.string().default('OPENAI_API_KEY'),
+    /** Read the key from this file instead (wins over `apiKeyEnv`; trimmed; never logged). */
+    apiKeyFile: z.string().min(1).max(4096).optional(),
+    /** The endpoint needs no key (local services such as Ollama); no auth header is sent. */
+    noApiKey: z.boolean().optional(),
+    /** Preset this entry was written from (`oaa connect <preset>`); informational only. */
+    preset: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
+      .optional(),
+    /** Chat Completions: send `stream_options.include_usage` (default true). */
+    streamUsage: z.boolean().optional(),
     /**
      * Accept caller-supplied keys (BYOK) for this provider. The caller's key is then sent to
      * `baseUrl`. Without an `apiKeyEnv` value the provider serves BYOK requests only.
@@ -353,6 +364,16 @@ const gatewayObject = z
       .object({ default: z.enum(['auto', 'managed', 'bridge', 'reject']).default('auto') })
       .strict()
       .default({ default: 'auto' }),
+    /** Stream progress (docs/progress.md): per protocol, `reasoning` puts run progress into the protocol's thinking shape. */
+    streamProgress: z
+      .object({
+        chat: z.enum(['off', 'reasoning']).default('off'),
+        responses: z.enum(['off', 'reasoning']).default('reasoning'),
+        claude: z.enum(['off', 'reasoning']).default('off'),
+        gemini: z.enum(['off', 'reasoning']).default('reasoning'),
+      })
+      .strict()
+      .default({ chat: 'off', responses: 'reasoning', claude: 'off', gemini: 'reasoning' }),
     leaseMs: z.number().int().min(100).max(120_000).default(15_000),
     /** Developer platform (accounts, account keys, listings, credits). Unset: nothing changes. */
     platform: platformSchema.optional(),

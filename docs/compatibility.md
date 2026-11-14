@@ -48,10 +48,10 @@ These clients cannot be installed in a test run. Their source (or official docum
 | NextChat | main@1d3dc33 (last release v2.16.1) | verified | 10 / 0 / 0 |
 | Dify (OpenAI-API-compatible plugin) | plugin 0.0.83, SDK 0.10.2 | verified | 10 / 3 / 0 |
 | n8n (OpenAI credential / Chat Model) | 2.47.7 | verified | 10 / 4 / 0 |
-| Continue | `config.yaml`, `models[]` | `apiBase: http://<host>:8787/v1` | `model: agent/sample` | Add `capabilities: [tool_use]` to let Agent mode send tools: with a kernel or ACP agent they are handed to the agent. Tab autocomplete uses `POST /v1/completions` by default, which the gateway does not serve: keep autocomplete on another model, or set `useLegacyCompletionsEndpoint: false` to send it as chat. |
+| Continue | main@5522c6f (latest releases v2.0.0-vscode and v2.1.0-vscode, a pre-release) | verified | 11 / 1 / 0 |
 | Cline | main@72b3d71 (release 4.1.26) | verified | shared file with Roo Code: 11 / 3 / 0 |
 | Roo Code | b867ec9 (archived 2026-05-15) | verified | (same file) |
-| Zed | `settings.json`, `language_models.openai_compatible.<name>` | `api_url: "http://<host>:8787/v1"` | `available_models[].name: "agent/sample"` | Zed never calls `/models`, so models are listed by hand. Its agent profile sends `tools`; with a kernel or ACP agent they are handed to the agent. |
+| Zed | main@f0fa51b (rolling main; no release tag was read) | verified | 7 / 2 / 0 |
 
 "verified" means the case was derived from the client source at the stated revision; "inferred" means derived from a library the client uses or from documented defaults; "unverified" means no reliable source was found and the case is a protocol skeleton.
 
@@ -86,9 +86,9 @@ A wrong Base URL is the most common cause of a 404. The gateway now ignores a tr
 | NextChat | Settings > Custom Endpoint > OpenAI Endpoint | `http://<host>:8787` **without `/v1`** | Settings > Custom Models: `agent/sample` | NextChat adds `v1/chat/completions` itself (`.../v1` becomes `/v1/v1/...`) and never lists remote models. Model names that match its vision patterns (`vision`, `vl`, `gpt-4o`, `o3`, ...) get `max_tokens: 4000` added. |
 | Dify | Model Provider > OpenAI-API-compatible > Add Model | `http://host.docker.internal:8787/v1` when Dify runs in Docker | Model Name = agent name | Dify never calls `/models`. Its stream parser needs every chunk to have a `choices` array (the gateway's usage chunk has `choices: []`) and ignores `:` comment frames. |
 | n8n | Credentials > OpenAI | Base URL `http://<host>:8787/v1` | OpenAI Chat Model: "By ID" or "From List" | The credential Test button calls `GET /v1/models`. The node's "Use Responses API" mode (default on in new versions) and its Chat Completions mode are both built on LangChain; LangChain's two modes work against the gateway in the lab, and the n8n request shapes are replayed. An AI Agent node that attaches tools works with the same Base URL when the agent can take the tools over (below); otherwise it gets the clear refusal. |
-| Continue | `config.yaml`, `models[]` | `apiBase: http://<host>:8787/v1` | `model: agent/sample` | Add `capabilities: [tool_use]` only together with the compat Base URL. Tab autocomplete uses `POST /v1/completions` by default, which the gateway does not serve: keep autocomplete on another model, or set `useLegacyCompletionsEndpoint: false` to send it as chat. |
+| Continue | `config.yaml`, `models[]` | `apiBase: http://<host>:8787/v1` | `model: agent/sample` | Add `capabilities: [tool_use]` to let Agent mode send tools: with a kernel or ACP agent they are handed to the agent, on the same Base URL. Tab autocomplete uses `POST /v1/completions` by default, which the gateway does not serve: keep autocomplete on another model, or set `useLegacyCompletionsEndpoint: false` to send it as chat. |
 | Cline / Roo Code | API Provider "OpenAI Compatible" | `http://<host>:8787/v1` | the agent name | Both always send `tools`. With a kernel or ACP agent the same Base URL works and the tools are handed to the agent (`X-OAA-Client-Tools: bridge` in the response); an agent that cannot take them over (a native engine) gets a clear 400 that names the way out. Roo Code is archived upstream. |
-| Zed | `settings.json`, `language_models.openai_compatible.<name>` | `api_url: "http://<host>:8787/v1"` | `available_models[].name: "agent/sample"` | Zed never calls `/models`, so models are listed by hand. Its agent profile sends `tools` (compat Base URL). |
+| Zed | `settings.json`, `language_models.openai_compatible.<name>` | `api_url: "http://<host>:8787/v1"` | `available_models[].name: "agent/sample"` | Zed never calls `/models`, so models are listed by hand. Its agent profile sends `tools`; with a kernel or ACP agent they are handed to the agent, on the same Base URL. |
 | Cursor | Settings > Models > Override OpenAI Base URL | public HTTPS URL, with `/v1` (unverified) | custom model name | Unverified, see above. |
 
 ### SDKs and frameworks
@@ -101,7 +101,7 @@ A wrong Base URL is the most common cause of a 404. The gateway now ignores a tr
 | Vercel AI SDK | `createOpenAI({ baseURL: ".../v1" })` (`.chat()` and `.responses()` both work), `createOpenAICompatible({ name, baseURL: ".../v1" })`, `createAnthropic({ baseURL: ".../v1" })`, `createGoogleGenerativeAI({ baseURL: ".../v1beta" })`; the agent name goes in as the model id unchanged |
 | LangChain | `ChatOpenAI(model=..., base_url=".../v1", stream_usage=True)` (with a custom `base_url` LangChain does not request streamed usage on its own), `ChatAnthropic(model=..., anthropic_api_url="http://127.0.0.1:8787")` |
 | LiteLLM | `litellm.completion(model="openai/agent/sample", api_base=".../v1")`; also `anthropic/agent/sample` with `api_base="http://127.0.0.1:8787"` and `gemini/agent/sample` with `api_base=".../v1beta"` |
-| OpenAI Agents SDK | `Agent(model=OpenAIResponsesModel(model="agent/sample", openai_client=AsyncOpenAI(base_url=".../v1", api_key=...)))` or `OpenAIChatCompletionsModel(...)`. Call `set_tracing_disabled(True)`, otherwise the SDK uploads traces to OpenAI. Function tools need the compat Base URL |
+| OpenAI Agents SDK | `Agent(model=OpenAIResponsesModel(model="agent/sample", openai_client=AsyncOpenAI(base_url=".../v1", api_key=...)))` or `OpenAIChatCompletionsModel(...)`. Call `set_tracing_disabled(True)`, otherwise the SDK uploads traces to OpenAI. Function tools work on the ordinary Base URL when the agent can take them over (see "Caller tools" below) |
 | LlamaIndex | `OpenAILike(model="agent/sample", api_base=".../v1", api_key=..., is_chat_model=True)`. The `OpenAI` class checks the model name against OpenAI's list before any request and refuses the agent name |
 
 ## Caller tools
@@ -116,6 +116,10 @@ A request that declares `tools` and chooses no mode is handled as `auto` (docs/h
 ## Structured output
 
 `response_format` (`json_object`, `json_schema`), Responses `text.format`, Gemini `responseMimeType: "application/json"` with `responseSchema` / `responseJsonSchema`, and Claude `output_config.format` are a contract: a successful response is JSON that parses and fits the schema, a wrong answer is sent back once for correction, otherwise the run fails with `structured_output_invalid` (422). Streams are held until the answer is checked and then delivered in one piece. The official SDK helpers were run against it (OpenAI `parse` for Chat and Responses, Anthropic `messages.parse`, Gemini `response_schema`, Vercel AI SDK `generateObject`, LangChain `with_structured_output`). Not served: structure by forced tool call (LangChain `method="function_calling"`, `@ai-sdk/anthropic` in `jsonTool` mode): use `method="json_schema"` / `structuredOutputMode: "outputFormat"`. Details: [structured-output.md](structured-output.md).
+
+## Stream progress
+
+Streams can show what the agent is doing in each protocol's thinking / reasoning shape (Chat `reasoning_content`, Responses `reasoning` item, Claude `thinking` block, Gemini `thought` parts) without changing the answer. Every live client runs a `*.stream_progress` scenario (same answer on and off, progress readable where the SDK exposes it). By default Responses and Gemini are on; Chat is off because Dify folds `reasoning_content` into the answer as `<think>…</think>`, and Claude is off as a precaution (thinking blocks change `content[0]` and LangChain's streamed content shape). Turn it on per request with `X-OAA-Progress: reasoning`. The full protocol × client table: [progress.md](progress.md).
 
 ## Parameter policy
 

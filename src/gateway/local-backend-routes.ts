@@ -12,6 +12,7 @@ import type { Catalog } from './catalog.js';
 import type { Principal } from '../core/contracts.js';
 import { bi, requestLocale } from '../core/locale.js';
 import { Fault, writePrivate } from '../core/util.js';
+import { providerStatuses } from '../providers/provider-status.js';
 import {
   checkLocalBackend,
   listLocalBackends,
@@ -49,6 +50,8 @@ export function registerLocalBackendRoutes(
     return {
       data: listLocalBackends(config.localWorker, handshakes),
       presets: await presetCatalog(config.localWorker, locale),
+      // Model providers of the built-in kernel, as this gateway process sees them (no keys).
+      providers: providerStatuses(config.localWorker),
     };
   });
   const localBackendOwner = (principal: Principal) => {

@@ -117,6 +117,7 @@ function callerToolsPanel(e, base, sample) {
   const box = panel(t('access.callerTitle'));
   box.body.classList.add('caller-tools');
   box.body.append(el('p', t('access.callerText'), 'muted'));
+  box.body.append(el('p', t('access.progressText'), 'muted'));
   const modes = table(
     [
       { text: t('access.colMode'), width: 170 },

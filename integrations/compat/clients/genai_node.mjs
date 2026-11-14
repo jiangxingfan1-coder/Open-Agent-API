@@ -139,4 +139,23 @@ await lab.scenario('structured.failure_is_a_422', async () => {
   check(e instanceof ApiError && e.status === 422, `status ${e.status}`);
 });
 
+// Stream progress (docs/progress.md): thought parts; `.text` skips them.
+await lab.scenario('generate.stream_progress', async () => {
+  const run = async (headers) => {
+    let text = '';
+    let thoughts = '';
+    for await (const c of await make({ headers }).models.generateContentStream({ model: M, contents: 'LONG' })) {
+      text += c.text ?? '';
+      for (const p of c.candidates?.[0]?.content?.parts ?? []) if (p.thought) thoughts += p.text ?? '';
+    }
+    return { text, thoughts };
+  };
+  const on = await run({ 'X-OAA-Progress': 'reasoning', 'Accept-Language': 'en' });
+  const off = await run({ 'X-OAA-Progress': 'off' });
+  equal(on.text, off.text, 'text with progress on');
+  check(on.thoughts.startsWith('Started'), `thoughts: ${JSON.stringify(on.thoughts)}`);
+  equal(off.thoughts, '', 'no thoughts when off');
+  return 'thought parts; .text skips them';
+});
+
 lab.done();

@@ -87,6 +87,24 @@ export function renderAgents(body) {
       tier.className = 'fact';
       facts.append(tier);
     }
+    // Built-in agents: which configured model provider the first route uses, and whether its key
+    // resolves in the gateway process (only a missing key needs a person, so only that is marked).
+    const provider =
+      a.engine === 'kernel'
+        ? (state.providers ?? []).find((p) => p.name === a.routes[0]?.provider)
+        : undefined;
+    if (provider) {
+      const fact = el(
+        'span',
+        t(provider.key_ready ? 'agents.provider' : 'agents.providerNoKey', { name: provider.name }),
+        provider.key_ready ? 'fact' : 'fact text-attention',
+      );
+      fact.translate = false;
+      fact.title = provider.key_ready
+        ? `${provider.kind} · ${provider.base_url}`
+        : t('agents.providerNoKeyHint', { ref: provider.key.ref ?? '' });
+      facts.append(fact);
+    }
     if (a.tools.length) facts.append(el('span', t('agents.tools', { n: a.tools.length }), 'fact'));
     if (a.skills.length)
       facts.append(el('span', t('agents.skills', { n: a.skills.length }), 'fact'));

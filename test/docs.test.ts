@@ -18,7 +18,7 @@ import { ERROR_CATALOG } from '../src/core/errors.js';
  * a pending document that does not exist yet are tolerated too. DELETE THIS LIST (and the
  * "pending list is honest" test) once every name here has both an English and a Chinese version.
  */
-const PENDING_NEW_DOCS = ['stability', 'cli'];
+const PENDING_NEW_DOCS = ['stability'];
 
 /** Directories that never hold project documentation. */
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'release', '.claude']);

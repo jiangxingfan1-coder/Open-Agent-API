@@ -189,6 +189,14 @@ export const zhCore = {
   'dlg.publish.id.hint': '调用时作为模型名使用；可改成更好记的名字，例如 agent/reviewer',
   'dlg.publish.mode.native': '发布本机已安装的第三方智能体，它用自带的工具和模型完成任务。',
   'dlg.publish.mode.oaa': '用配置文件定义智能体，由内置内核驱动模型并执行你声明的工具。',
+  'dlg.publish.provider.option': '{name}（{kind}）',
+  'dlg.publish.provider.option_nokey': '{name}（{kind}，缺密钥）',
+  'dlg.publish.provider.other': '源码里写的是 {name}（不在已配置的提供方里）',
+  'dlg.publish.provider.ready': '线路会发往 {url}。选择后会改写源码里每条 route 的提供方。',
+  'dlg.publish.provider.nokey':
+    '网关进程读不到这个提供方的密钥（{ref}）：发布可以，但调用会失败，设置后需重启网关。',
+  'dlg.publish.provider.hint':
+    '从已配置的提供方里选一个，会改写源码里每条 route 的提供方。新增提供方用 oaa connect <预设>。',
   'dlg.publish.mode.bundle': '导入已经审阅过的打包文件，内容不会再变。',
   'dlg.publish.diag.ok': '检查通过：语法格式正确，没有发现问题。',
   'dlg.publish.diag.error': '错误',

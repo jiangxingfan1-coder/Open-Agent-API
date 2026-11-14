@@ -119,4 +119,14 @@ for label, build in (("responses_model", responses_model), ("chat_completions_mo
 
     lab.scenario(f"{label}.function_tool_loop_without_any_header")(tools_bridge)
 
+for label, build in (("responses_model", responses_model), ("chat_completions_model", chat_model)):
+
+    def progress(build=build):
+        on, _ = asyncio.run(stream_text(Agent(name="lab", instructions="x", model=build(headers={"X-OAA-Progress": "reasoning", "Accept-Language": "en"})), "LONG"))
+        off, _ = asyncio.run(stream_text(Agent(name="lab", instructions="x", model=build(headers={"X-OAA-Progress": "off"})), "LONG"))
+        equal(on, off, "final_output with progress on")
+
+    lab.scenario(f"{label}.run_streamed_progress")(progress)
+
+
 lab.done()

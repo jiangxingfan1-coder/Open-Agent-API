@@ -144,7 +144,8 @@
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "A system message appears only if the assistant has a prompt. Every SSE chunk must parse against a zod schema where `choices` is a required array: the final usage chunk MUST carry choices: [] (not omit it). delta.role may only be 'assistant' (or absent); unknown fields are allowed; an object with an `error` key is treated as a stream error. [DONE] is optional (end of body also ends the stream); SSE content-type is not validated."
     },
@@ -194,7 +195,8 @@
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Risky: user-defined custom parameters (top_k, repetition_penalty and any JSON the user types) land in the body unfiltered, so the gateway must ignore unknown keys. max_tokens may be reduced/adjusted when reasoning is on. reasoning_effort for a plain agent name is only sent if Cherry's model registry thinks the id supports reasoning (inferred)."
     },
@@ -324,7 +326,8 @@
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Cherry's context window setting trims history before sending; no name fields."
     },
@@ -372,7 +375,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Accept string or array-of-text-parts content."
     },
@@ -420,7 +424,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
@@ -499,7 +504,8 @@
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "When the assistant also streamed text before calling a tool, content is that text. Reasoning from earlier turns may be replayed as reasoning_content."
     },
@@ -559,7 +565,8 @@
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "A default chat has no tools; tools appear for assistants with MCP servers, knowledge-base search or web tools turned on. Models flagged as not supporting function calling get no tools."
     },
@@ -600,7 +607,8 @@
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Some vendor-specific reasoning knobs are sent under other keys for known provider families (not for generic custom providers). delta.reasoning_content / delta.reasoning are rendered as thinking."
     }

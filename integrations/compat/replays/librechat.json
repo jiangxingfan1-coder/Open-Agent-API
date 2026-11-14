@@ -143,7 +143,8 @@
         "stream.first_delta_role_assistant",
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.usage_chunk"
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "LibreChat user id is always sent as 'user'. temperature/top_p/frequency_penalty/presence_penalty/stop/max_tokens are present only if the user (or a preset) set them; the yaml docs, however, list stop, user, frequency_penalty, presence_penalty as 'default parameters', so a fresh preset may include frequency_penalty:0 / presence_penalty:0 / top_p / temperature (inferred, not confirmed). A system message is added only when the conversation/agent has instructions. SDK stream: unknown fields are ignored; chunks without choices[0] are skipped; a final chunk with usage and choices:[] is read for token counts. If the first delta lacks role, LangChain builds a ChatMessageChunk instead of AIMessageChunk (concat across types is likely to fail), so keep delta.role:'assistant' on the first chunk."
     },
@@ -203,7 +204,8 @@
         "stream.first_delta_role_assistant",
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.usage_chunk"
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "reasoning_effort and verbosity are written to modelKwargs and therefore appear as top-level body keys (verbosity only for non-OpenRouter). For model ids matching o1/o3/gpt-5 LibreChat drops temperature/top_p/penalties/logit_bias and uses max_completion_tokens instead of max_tokens; for ordinary agent names it keeps max_tokens. addParams from yaml are merged on top; dropParams removes keys."
     },
@@ -333,7 +335,8 @@
       "consumes": [
         "stream.first_delta_role_assistant",
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "For custom endpoints useLegacyContent is true, so text turns are plain strings, not arrays of text parts. A role 'developer' request should still be accepted by the gateway in case an agent is named like a reasoning model."
     },
@@ -385,7 +388,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
@@ -467,7 +471,8 @@
       "consumes": [
         "stream.first_delta_role_assistant",
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "The gateway should tolerate content as '', null or an empty array on assistant tool-call messages, and an extra name field on tool messages. tool arguments are JSON strings."
     },
@@ -529,7 +534,8 @@
       "consumes": [
         "stream.first_delta_role_assistant",
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Tool name may be prefixed/sanitised by LibreChat. Gateway agents that do not support client tools may simply ignore tools."
     },
@@ -571,7 +577,8 @@
       },
       "consumes": [
         "stream.first_delta_role_assistant",
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Chunks may carry delta.reasoning_content / delta.reasoning which LibreChat renders as thinking; absent is fine."
     }

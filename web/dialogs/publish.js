@@ -205,9 +205,11 @@ export async function openPublish() {
   if (isNodeAdmin()) {
     const token = state.token;
     try {
-      const backends = (await api('GET', '/v1/local/backends')).data;
+      const backends = await api('GET', '/v1/local/backends');
       if (token === state.token) {
-        state.backends = backends;
+        state.backends = backends.data;
+        if (backends.providers) state.providers = backends.providers;
+        renderProviderPicker();
         if ($('publish-dialog').open) {
           renderRuntimePicker();
           icons();
@@ -218,6 +220,55 @@ export async function openPublish() {
     }
   }
 }
+/* Built-in agents: pick one of the configured model providers instead of typing its name. The
+   choice rewrites the provider of every `route "x" -> provider/"model"` line in the source. */
+export function routeProvider(source) {
+  return /->\s*([A-Za-z0-9_-]+)\/"/.exec(source)?.[1];
+}
+export function withRouteProvider(source, name) {
+  return source.replace(/(->\s*)[A-Za-z0-9_-]+(\/")/g, `$1${name}$2`);
+}
+export function renderProviderPicker() {
+  const providers = state.providers ?? [];
+  const select = $('oaa-provider');
+  $('oaa-provider-field').hidden = !providers.length;
+  const current = routeProvider($('oaa-source-editor').value || '');
+  select.replaceChildren(
+    ...providers.map((p) => {
+      const option = el(
+        'option',
+        t(p.key_ready ? 'dlg.publish.provider.option' : 'dlg.publish.provider.option_nokey', {
+          name: p.name,
+          kind: p.kind,
+        }),
+      );
+      option.value = p.name;
+      option.selected = p.name === current;
+      return option;
+    }),
+  );
+  const known = providers.find((p) => p.name === current);
+  if (!known && providers.length) {
+    const other = el('option', t('dlg.publish.provider.other', { name: current ?? '—' }));
+    other.value = '';
+    other.selected = true;
+    select.prepend(other);
+  }
+  $('oaa-provider-hint').textContent = known
+    ? known.key_ready
+      ? t('dlg.publish.provider.ready', { url: known.base_url })
+      : t('dlg.publish.provider.nokey', { ref: known.key.ref ?? '' })
+    : t('dlg.publish.provider.hint');
+}
+$('oaa-provider').onchange = (e) => {
+  if (!e.target.value) return;
+  $('oaa-source-editor').value = withRouteProvider(
+    $('oaa-source-editor').value || '',
+    e.target.value,
+  );
+  renderProviderPicker();
+};
+$('oaa-source-editor').addEventListener('change', () => renderProviderPicker());
 export const DEFAULT_OAA_TEMPLATE = `let DEFAULT_TIMEOUT = 30s
 
 agent "agent/studio-analyst" {
@@ -272,6 +323,7 @@ export function publishMode(mode) {
   $('native-models').required = mode === 'native';
   if (mode === 'oaa' && !$('oaa-source-editor').value.trim())
     $('oaa-source-editor').value = DEFAULT_OAA_TEMPLATE;
+  if (mode === 'oaa') renderProviderPicker();
 }
 $('native-mode').onclick = () => publishMode('native');
 $('oaa-mode').onclick = () => publishMode('oaa');

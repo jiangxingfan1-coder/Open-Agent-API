@@ -15,6 +15,9 @@ const GROUPS: Group[] = [
     lines: [
       'oaa quickstart [--dir .oaa] [--port 8787]',
       'oaa connect codex|claude|agy|ACP_PRESET [--dir .oaa]',
+      'oaa connect MODEL_PRESET [--model M] [--key-env NAME | --key-file FILE] [--base-url URL] [--agent agent/assistant] [--name NAME] [--definition FILE.oaa] [--test]',
+      'oaa connect    (lists external agents and model presets)',
+      'oaa models [--dir .oaa] [--check] [--json]',
       'oaa init [--dir .oaa]',
       'oaa serve [--config .oaa/config.json] [--detach]',
       'oaa stop [--config .oaa/config.json]',

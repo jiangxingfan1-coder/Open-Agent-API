@@ -56,6 +56,8 @@ OAA_DESKTOP_HOME="$(mktemp -d)" OAA_DESKTOP_PORT=18787 "release/macos/Open Agent
 4. **首次启动对话框**：在全新的 `OAA_DESKTOP_HOME` 目录上第一次启动时，必须出现一次标题为「首次启动：已为你做好这些准备」的面板。它列出 `agent/sample`、这台 Mac 上找到的引擎（没找到就明说没找到），以及去哪里关掉某个引擎；点「查看「执行机器」页」会打开那一页。⌘Q 后用同一个目录再启动一次，它不能再出现。
 5. **语言**：在「系统设置 › 语言与地区」里把中文放第一位，重启应用：菜单、「关于」、状态栏菜单和对话框都是中文；把英文放第一位则都是英文。控制台自己的语言（设置里）不受应用影响。「关于」里显示的是 `package.json` 的版本号。
 
+**做过什么。** 2026-11-14 项目所有者在一台 Apple 芯片的 Mac 上，用隔离方式运行发布模式构建的包，亲手做了一次，确认了：控制台直接是已连接状态、没有连接对话框（第 1 项的一部分）；首次启动面板出现（第 4 项的前半）；刷新（⌘R）后仍然已连接（第 3 项的第一部分）；「关于」里的版本号正确；菜单与对话框跟随系统语言（第 5 项，但只看了所有者当前的系统语言）。**还没有检查的**：端口被占用时的三种提示（第 2 项）；「断开连接」后再 ⌘R、以及退出后用同一个文件夹重启，是否都能重新连上（第 3 项的其余部分）；首次启动面板第二次不再出现（第 4 项的其余部分）；系统语言两个方向的切换（第 5 项的其余部分）；应用崩溃后遗留的网关的识别与复用；Intel 芯片的包；要发布的版本在正常的、非隔离安装下（数据目录在默认位置、端口 8787）的表现；Windows 启动器的双语提示（没有 Windows 机器，CI 里只有 PowerShell 语法检查）。发布之前，请把没做过的检查，以及这次发布改动到的检查，再做一遍。
+
 ## 本机开发打包与发布打包
 
 | | 本机开发打包 | 发布打包 |
@@ -127,7 +129,7 @@ Windows 包的数据与日志在 `%LOCALAPPDATA%\OpenAgentAPI`（对应 macOS �
 
 ## 平台相关的测试
 
-CI（`.github/workflows/ci.yml`）在 Ubuntu 与 macOS 上跑完整的 `npm run verify`（`release-plan` 测试还会离线核对 `.github/workflows/` 下的全部工作流：action 是否固定哈希、有没有超时、运行器标签是否退役、矩阵字段与产物目录是否一致）。Windows 作业目前只跑类型检查、格式检查与打包相关的测试（`release-plan`、`claude-sdk`），因为不少测试用到 POSIX 专用写法：用 `chmod` 生成带 shebang 的假可执行文件（`acp`、`approval-policy`、`claude-failure`、`conformance`、`handoff`、`overview`、`sandbox-native` 等）、`/bin/sh`、文件权限位（`harness-bridge-acp`）、`SIGTERM`/`SIGKILL`（`process`、`step-checkpoints`）、写死的 `/tmp` 与 `/usr/bin` 路径（`native-env` 等）。让完整测试在 Windows 上通过是单独的一项工作。
+CI（`.github/workflows/ci.yml`）在 Ubuntu 与 macOS 上跑完整的 `npm run verify`（`release-plan` 测试还会离线核对 `.github/workflows/` 下的全部工作流：action 是否固定哈希、有没有超时、运行器标签是否退役、矩阵字段与产物目录是否一致）。`ci.yml` 里的 `windows` 作业只跑类型检查、格式检查与打包相关的测试（`release-plan`、`claude-sdk`），在 Node 24 与 Node 26 上各一次。完整测试在另一个工作流 `.github/workflows/windows.yml` 里于 `windows-latest` 上运行（Node 24）：`node scripts/test-offline.mjs --all --isolate` 每个测试文件起一个进程（每个最多 3 分钟，一个卡住的文件不会掩盖后面的文件），最后打印汇总。很多测试原先用到 POSIX 专用写法：用 `chmod` 生成带 shebang 的假可执行文件、`/bin/sh`、文件权限位、`SIGTERM`/`SIGKILL`、写死的 `/tmp` 与 `/usr/bin` 路径。它们已改成两个系统都能跑，或在测试文件里带明确原因地在 Windows 上跳过（运行 `.cmd` 启动器、Ctrl+C 等少数用例反过来，只在一边运行或只在一边有意义）。Windows 上哪些行为有覆盖、哪些没有，见 [windows.md](windows.md)。
 
 **Node 版本矩阵。** `engines` 是 `>=24.18.0 <27`：24 或 26 版本线上 24.18 及以上的 Node.js。`ci.yml` 的 `verify` 作业（Ubuntu 与 macOS）与 Windows 的打包相关作业都在 Node 24 和 Node 26 上跑，每一项都必须通过。背景：原来的上限 `<25` 来自首个基线快照，仓库、全部依赖（`package-lock.json` 里只有根包带上限）、`git log` 与文档都没有记录过真正的不兼容；内核唯一用到的实验性接口是 `node:sqlite`。第一次在 Node 26.13.1 上不挡合并的 CI 运行，除 Linux 启动脚本测试外整套测试全部通过，那一项失败只是因为启动脚本自己拒绝了 `PATH` 上的 Node 26，现在这个检查跟随 `engines`。Node 25 是奇数版本，维护期已结束，没有测试它，尽管这个范围在字面上包含它。安装包自带的 Node 运行时（`release.yml` 的 `NODE_RUNTIME_VERSION`）仍是 24.18.0。再改范围时要一并更新：`package.json` 的 `engines`、`scripts/package-windows.mjs` 生成的版本提示（Windows 与 Linux 启动脚本都读 `engines`，不用另改）、`ci.yml` 的矩阵、两份 README 与两份 CONTRIBUTING 里的徽章和说法、`docs/install.md`、`docs/operations.md`、`docs/deploy-public.md`、`docs/engineering.md`（各中英两份）；`test/release-plan.test.ts` 会断言这个范围。
 
@@ -146,7 +148,7 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 与 macOS 上跑完整的 `npm run 
 
 ## 第一次在 GitHub 上跑 Release 时盯什么
 
-工作流从未在 GitHub 上真正运行过，Windows 的包也没在 Windows 上跑过；Linux 包与 Docker 镜像只在开发机上做过等价的演练（macOS 上用 stub 的 node 解出 Linux 包跑烟雾测试；那里没有 Docker，Dockerfile 的每个阶段是在临时目录里按 `COPY` 与 `RUN` 逐条复现的）。第一次推标签后，按下面的顺序看日志，哪一步红了就对着修：
+发布工作流在 GitHub 上只为 v0.0.64 运行过：macOS arm64、macOS x64 与 Windows x64（Windows 的 zip 解压到含空格与中文的路径，经 `oaa.cmd` 运行），并创建了草稿 Release。带有 Linux x64 与 arm64 作业、`npm-package` 作业、以及给 `install.sh` 盖版本号并把新增文件写入 `SHA256SUMS` 那一步的版本**还没有**运行过，第一次发布包含它们的版本就是第一次运行。Linux 包与 `install.sh` 只在开发机上做过等价的演练（macOS 上用 stub 的 node 解出 Linux 包跑烟雾测试），离线测试覆盖了 `install.sh` 与包的结构。推标签后，按下面的顺序看日志，哪一步红了就对着修：
 
 | 步骤 | 失败时日志的样子 | 原因与处理 |
 | --- | --- | --- |
@@ -170,7 +172,7 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 与 macOS 上跑完整的 `npm run 
 
 ### Docker 首跑观察清单
 
-Docker 路线**没有在开发机上构建过**（那里没有 Docker），首次由 `docker.yml` 在 CI 里验证。按这个顺序看 `Docker` 工作流的日志：
+Docker 路线没法在开发机上构建（那里没有 Docker）；`docker.yml` 在每次 push 与 pull request 时构建 amd64 镜像并跑容器烟雾测试，2026-11-14 在 GitHub 的 Ubuntu 运行器上通过。只在发布 Release 时才运行的步骤（QEMU 下的 arm64 构建、推送到 ghcr）还没有运行过。`Docker` 工作流如果失败，按这个顺序看它的日志：
 
 | 步骤 | 失败时日志的样子 | 原因与处理 |
 | --- | --- | --- |

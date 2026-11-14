@@ -8,6 +8,17 @@ import { chatUsage, responseObject } from './protocol.js';
 import { claudeDelta, claudeDeltaUsage, claudeMessage } from './claude.js';
 import { openEventStream } from './streams.js';
 import { streamSlots } from './stream-slots.js';
+import { sseRequested } from './compat-errors.js';
+import * as progress from './progress-stream.js';
+export { streamSlots };
+
+/** Stream options of a compat entry (gateway/server.ts). */
+export const streamOptions = (
+  req: FastifyRequest,
+  dialect: string,
+  release: (() => void) | undefined,
+  progressDefaults: progress.ProgressDefaults,
+) => ({ jsonArray: dialect === 'gemini' && !sseRequested(req), release, progressDefaults });
 import {
   awaitingCallerInProcess,
   chatToolCallFrames,
@@ -57,6 +68,8 @@ export function streamEvents(
     jsonArray?: boolean;
     /** 调用方事先占好的流名额（兼容入口在提交运行之前占）；没有时这里占。 */
     release?: () => void;
+    /** The configured stream-progress defaults (docs/progress.md). */
+    progressDefaults?: progress.ProgressDefaults;
   } = {},
 ): void {
   const release = options.release ?? streamSlots(store).acquire(req.principal);
@@ -67,6 +80,13 @@ export function streamEvents(
     mode === 'uap-ndjson' ||
     mode === 'uap-sse';
   const initial = needsInitial ? (initialRun ?? store.run(runId)) : initialRun;
+  if (options.progressDefaults) progress.rememberProgressDefaults(store, options.progressDefaults);
+  const locale = progress.progressFor(store, req, initial ?? store.run(runId), mode);
+  const lines = locale ? new progress.ProgressLines(locale) : undefined;
+  const reasoning =
+    mode === 'responses' && lines ? new progress.ResponsesReasoning(runId) : undefined;
+  const thinking = new progress.ClaudeThinking();
+  let answered = false;
   const base = initial
     ? {
         id: `chatcmpl_${runId}`,
@@ -83,7 +103,7 @@ export function streamEvents(
     : '';
   const chatDeltaSuffix = `},"finish_reason":null}]}\n\n`;
 
-  const claudeDeltaPrefix = `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":`;
+  let claudeDeltaPrefix = '';
   const claudeDeltaSuffix = `}}\n\n`;
 
   const geminiModelVer = initial ? `${initial.agentId}@${initial.route.model}` : 'agent';
@@ -96,13 +116,23 @@ export function streamEvents(
       candidates: [{ index: 0, content: { role: 'model', parts: [{ text: delta }] } }],
     });
   /** Claude 流的开头：message_start、ping（官方事件序列里紧跟 message_start）、text 块开始。 */
-  const writeClaudeStart = () => {
+  let claudeStarted = false;
+  const writeClaudeMessageStart = () => {
+    if (claudeStarted) return;
+    claudeStarted = true;
     write(
       `event: message_start\ndata: ${JSON.stringify({ type: 'message_start', message: claudeMessage(runId, initial?.agentId ?? 'agent', [], null, undefined) })}\n\n`,
     );
     write(`event: ping\ndata: ${JSON.stringify({ type: 'ping' })}\n\n`);
+  };
+  /** The text block follows a progress thinking block when there was one (index 1, else 0). */
+  const writeClaudeStart = () => {
+    writeClaudeMessageStart();
+    for (const frame of thinking.close()) write(frame);
+    const index = thinking.next;
+    claudeDeltaPrefix = `event: content_block_delta\ndata: {"type":"content_block_delta","index":${index},"delta":{"type":"text_delta","text":`;
     write(
-      `event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })}\n\n`,
+      `event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } })}\n\n`,
     );
   };
 
@@ -114,7 +144,8 @@ export function streamEvents(
   let seq = -1;
   const skipThrough = options.skipThrough ?? -1;
   const nextSeq = () => ++seq;
-  const writeResponses = (type: string, data: Record<string, unknown>) => {
+  const writeResponses = (type: string, raw: Record<string, unknown>, shift = true) => {
+    const data = reasoning && shift ? reasoning.shift(raw) : raw;
     const n = nextSeq();
     if (n > skipThrough)
       write(
@@ -178,16 +209,55 @@ export function streamEvents(
     });
   }
 
+  /** Progress first, then the event's own frames (docs/progress.md). */
+  const writeProgress = (e: RunEvent, terminalEvent: boolean) => {
+    const opensAnswer =
+      e.type === 'response.output_item.added' || e.type === 'response.output_text.delta';
+    // Claude and Responses keep progress ahead of the answer (one block / item, positions stable).
+    if (reasoning && (opensAnswer || terminalEvent || (bridged && handOffEvent(e.type))))
+      reasoning.close((type, data) => writeResponses(type, data, false));
+    const text =
+      (mode === 'claude' || mode === 'responses') && answered ? undefined : lines!.next(e);
+    if (opensAnswer) answered = true;
+    if (!text || (answered && e.type === 'response.completed')) return;
+    if (mode === 'chat') {
+      if (!roleSent)
+        write(
+          `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null }] })}\n\n`,
+        );
+      roleSent = true;
+      write(progress.chatReasoningFrame(base!, text));
+    } else if (mode === 'gemini')
+      writeGemini(progress.geminiThoughtJson(runId, geminiModelVer, text));
+    else if (mode === 'claude') {
+      writeClaudeMessageStart();
+      for (const frame of thinking.line(text)) write(frame);
+    } else if (reasoning && !reasoning.closed)
+      reasoning.line(text, (type, data) => writeResponses(type, data, false));
+  };
+  /** What the bridged tool_use frames continue from: an open text block, or the next free index. */
+  const claudeBlocks = () => {
+    const textIndex = roleSent ? thinking.next : undefined;
+    const closing = thinking.close();
+    for (const frame of closing) write(frame);
+    return { started: claudeStarted, textIndex, next: thinking.next };
+  };
   const onEvent = (e: RunEvent) => {
     if (e.id <= last || stream.closed) return;
     last = e.id;
     const terminalEvent = isTerminalEvent(e.type);
+    if (lines) writeProgress(e, terminalEvent);
 
     if (mode === 'native') write(`id: ${e.id}\nevent: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
     else if (mode === 'responses' && e.type.startsWith('response.')) {
       writeResponses(e.type, e.data);
     } else if (mode === 'responses' && bridged && handOffEvent(e.type)) {
-      const frames = responsesToolCallFrames(store, runId, nextSeq);
+      const frames = responsesToolCallFrames(
+        store,
+        runId,
+        nextSeq,
+        reasoning?.active ? reasoning.item() : undefined,
+      );
       if (frames) {
         for (const frame of frames) write(frame);
         seenTerminal = true;
@@ -272,7 +342,7 @@ export function streamEvents(
           roleSent = true;
         }
         write(
-          `event: content_block_stop\ndata: ${JSON.stringify({ type: 'content_block_stop', index: 0 })}\n\n`,
+          `event: content_block_stop\ndata: ${JSON.stringify({ type: 'content_block_stop', index: thinking.next })}\n\n`,
         );
         const respUsage =
           (e.data.response as { usage?: Run['usage'] } | undefined)?.usage ??
@@ -286,7 +356,7 @@ export function streamEvents(
       }
       const toolUses =
         bridged && handOffEvent(e.type)
-          ? claudeToolCallFrames(store, runId, roleSent, initial?.agentId ?? 'agent')
+          ? claudeToolCallFrames(store, runId, claudeBlocks(), initial?.agentId ?? 'agent')
           : undefined;
       if (toolUses) {
         for (const frame of toolUses) write(frame);

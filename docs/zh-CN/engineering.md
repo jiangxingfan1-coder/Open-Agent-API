@@ -18,7 +18,7 @@
 | `npm test` | 先 build，再运行 `dist/test/*.test.js` 全部测试，会在 127.0.0.1 随机端口临时监听 |
 | `npm run verify` | `check` + `format:check` + `test`，一键校验，CI 运行的就是它 |
 
-CI（`.github/workflows/ci.yml`）在 push 与 pull request 时，于 Ubuntu 与 macOS 上用 Node 24 与 Node 26（各自最新的版本，即 `engines` 支持的两条线）执行 `npm ci --omit=optional --ignore-scripts` 和 `npm run verify`。Windows 作业（同样两条线）只跑类型检查、格式检查与打包相关的测试（见 [releasing.md](releasing.md)）。
+CI（`.github/workflows/ci.yml`）在 push 与 pull request 时，于 Ubuntu 与 macOS 上用 Node 24 与 Node 26（各自最新的版本，即 `engines` 支持的两条线）执行 `npm ci --omit=optional --ignore-scripts` 和 `npm run verify`。Windows 作业（同样两条线）只跑类型检查、格式检查与打包相关的测试（见 [releasing.md](releasing.md)）。完整测试在 Windows 上由单独的工作流 `.github/workflows/windows.yml` 运行（Node 24，`--isolate`，见 [windows.md](windows.md)）。
 
 ## 2. 目录分层与依赖规则
 

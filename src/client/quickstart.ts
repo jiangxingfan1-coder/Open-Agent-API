@@ -373,7 +373,6 @@ export function nextSteps(
   p: { url: string; adminFile: string; prefix: string; dirArgs: string; cliPath: string; t: Say },
 ): string[] {
   const { t } = p;
-  const auth = `--url ${p.url} --token-file '${p.adminFile}'`;
   const lines = [t('接上你自己的智能体：', 'Connect your own agent:')];
   const installed = Object.entries(config.localWorker?.native ?? {}).filter(
     ([engine, b]) => engine in NATIVE_BINARIES && b && executableExists(b.executable),
@@ -392,25 +391,25 @@ export function nextSteps(
         '  connect enables and publishes it, checks that the key above can call it, and prints the call; it does not call the agent for you (the first call uses its own sign-in and quota).',
       ),
     );
-  if (!installed.length) {
-    const example = path.resolve(path.dirname(p.cliPath), '..', '..', 'examples', 'research.oaa');
+  if (!installed.length)
     lines.push(
       t(
         '  本机没有找到 codex、claude 或 agy。装好并登录其中任何一个后重新运行 quickstart，这里会给出对应命令。',
         '  No codex, claude, or agy was found on this machine. Install and sign in to one of them, then rerun quickstart to get its commands here.',
       ),
-      t(
-        '  或者用内置智能体加你自己的模型密钥（默认提供方是 OpenAI Responses 接口）：',
-        '  Or use a built-in agent with your own model key (the default provider is the OpenAI Responses API):',
-      ),
-      t(
-        `    1. 复制 ${example}，把里面的 configure-your-… 换成你的模型名`,
-        `    1. Copy ${example} and replace the configure-your-… placeholders with your model names`,
-      ),
-      `    2. ${p.prefix} stop${p.dirArgs} && export OPENAI_API_KEY=… && ${p.prefix} serve --detach${p.dirArgs}`,
-      `    3. ${p.prefix} publish /path/to/your-copy.oaa ${auth}`,
     );
-  }
+  lines.push(
+    t(
+      '  或者给内置智能体接一个模型，发布为 agent/assistant（本地模型不需要密钥）：',
+      '  Or give the built-in agent a model, published as agent/assistant (local models need no key):',
+    ),
+    `    ${p.prefix} connect ollama${p.dirArgs}`,
+    `    ${p.prefix} connect deepseek --key-file ~/.config/deepseek.key${p.dirArgs}`,
+    t(
+      `    ${p.prefix} connect${p.dirArgs}    # 列出全部模型预设`,
+      `    ${p.prefix} connect${p.dirArgs}    # lists every model preset`,
+    ),
+  );
   lines.push(
     t(
       `  同一把密钥可以调用你之后发布的智能体，把 model 换成它的名字即可。${p.prefix} doctor 列出本机找到的智能体。`,

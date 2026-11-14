@@ -113,7 +113,8 @@
       },
       "consumes": [
         "stream.content_type_sse",
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "onopen: response must be HTTP 200 AND content-type must start with 'text/event-stream' (text/plain is treated as a complete plain-text answer; anything else is rendered as an error message). Each SSE 'data:' payload is JSON.parse'd; chunks with empty/missing choices are ignored; delta.role is never read; finish_reason is never read; usage is never read; '[DONE]' ends the stream but is not required (connection close also finishes). If no text arrives at all NextChat reports 'empty response from server'. Unknown extra fields are harmless."
     },
@@ -165,7 +166,8 @@
       },
       "consumes": [
         "stream.content_type_sse",
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "NextChat only uses roles system/user/assistant (never 'developer' except the o1/o3 case below, never 'tool' except the plugin follow-up case). For model names that do NOT start with gpt-/chatgpt- no extra system prompt is injected."
     },
@@ -261,7 +263,8 @@
       },
       "consumes": [
         "stream.content_type_sse",
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Triggered after a reply when the un-summarized history exceeds compressMessageLengthThreshold (1000 estimated tokens) and sendMemory is on. NOTE the system message is LAST in the array (gateway must not require system first)."
     },
@@ -302,7 +305,8 @@
       },
       "consumes": [
         "stream.content_type_sse",
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "This is the ONLY default-settings situation in which NextChat sends max_tokens. Replay this case against an agent whose name does not match, to prove the gateway accepts max_tokens=4000 regardless."
     },
@@ -353,7 +357,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
@@ -398,7 +403,8 @@
       },
       "consumes": [
         "stream.content_type_sse",
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Only happens when the agent name itself starts with 'o1', 'o3' or 'o4-mini' (a 'gpt-5*' name instead keeps system/roles but sends max_completion_tokens=4000 and temperature=1 and no max_tokens). Included so the gateway proves it accepts the 'developer' role and max_completion_tokens."
     },
@@ -459,7 +465,8 @@
       },
       "consumes": [
         "stream.content_type_sse",
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Only when the active mask has plugins enabled (default: none). Streamed tool calls are read from choices[0].delta.tool_calls[0] ONLY (index 0, first element): a new tool call is recognised when tool_calls[0].id is non-empty, later fragments with no id are appended to the previous call's arguments. Parallel tool calls in one delta array are NOT supported by this parser (only element [0] is read)."
     },
@@ -539,7 +546,8 @@
       },
       "consumes": [
         "stream.content_type_sse",
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Risk: the assistant tool_calls message has no 'content' field (not null, not ''), and the tool message carries an extra 'name' field. A strict gateway validator that requires content on assistant messages will reject this."
     },

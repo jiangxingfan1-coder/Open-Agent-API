@@ -183,7 +183,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Check passes only if non-empty text arrives; an empty completion or a stream with zero chunks becomes an error (awaitFirstResponseChunk). The stream parser tolerates a final usage-only chunk with choices: [], does not require delta.role on the first chunk, does not require [DONE] (openai-node ends at EOF or [DONE]) and ignores unknown fields; a chunk with a top-level 'error' object makes openai-node throw. An agent whose id looks like an OpenAI reasoning model (o1/o3/gpt-5...) takes a different path: pruneReasoningPayload then drops stream_options, temperature and top_p, forces penalties to 0 and rewrites role 'system' to 'developer' (this case is not replayed here because it depends on the id pattern, see openai/modelId.ts)."
     },
@@ -239,7 +240,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "temperature 1 and top_p 1 are sent TOGETHER (no Claude-style conflict handling for non-Claude model ids). 'name' is passed through if a message has one (multi-agent group chats). No max_tokens by default."
     },
@@ -292,7 +294,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "LobeChat does not expose n/seed/stop/logit_bias in the normal chat UI."
     },
@@ -419,7 +422,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "The tool-name separator in the example is a guess ('____'); function names are otherwise opaque strings. Streamed tool_calls deltas (index, id, function.name/arguments) are consumed; an assistant tool call whose function is null throws 'Invalid tool call: function is null'."
     },
@@ -511,7 +515,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Gateway should accept assistant content '' or null alongside tool_calls, and role:tool messages carrying a 'name' key. For model ids containing deepseek/glm/kimi LobeChat may also echo 'reasoning_content' on assistant tool-call turns."
     },
@@ -564,7 +569,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Other extend-param keys LobeChat can add for some model families (not for plain ids): enabledContextCaching, thinking {type,budget_tokens}, thinkingBudget, thinkingLevel, effort, text.verbosity, imageAspectRatio, ... Unknown top-level keys are forwarded verbatim by the OpenAI runtime."
     },
@@ -696,7 +702,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
@@ -747,7 +754,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "cors.allow_origin_echo"
+        "cors.allow_origin_echo",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Browser-direct: the response needs Access-Control-Allow-Origin (the preflight case below). Requires the user to be signed in to LobeChat for this mode to run at all."
     },

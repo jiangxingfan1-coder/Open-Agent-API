@@ -201,4 +201,28 @@ def _():
     check(r.answer is not None, "parsed")
 
 
+# Stream progress (docs/progress.md): the streamed text is the same on and off.
+@lab.scenario("openai.stream_progress")
+def _():
+    def read(headers):
+        return "".join(c.content for c in openai_model(default_headers=headers).stream("LONG"))
+
+    equal(read({"X-OAA-Progress": "reasoning", "Accept-Language": "en"}), read({"X-OAA-Progress": "off"}), "content with progress on")
+    return "reasoning_content ignored by ChatOpenAI"
+
+
+@lab.scenario("anthropic.stream_progress")
+def _():
+    def read(headers):
+        chunks = list(anthropic_model(default_headers=headers).stream("LONG"))
+        return "".join(c.text for c in chunks), chunks
+
+    on, chunks = read({"X-OAA-Progress": "reasoning", "Accept-Language": "en"})
+    off, _ = read({"X-OAA-Progress": "off"})
+    equal(on, off, "text with progress on")
+    blocks = [b for c in chunks if isinstance(c.content, list) for b in c.content if isinstance(b, dict)]
+    shown = any(b.get("type") == "thinking" for b in blocks)
+    return "thinking blocks in content lists (use .text)" if shown else "thinking ignored"
+
+
 lab.done()

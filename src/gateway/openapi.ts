@@ -59,7 +59,8 @@ const CLIENT_TOOLS_NOTE =
   '. A non-empty `tools` array is handled by the X-OAA-Client-Tools request header or ' +
   'metadata["oaa.client_tools"] (managed | bridge | reject; default managed; bridge: kernel ' +
   'agents return tool_calls / function_call / tool_use / functionCall and continue the same run on the results); ' +
-  'managed responses carry the X-OAA-Client-Tools: ignored response header';
+  'managed responses carry the X-OAA-Client-Tools: ignored response header. Streams can carry run ' +
+  'progress in the protocol thinking shape (X-OAA-Progress: reasoning | off, docs/progress.md)';
 
 export const openapi = {
   openapi: '3.1.0',

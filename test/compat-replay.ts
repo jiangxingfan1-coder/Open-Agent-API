@@ -210,6 +210,12 @@ const CHECKS: Record<string, (ctx: Ctx) => string | undefined> = {
     stream.chunks.some((c) => str(deltaOf(c).content) && (deltaOf(c).content as string).length > 0)
       ? undefined
       : 'stream: no chunk carries delta.content',
+  // docs/progress.md: Chat progress is off by default, because clients such as Dify fold
+  // `reasoning_content` into the answer text as <think>…</think>.
+  'stream.no_reasoning_by_default': ({ stream }) =>
+    stream.chunks.some((c) => 'reasoning_content' in deltaOf(c) || 'reasoning' in deltaOf(c))
+      ? 'stream: a chunk carries reasoning_content although progress was not asked for'
+      : undefined,
   'stream.finish_reason_chunk': ({ stream }) =>
     stream.chunks.some((c) => str(firstChoice(c)?.finish_reason))
       ? undefined

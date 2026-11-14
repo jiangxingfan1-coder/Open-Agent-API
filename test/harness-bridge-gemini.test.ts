@@ -179,6 +179,7 @@ test('gemini bridge: streaming gives the calls as whole parts in one chunk, then
       assert.ok(!all.some((c) => 'error' in c), first.body);
       const streamedText = all
         .slice(0, -1)
+        .filter((c) => !(partsOf(c as never)[0] as { thought?: boolean } | undefined)?.thought)
         .map((c) => partsOf(c as never)[0]?.text ?? '')
         .join('');
       assert.equal(streamedText, text);
@@ -193,7 +194,13 @@ test('gemini bridge: streaming gives the calls as whole parts in one chunk, then
         (next.at(-1) as { candidates: { finishReason: string }[] }).candidates[0]!.finishReason,
         'STOP',
       );
-      assert.equal(next.map((c) => partsOf(c as never)[0]?.text ?? '').join(''), 'R:ok');
+      assert.equal(
+        next
+          .filter((c) => !(partsOf(c as never)[0] as { thought?: boolean } | undefined)?.thought)
+          .map((c) => partsOf(c as never)[0]?.text ?? '')
+          .join(''),
+        'R:ok',
+      );
     } finally {
       await s.cleanup();
     }

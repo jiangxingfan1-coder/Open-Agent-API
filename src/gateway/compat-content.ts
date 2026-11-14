@@ -100,3 +100,18 @@ export function rejectUnsupportedParts(
     });
   });
 }
+
+/**
+ * `reasoning` input items are the model's own earlier reasoning (including the gateway's stream
+ * progress item, docs/progress.md) that clients such as agent loops send back; they are not input
+ * for the agent and are dropped before validation, like Claude `thinking` blocks.
+ */
+export function withoutReasoningItems(body: unknown): unknown {
+  const input = (body as Part | null)?.input;
+  if (!Array.isArray(input) || !input.some((i) => (i as Part | null)?.type === 'reasoning'))
+    return body;
+  return {
+    ...(body as Part),
+    input: input.filter((i) => (i as Part | null)?.type !== 'reasoning'),
+  };
+}

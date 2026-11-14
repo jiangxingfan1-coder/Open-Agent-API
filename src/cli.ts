@@ -31,6 +31,7 @@ import {
 } from './client/onboarding.js';
 import { commandPrefix, quickstart } from './client/quickstart.js';
 import { connectAgent } from './client/connect.js';
+import { runModelCommand } from './client/models-cli.js';
 import { doctorReport } from './client/doctor.js';
 import { isOperatorCommand, runOperatorCommand } from './client/operator.js';
 import { bi, pick } from './core/locale.js';
@@ -104,6 +105,12 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       json: { type: 'boolean' },
       yes: { type: 'boolean' },
       'confirm-live-cost': { type: 'boolean' },
+      'key-env': { type: 'string' },
+      'key-file': { type: 'string' },
+      'base-url': { type: 'string' },
+      definition: { type: 'string' },
+      check: { type: 'boolean' },
+      test: { type: 'boolean' },
     },
   });
   const command = positionals[0];
@@ -161,9 +168,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     print(await stopDetachedGateway(config.dataDir, url, undefined, undefined, graceful));
     return;
   }
+  if (await runModelCommand(positionals, values, fileURLToPath(import.meta.url))) return;
   if (command === 'connect') {
-    if (!positionals[1])
-      throw new Fault('arguments', 'connect needs an agent name, e.g. connect codex.');
     const dir = path.resolve(values.dir ?? '.oaa');
     const config = await loadConfig(path.join(dir, 'config.json'));
     const url = gatewayUrl(config);
@@ -180,7 +186,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     if (!admin) throw new Fault('token_required', 'No admin key with a tokenFile is configured.');
     const cliPath = fileURLToPath(import.meta.url);
     await connectAgent(await GatewayClient.fromOptions(url, admin), {
-      name: positionals[1],
+      name: positionals[1]!,
       keysDir: path.join(dir, 'keys'),
       prefix: commandPrefix(cliPath) + (values.dir ? ` --dir '${dir}'` : ''),
     });

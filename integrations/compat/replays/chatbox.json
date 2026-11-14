@@ -122,7 +122,8 @@
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
         "stream.done_sentinel",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "A new session usually starts with a system message (default system prompt) so messages may be [system, user]; role is 'system' (never 'developer'). Every chunk is validated against a zod schema in which `choices` is a REQUIRED array: a chunk without choices (e.g. a bare usage chunk) is turned into an error part; delta.role must be 'assistant' or '' if present; unknown extra fields are allowed. Chatbox force-terminates the stream at `data: [DONE]`; without [DONE] it relies on the body ending. SSE content-type is not validated."
     },
@@ -167,7 +168,8 @@
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
         "stream.done_sentinel",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "max_tokens (not max_completion_tokens) is the key name; a non-integer or <1 value is dropped client-side. Kimi K2/K3 ids have temperature/top_p dropped."
     },
@@ -243,7 +245,8 @@
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
         "stream.done_sentinel",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "A second agent run is triggered after the first assistant reply (unless 'auto generate title' is off). If the naming model/provider is configured in settings (threadNamingModel) it may be another provider. There is no dedicated connectivity-test request: the provider 'check' is the models-list call."
     },
@@ -292,7 +295,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Plain string content everywhere for text-only turns; no name fields."
     },
@@ -338,7 +342,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "The gateway must accept content as either a string or an array of {type:'text'} parts."
     },
@@ -384,7 +389,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
@@ -460,7 +466,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "If the assistant also produced text before calling tools, content is that text string. Reasoning replays add reasoning_content on assistant messages when the earlier turn returned reasoning."
     },
@@ -517,7 +524,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Default chats have no tools key; it appears only when tools (MCP servers, web search, knowledge base, etc.) are active. Streamed tool_call deltas are tolerated with missing index or with the name arriving late."
     },
@@ -555,7 +563,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Responses may include delta.reasoning_content or delta.reasoning, rendered as thinking; <think>...</think> tags in content are also extracted by extractReasoningMiddleware."
     },

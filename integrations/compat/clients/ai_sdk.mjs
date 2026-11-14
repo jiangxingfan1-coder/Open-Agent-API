@@ -35,6 +35,18 @@ const providers = {
 };
 
 for (const [name, build] of Object.entries(providers)) {
+  // Stream progress (docs/progress.md): same text on and off; reasoning parts where the provider maps them.
+  await lab.scenario(`${name}.stream_progress`, async () => {
+    const run = async (headers) => {
+      const result = streamText({ model: build(headers), prompt: 'LONG' });
+      return { text: await result.text, reasoning: (await result.reasoningText) ?? '' };
+    };
+    const on = await run({ 'X-OAA-Progress': 'reasoning', 'Accept-Language': 'en' });
+    const off = await run({ 'X-OAA-Progress': 'off' });
+    equal(on.text, off.text, 'text with progress on');
+    equal(off.reasoning, '', 'no reasoning when off');
+    return on.reasoning ? `reasoning shown: ${JSON.stringify(on.reasoning.slice(0, 40))}` : 'progress ignored';
+  });
   await lab.scenario(`${name}.generateText`, async () => {
     const r = await generateText({ model: build(), prompt: 'hi' });
     equal(r.text, TEXT, 'text');

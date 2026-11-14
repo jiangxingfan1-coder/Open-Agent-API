@@ -516,7 +516,7 @@ When a task has already been created, the error also carries its run ID (`run_id
 - **Ignored parameters.** Sampling parameters such as `temperature` are accepted but not forwarded. Their names are listed in the `X-OAA-Ignored-Params` header, which is absent when nothing was ignored.
 - **Output limits.** `max_tokens`, `max_output_tokens` and `maxOutputTokens` take effect. The gateway uses the smaller of the request value and the agent's own limit. This applies to built-in kernel agents only; external agents are not affected.
 - **Truncation is not an error.** Chat Completions returns `finish_reason: "length"` with status 200 (a stream still ends with `[DONE]`). Claude returns `stop_reason: "max_tokens"`, Gemini returns `finishReason: "MAX_TOKENS"`, and Responses returns `status: "incomplete"`.
-- **Unsupported input.** An unknown field on a strict endpoint returns 400 `unsupported_parameter`, with the field name in `param`. Inline images and audio return 400 `unsupported_content` on every compatibility endpoint (OpenAI, Claude, Gemini); see [protocol.md](protocol.md).
+- **Unsupported input.** An unknown field on a strict endpoint returns 400 `unsupported_parameter`, with the field name in `param`. Audio and other inline binary parts return 400 `unsupported_content` on every compatibility endpoint (OpenAI, Claude, Gemini); images are accepted (see [images.md](images.md)); see [protocol.md](protocol.md).
 
 ## Error codes
 
@@ -571,6 +571,6 @@ These are the current explicit boundaries:
 - **The command line has no platform management commands.** Operator actions are done in the console or through the `/v1/platform/*` endpoints.
 - **`trustProxy` must be on behind a reverse proxy.** When the gateway sits behind a reverse proxy, `trustProxy` must be on (see [deploy-public.md](deploy-public.md#4-gateway-configuration), section 4); otherwise every visitor's source IP is the proxy's address, and they all share one rate-limit counter.
 - **Per-email sign-in rate limiting has a side effect.** If someone repeatedly tries wrong passwords for an email, that email cannot sign in for 10 minutes, even with the correct password. This is the trade-off for resisting brute force.
-- **No inline images** (base64 or URL). Upload through `POST /v1/files` first and reference by file ID. Every compatibility endpoint explicitly rejects inline images and audio (400 `unsupported_content`), see [protocol.md](protocol.md).
+- **No inline audio or other binary input.** Every compatibility endpoint refuses it with 400 `unsupported_content`: upload through `POST /v1/files` first and reference the file by ID, see [protocol.md](protocol.md). Images are accepted inline ([images.md](images.md)).
 - **Event streams are capped.** Each key may hold at most 64 run event streams at once (`/events`, `/wait`, `GET /v1/responses/{id}?stream=true` and streaming requests on the compatibility endpoints), and each owner 256; more answer 429 `too_many_streams` with `Retry-After`.
 - **No subscription pooling, and no relaying of login sessions.**

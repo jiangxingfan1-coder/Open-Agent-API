@@ -1,5 +1,7 @@
 # Command-line reference
 
+English · [简体中文](zh-CN/cli.md)
+
 `oaa` is the command line of Open Agent API. This page lists every command, grouped by what you want
 to do, with one line on what it does and one example. Run `oaa` (or `oaa --help`) for the same list in
 your language. From a source checkout write `npm run oaa --` instead of `oaa`.
@@ -48,6 +50,9 @@ still gets the rest, with a note naming the missing part. `--json` prints the sa
 | Command | What it does | Example |
 | --- | --- | --- |
 | `oaa connect NAME [--dir .oaa]` | Detects `codex`, `claude`, `agy` or an ACP agent (preset or adapter name), enables it on the running gateway, publishes it as `agent/NAME`, makes sure the caller key can call it and prints a `curl` to try. It does not call the agent. | `oaa connect codex` |
+| `oaa connect [--dir .oaa]` | With no target: lists the external agents found on this machine and every model preset, with the command to type next. | `oaa connect` |
+| `oaa connect PRESET [--model M] [--key-env NAME \| --key-file FILE] [--base-url URL] [--agent agent/assistant] [--name NAME] [--definition FILE.oaa] [--test] [--dir .oaa]` | Gives the built-in agent a model: probes a local service (loopback only), writes the provider into the configuration (key reference only; same entry skipped, different entry refused), restarts the gateway only if this data directory started it, publishes `agent/assistant`, checks the caller key and prints a `curl`. Never calls a model; `--test` sends one minimal request, only for loopback endpoints. Presets and keys: [models.md](models.md). | `oaa connect deepseek --key-file ~/.config/deepseek.key` |
+| `oaa models [--dir .oaa] [--check] [--json]` | Lists configured model providers: protocol, endpoint, whether the key reference resolves, whether the endpoint answers (loopback automatically, hosted only with `--check`, which requests the model list only) and which agents use each. | `oaa models --check` |
 | `oaa publish-native --id ID --engine ENGINE [--models default] [--approvals ask\|auto] --url URL --token-file FILE` | Publishes a built-in engine (`codex`, `claude`, `antigravity`, `dsh`) or an enabled adapter (`adapter/NAME`) as an agent. `--approvals auto` approves the agent's permission requests by policy instead of waiting for you. | `oaa publish-native --id agent/codex --engine codex --url http://127.0.0.1:8787 --token-file .oaa/admin.token` |
 | `oaa expose ENGINE\|definition.oaa [--models default] [--approvals ask\|auto] [--id ID] [--dir DIR] [--detach] --url URL --token-file FILE` | Runs an agent CLI on this machine as a worker node of a (possibly remote) gateway and publishes it there. | `oaa expose codex --detach --url https://gw.example.com --token-file admin.token` |
 
@@ -72,7 +77,7 @@ Behavior:
   decides one item, `--all` decides every item of the run. A run with no pending item fails with
   `approval_not_found`.
 - **Interactive or not.** In a terminal, `approve` asks `[y/N]` after printing the operation (`--yes`
-  skips the question; `deny` never asks). When stdin or stderr is not a terminal (pipes, scripts, cron)
+  skips the question; `deny` never asks; answering no decides nothing and fails with `approval_declined`). When stdin or stderr is not a terminal (pipes, scripts, cron)
   nothing is asked and the command decides at once; the result is the exit code (0 when every item was
   decided, 1 otherwise). `--json` prints the per-item results.
 - **Calls to your own tools are not approvals.** A run waiting for a tool result from the caller

@@ -101,7 +101,7 @@ npm run oaa -- quickstart
 
 ### 其他安装方式
 
-每条路线最后都是 `oaa quickstart`。各路线的最短步骤、适用范围与卸载方法见 [docs/zh-CN/install.md](docs/zh-CN/install.md)。Linux 包、`install.sh`、npm tarball 与 Docker 镜像随 0.0.64 之后的版本发布。
+每条路线最后都是 `oaa quickstart`。各路线的最短步骤、适用范围与卸载方法见 [docs/zh-CN/install.md](docs/zh-CN/install.md)。Linux 包、`install.sh`、npm tarball 与 Docker 镜像从 0.0.65 起随版本发布；0.0.64 只有 macOS 与 Windows 的安装包。
 
 - **macOS 与 Windows 安装包**（`.dmg`、`.zip`）：从[发布页](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases)下载。自带 Node.js；未做公证与代码签名，第一次打开要多点一下（步骤见 install.md）。
 - **Linux，x64 与 arm64**（glibc 2.28 及以上；不需要 root，也不需要装 Node.js）：
@@ -112,7 +112,7 @@ npm run oaa -- quickstart
   ```
 
   脚本会用发布页的 `SHA256SUMS` 校验下载，装到 `~/.local` 下。
-- **Docker**（在仓库目录里 `docker compose up --build -d`）：网关只发布在宿主机的 `127.0.0.1:8787`。容器里没有宿主机上装的命令行智能体（没有 Codex、没有 Claude Code），所以适合：用你自己的模型密钥的内置智能体、ACP / A2A 远程智能体、以及连进来的执行节点。Dockerfile 还没有在 CI 之外构建过，第一次验证的构建就是 CI 那一次。
+- **Docker**（在仓库目录里 `docker compose up --build -d`）：网关只发布在宿主机的 `127.0.0.1:8787`。容器里没有宿主机上装的命令行智能体（没有 Codex、没有 Claude Code），所以适合：用你自己的模型密钥的内置智能体、ACP / A2A 远程智能体、以及连进来的执行节点。CI 在每次 push 时构建镜像并对容器做烟雾测试；`ghcr.io` 上的镜像（amd64 与 arm64）在发布 Release 时推送。
 - **npm tarball**（需要 Node.js 24.18 及以上的 24 或 26 版本线）：`npm install -g <发布页上 open-agent-api-<版本>.tgz 的地址>`，然后 `oaa quickstart`。这个包是 `private` 的，不在 npm 官方源上。
 
 ### 接上你自己的智能体：`oaa connect`
@@ -189,42 +189,46 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 
 被调用的智能体可以是用 OAA-Lang 或 JSON 定义、由内置内核驱动的智能体，也可以是本机已安装的外部智能体。外部智能体自带工具、模型和权限，网关负责把它变成 API：调度、审批、检查点与恢复由网关统一处理。
 
-| 接入方式 | 流式文本 | 运行中审批 | 调用方工具桥接 | 说明 |
-| --- | --- | --- | --- | --- |
-| 内置内核（OAA-Lang / JSON 定义） | 逐 token | 支持，工具声明需要审批时停车等待 | 支持 | 用你配置的模型提供方，可多线路与故障转移 |
-| Codex | 逐 token | 支持 | 不支持 | 专用的 app-server 接入，支持会话续接 |
-| Claude Code | 按消息 | 支持 | 不支持 | 官方 Agent SDK，使用单独安装的命令行与它自己的配置 |
-| Antigravity | 逐 token | 不支持：智能体自身拒绝时任务以 `permission_denied` 失败 | 不支持 | `stream-json` 接入，是目前唯一做过真实验证的外部智能体 |
-| ACP 智能体 | 逐 token | 支持（只选 `allow_once`） | 支持 | [Agent Client Protocol](https://agentclientprotocol.com)，内置了常见 ACP 智能体的接入预设 |
-| 自写适配器（`oaa/1` stdio、`oaa/1-stream`、HTTP） | 取决于所选形式 | `oaa/1-stream` 支持 | 不支持 | 给没有现成接入的智能体包一层 |
-| A2A 远程智能体 | 支持（SSE） | 不桥接：`input-required` 以智能体的问题结束本轮 | 不支持 | 经 `contextId` 续接同一任务 |
+| 接入方式 | 流式文本 | 运行中审批 | 调用方工具桥接 | 图片输入 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| 内置内核（OAA-Lang / JSON 定义） | 逐 token | 支持，工具声明需要审批时停车等待 | 支持 | 模型线路接受图片时支持 | 用你配置的模型提供方，可多线路与故障转移 |
+| Codex | 逐 token | 支持 | 不支持 | 原生支持（没有对真实智能体运行过） | 专用的 app-server 接入，支持会话续接 |
+| Claude Code | 按消息 | 支持 | 不支持 | 原生支持（没有对真实智能体运行过） | 官方 Agent SDK，使用单独安装的命令行与它自己的配置 |
+| Antigravity | 逐 token | 不支持：智能体自身拒绝时任务以 `permission_denied` 失败 | 不支持 | 作为工作区里的文件 | `stream-json` 接入，是目前唯一做过真实验证的外部智能体 |
+| ACP 智能体 | 逐 token | 支持（只选 `allow_once`） | 支持 | 智能体声明支持时用 ACP 图片块，否则作为文件 | [Agent Client Protocol](https://agentclientprotocol.com)，内置了常见 ACP 智能体的接入预设 |
+| 自写适配器（`oaa/1` stdio、`oaa/1-stream`、HTTP） | 取决于所选形式 | `oaa/1-stream` 支持 | 不支持 | stdio：作为文件；HTTP：不支持 | 给没有现成接入的智能体包一层 |
+| A2A 远程智能体 | 支持（SSE） | 不桥接：`input-required` 以智能体的问题结束本轮 | 不支持 | 不支持 | 经 `contextId` 续接同一任务 |
 
 这张表是摘要，每种接入方式在每个协议下的取消、续接、用量与产物能力见 [docs/zh-CN/adapters.md](docs/zh-CN/adapters.md#agentapi-转换契约2026-11-08)，每个智能体的 `conversion` 字段也会给出同样的画像。几点说明：
 
 - 能力差异在「交互深度」，不在「能不能接入」。四类接入方式都可以把智能体发布成 Agent API。
 - 外部智能体的权限是继承的，网关不对它做沙箱隔离：一次调用可以读取或修改宿主运行时允许的任何内容。调用方的密钥需要具备 `host` 执行等级才能调用外部智能体；对外分发时请阅读[公网部署](docs/zh-CN/deploy-public.md)里的建议。
 - 发布外部智能体时可以把权限请求设为自动批准（`--approvals auto`）。这等于让调用方以你在这台机器上的权限驱动它，只对你信任的调用方开放，风险说明见 [docs/zh-CN/protocol.md](docs/zh-CN/protocol.md#approval-policy-for-external-agents-approval-policy-v1)。
-- 调用方自己也是智能体（Cursor、Cline、Claude Code 之类）时，它传来的 `tools` 会交给能接管它们的智能体（调用以标准 `tool_calls` 交回调用方执行，结果回传后同一个任务接着做）；接管不了的智能体照旧用自己的工具。也可以显式选 `managed`、`bridge`、`reject`、`auto`。见 [docs/zh-CN/harness.md](docs/zh-CN/harness.md)。
+- 调用方自己也是智能体（Cursor、Cline、Claude Code 之类）时，它传来的 `tools` 默认（`auto` 模式）会交给能接管它们的智能体（调用以标准 `tool_calls` 交回调用方执行，结果回传后同一个任务接着做）；接管不了的智能体照旧用自己的工具。也可以显式选 `managed`、`bridge`、`reject`、`auto`，`clientTools.default` 可以改变缺省值。见 [docs/zh-CN/harness.md](docs/zh-CN/harness.md)。
+- 把图片发给不能用图片的智能体，会在运行创建之前被拒绝；`GET /v1/models` 里每个智能体都有 `image_input`。每种智能体怎么接收图片、上限，以及网关缺省不抓取远程图片 URL：见 [docs/zh-CN/images.md](docs/zh-CN/images.md)。
 - 调用方也可以经 MCP 入口发现并调用智能体：`npm run oaa -- mcp --url … --token-file …` 或 `npm run oaa -- integration` 生成启动配置，见[操作手册](docs/zh-CN/operations.md)。出于安全考虑，MCP 入口刻意不提供批准审批的工具。
 
 ## 兼容的协议与 SDK
 
 | 入口 | 官方 SDK 的验证情况 |
 | --- | --- |
-| OpenAI Chat Completions 与 Responses（流式与非流式） | 仓库里有常驻的回归测试，用官方 `openai` Node SDK 经进程内网关运行，不监听端口 |
-| Claude Messages | 同样有常驻的回归测试，用官方 `@anthropic-ai/sdk` 1.3.0 |
-| Gemini `generateContent` / `streamGenerateContent` | 用临时安装的官方 `@google/genai` 3.2.0 做过一次性实测，不是项目依赖，探测脚本在 [examples/gemini-sdk-probe.mjs](examples/gemini-sdk-probe.mjs)；回归测试按线上格式断言 |
+| OpenAI Chat Completions 与 Responses（流式与非流式） | 仓库里有常驻的回归测试，用官方 `openai` Node SDK 经进程内网关运行，不监听端口；下面的兼容性实验室还会让 Python 与 Node 的 SDK 经套接字运行 |
+| Claude Messages | 同样有常驻的回归测试，用官方 `@anthropic-ai/sdk` 1.3.0；实验室运行 Python SDK 和更新的 Node SDK |
+| Gemini `generateContent` / `streamGenerateContent` | 实验室运行 `google-genai`（Python）与 `@google/genai`（Node）；回归测试按线上格式断言。更早的一次性实测用临时安装的 `@google/genai` 3.2.0，探测脚本在 [examples/gemini-sdk-probe.mjs](examples/gemini-sdk-probe.mjs) |
 | `oaa/1` 原生协议、UAP/1、MCP | 见 [docs/zh-CN/protocol.md](docs/zh-CN/protocol.md) |
 
-除这些回归测试外，兼容性实验室（`npm run compat`，CI 里每周也会跑）用真实的包去打一个隔离的离线网关：官方 `openai`、`anthropic`、`google-genai` 的 Python SDK 与对应的 Node SDK、Vercel AI SDK、LangChain、LiteLLM、OpenAI Agents SDK、LlamaIndex。Open WebUI、LibreChat、Chatbox、Cherry Studio、LobeChat、NextChat、Dify、n8n、Continue、Cline / Roo Code、Zed 没法在测试里装起来跑，所以按它们源码里读到的请求形状回放；Cursor 闭源，未核实。哪些是实际运行、哪些是回放，各客户端怎么配置，以及不支持或被忽略的参数怎么处理，见 [docs/zh-CN/compatibility.md](docs/zh-CN/compatibility.md)。
+除这些回归测试外，兼容性实验室（`npm run compat`，CI 里每次 push 与每周都会跑）用真实的包去打一个隔离的离线网关，网关里的智能体是示例智能体或确定性夹具，不是真实的智能体：官方 `openai`、`anthropic`、`google-genai` 的 Python SDK 与对应的 Node SDK、Vercel AI SDK、LangChain、LiteLLM、OpenAI Agents SDK、LlamaIndex。Open WebUI、LibreChat、Chatbox、Cherry Studio、LobeChat、NextChat、Dify、n8n、Continue、Cline / Roo Code、Zed 没法在测试里装起来跑，所以按它们源码里读到的请求形状回放；Cursor 闭源，未核实。哪些是实际运行、哪些是回放，各客户端怎么配置，以及不支持或被忽略的参数怎么处理，见 [docs/zh-CN/compatibility.md](docs/zh-CN/compatibility.md)。
 
-任何兼容这几家协议的客户端，只要填 Base URL 和 API 密钥就能用；`Authorization: Bearer`、`x-api-key`、`x-goog-api-key` 三种鉴权头都接受。不支持的输入会明确报错，而不是悄悄降级：例如内联的图片与音频（base64 或 URL）一律返回 400 `unsupported_content`，需要先经 `POST /v1/files` 上传再引用，见 [docs/zh-CN/protocol.md](docs/zh-CN/protocol.md#兼容入口的参数错误与结束原因060)。
+任何兼容这几家协议的客户端，只要填 Base URL 和 API 密钥就能用；`Authorization: Bearer`、`x-api-key`、`x-goog-api-key` 三种鉴权头都接受。不支持的输入会明确报错，而不是悄悄降级：例如音频和其他内联的二进制内容一律返回 400 `unsupported_content`，需要先经 `POST /v1/files` 上传再引用；只影响采样的参数（`temperature`、`top_k` 等）会被接受并忽略，响应头 `X-OAA-Ignored-Params` 会说明忽略了哪些。见 [docs/zh-CN/protocol.md](docs/zh-CN/protocol.md#兼容入口的参数错误与结束原因060)。
+
+除了文字，调用方还可以要求两样东西：每个入口上的**图片**（[docs/zh-CN/images.md](docs/zh-CN/images.md)），以及**保证符合某个 schema 的 JSON**（`response_format`、`text.format`、`responseSchema`、`output_config.format`）：网关校验答案，把答错的发回给智能体修正，仍然不对就让运行以 `structured_output_invalid` 失败，而不是返回一段只是看起来像 JSON 的文字（[docs/zh-CN/structured-output.md](docs/zh-CN/structured-output.md)）。
 
 ## 控制面：让人留在回路里
 
 智能体会读文件、跑命令、写代码。网关把「人什么时候介入」做成了持久的状态，而不是一次性的弹窗。
 
-- **审批**：智能体要做需要批准的操作时，任务停在「待审批」。你可以在控制台，或用带 `approve` 权限的密钥调用接口批准或拒绝，之后同一个任务接着做。审批是持久的挂起点，不是一次性的弹窗。
+- **审批**：智能体要做需要批准的操作时，任务停在「待审批」。你可以在控制台、在终端里（`oaa approvals`、`oaa approve`、`oaa deny`），或用带 `approve` 权限的密钥调用接口批准或拒绝，之后同一个任务接着做。审批是持久的挂起点，不是一次性的弹窗。
+- **事件回调**：运行事件（完成、失败、等待审批等）可以推送到你自己的一个 HTTPS 端点，带签名并会重试（`oaa webhook add`），调用方不用轮询，审批请求也可以送进你的聊天工具或自己的系统。见 [docs/zh-CN/webhooks.md](docs/zh-CN/webhooks.md)。
 - **中断与恢复**：任务可以随时取消。被中断的任务可以恢复；结果未知的外部写入（例如命令执行到一半被中断），必须人工确认结果后才能恢复。
 - **幂等**：带 `Idempotency-Key` 请求头时，同一个键只对应一个任务；同键不同输入返回 409。
 - **任务检查器**：每个任务的时间线、关键路径、执行步骤、审批与产物都能查看，也能回放事件流。
@@ -265,42 +269,55 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
   </picture>
 </p>
 
+默认情况下，开发者只能调用内置智能体。运营者也可以把一个外部智能体（Codex、Claude Code、ACP 智能体）上架给平台账号，逐个上架项放开，开关默认关闭：打开后这个智能体以运行网关的系统用户的权限运行，所以请先读安全说明。每个任务的价格在任务开始时预扣，任务没有完成就退回；按 token 的扣费不会把余额扣成负数；不上报 token 用量的智能体只能按次定价。
+
 点数是运营者发放的记账单位，平台不接支付、不发邮件。计费规则、接口与限制见 [docs/zh-CN/platform.md](docs/zh-CN/platform.md)。
 
 ## 桌面应用与命令行
 
-- **命令行**：`npm run oaa -- --help` 列出全部子命令，包括 `quickstart`、`init`、`serve`、`stop`、`doctor`、`key create`、`publish`、`publish-native`、`invoke`、`wait`、`cancel`、`resume`、`nodes`、`mcp`；`check` 与 `fmt` 用来检查和格式化 OAA-Lang 源码，编译、检查和格式化都不调用模型。
-- **macOS 桌面应用**：源码在 `desktop/macos`，内嵌的是同一个控制台，提供 Dock 角标与审批通知。可以用 `npm run package:mac` 从源码打包（`npm run package:win` 对应 Windows）。安装包在发布页（[安装路线](docs/zh-CN/install.md)）；macOS 与 Windows 的安装包未经公证、没有代码签名，自己打包的也一样。
+- **命令行**：`oaa --help`（在源码检出目录里是 `npm run oaa -- --help`）列出全部子命令，包括 `quickstart`、`connect`、`init`、`serve`、`stop`、`status`、`doctor`、`key create`、`publish`、`publish-native`、`invoke`、`wait`、`approvals`、`approve`、`deny`、`webhook`、`verify`、`cancel`、`resume`、`nodes`、`mcp`；`check` 与 `fmt` 用来检查和格式化 OAA-Lang 源码，编译、检查和格式化都不调用模型。`oaa status` 显示网关和它的智能体怎么样了，`oaa verify` 在你的机器上对一个真实智能体做自检（它会先打印要做什么，加 `--confirm-live-cost` 之前什么都不会启动）。每条命令按任务分组的说明见 [docs/zh-CN/cli.md](docs/zh-CN/cli.md)。
+- **macOS 桌面应用**：源码在 `desktop/macos`，内嵌的是同一个控制台，提供 Dock 角标与审批通知；它的菜单与对话框跟随系统语言，端口取自它自己的 `config.json`，也可以与已安装的副本隔离运行（`OAA_DESKTOP_HOME`、`OAA_DESKTOP_PORT`，见 [install.md](docs/zh-CN/install.md#macos)）。可以用 `npm run package:mac` 从源码打包（`npm run package:win` 对应 Windows）。安装包在发布页（[安装路线](docs/zh-CN/install.md)）；macOS 与 Windows 的安装包未经公证、没有代码签名，自己打包的也一样。这个版本的改动由所有者在一台 Apple 芯片的 Mac 上以隔离方式人工检查过一次；检查覆盖了什么、没覆盖什么，见 [docs/zh-CN/releasing.md](docs/zh-CN/releasing.md#发布前的人工检查)。
 
 ## 文档
 
-按「我想……」组织的完整索引在 [docs/zh-CN/README.md](docs/zh-CN/README.md)。常用入口：[操作手册](docs/zh-CN/operations.md)、[协议与兼容](docs/zh-CN/protocol.md)、[双层 Harness](docs/zh-CN/harness.md)、[OAA-Lang](docs/zh-CN/language.md)、[接入外部智能体](docs/zh-CN/adapters.md)、[控制台](docs/zh-CN/console.md)、[公网部署](docs/zh-CN/deploy-public.md)、[开发者平台](docs/zh-CN/platform.md)、[架构](docs/zh-CN/architecture.md)、[工程规范](docs/zh-CN/engineering.md)、[变更记录](CHANGELOG.zh-CN.md)、[路线图](ROADMAP.zh-CN.md)。
+按「我想……」组织的完整索引在 [docs/zh-CN/README.md](docs/zh-CN/README.md)。常用入口：[安装](docs/zh-CN/install.md)、[命令行](docs/zh-CN/cli.md)、[操作手册](docs/zh-CN/operations.md)、[协议](docs/zh-CN/protocol.md)、[与 SDK 和客户端的兼容](docs/zh-CN/compatibility.md)、[结构化输出](docs/zh-CN/structured-output.md)、[图片输入](docs/zh-CN/images.md)、[事件回调](docs/zh-CN/webhooks.md)、[双层 Harness](docs/zh-CN/harness.md)、[OAA-Lang](docs/zh-CN/language.md)、[接入外部智能体](docs/zh-CN/adapters.md)、[控制台](docs/zh-CN/console.md)、[Windows](docs/zh-CN/windows.md)、[公网部署](docs/zh-CN/deploy-public.md)、[安全模型](docs/zh-CN/security-model.md)、[开发者平台](docs/zh-CN/platform.md)、[架构](docs/zh-CN/architecture.md)、[验证证据](docs/zh-CN/evidence.md)、[工程规范](docs/zh-CN/engineering.md)、[变更记录](CHANGELOG.zh-CN.md)、[路线图](ROADMAP.zh-CN.md)。
 
 ## 现状与边界
 
-下面写的是做过什么、没做什么，不是路线图。
+下面写的是做过什么、没做什么，不是路线图。带日期的细节见 [docs/zh-CN/evidence.md](docs/zh-CN/evidence.md)。
 
-**测试**
+**测试与 CI**
 
-- 项目用 `node:test` 写了 788 项测试，`npm run verify` 跑类型检查、排版检查与全量测试，`npm run test:offline` 只跑不监听端口的那部分。
-- 测试用本地确定性模型、本地协议服务器和自有的子进程夹具。它们**不能**证明真实提供方的兼容性、真实的跨机器性能或账号访问。流式、公平性与配对基准都是本地测量，条件与限定见[操作手册](docs/zh-CN/operations.md)与 [docs/zh-CN/architecture.md](docs/zh-CN/architecture.md)。
+- 项目用 `node:test` 写了 1,021 项测试，`npm run verify` 跑类型检查、排版检查与全量测试，`npm run test:offline` 只跑不监听端口的那部分。
+- CI 在 Ubuntu 与 macOS 上用 Node 24 与 Node 26 跑全量测试，也在 Windows 上跑（Node 24；只在 POSIX 上有意义的测试带明确原因跳过）。它还会构建 Docker 镜像并对容器做烟雾测试，并运行兼容性实验室。
+- 测试用本地确定性模型、本地协议服务器和替身智能体。它们**不能**证明真实提供方、真实智能体的兼容性、真实的跨机器性能或账号访问。流式、公平性与配对基准都是本地测量，条件与限定见[操作手册](docs/zh-CN/operations.md)与 [docs/zh-CN/architecture.md](docs/zh-CN/architecture.md)。
+- 兼容性实验室让官方 SDK 与几个框架对着一个智能体是示例或夹具的网关运行，并回放聊天客户端记录下来的请求。回放只说明客户端的请求被接受、并以它能解析的形式回答，不说明整个应用可用。Cursor 未核实。见 [docs/zh-CN/compatibility.md](docs/zh-CN/compatibility.md)。
 
 **真实智能体验证**
 
-- 经过真实验证的只有 Antigravity：一次端到端验证共 12 次真实调用，通过了 OpenAI Chat 非流式与流式、Responses 续接、Claude Messages、Gemini `generateContent`、取消与并发。这只验证了那一条本地线路和那一个引擎；审批与调用方工具桥接在 Antigravity 下不支持。验证脚本是 [examples/live-agents-acceptance.ts](examples/live-agents-acceptance.ts)。
-- Codex、Claude Code、内置智能体搭配真实模型提供方、公网部署，**尚未**做过这样的端到端验证。[docs/zh-CN/evidence.md](docs/zh-CN/evidence.md) 记录了更早的一次手工联调：它的结论是 Codex 的一次托管调用通过，Claude Code 因命令行未登录而失败，之后代码有过改动，没有复测。
+- 经过真实验证的只有 Antigravity：一次端到端验证（2026-11-13）共 12 次真实调用，通过了 OpenAI Chat 非流式与流式、Responses 续接、Claude Messages、Gemini `generateContent`、取消与并发。这只验证了那一条本地线路和那一个引擎；审批与调用方工具桥接在 Antigravity 下不支持。验证脚本是 [examples/live-agents-acceptance.ts](examples/live-agents-acceptance.ts)，`oaa verify` 在你的机器上运行同一批场景。
+- Codex、Claude Code、内置智能体搭配真实模型提供方、公网部署，**尚未**做过这样的端到端验证。向 Codex 与 Claude Code 交付图片是按厂商文档实现的，没有对真实智能体运行过。[docs/zh-CN/evidence.md](docs/zh-CN/evidence.md) 记录了更早的一次手工联调：它的结论是 Codex 的一次托管调用通过，Claude Code 因命令行未登录而失败，之后代码有过改动，没有复测。如果你装了 Codex 或 Claude Code，运行 `oaa verify` 并用[智能体验证报告](https://github.com/jiangxingfan1-coder/Open-Agent-API/issues/new/choose)模板把报告发给我们，是最有用的帮助。
+
+**安装与平台**
+
+- Docker 镜像在 CI 里构建并通过烟雾测试（amd64）。Linux 包、`install.sh`、npm tarball 与多架构镜像还没有走过发布工作流；第一个包含它们的版本就是它们的第一次运行。
+- Windows：完整测试在 CI 里通过，但没有在 Windows 上用真实的 Codex、Claude Code 或 Antigravity 试过，那里也没有沙箱。
+- macOS 桌面应用由项目所有者在一台 Apple 芯片的 Mac 上以隔离方式人工检查过一次：打开就是已连接状态，首次启动说明只出现一次，刷新后仍然已连接，版本号正确，菜单与对话框跟随系统语言。没有检查的：端口被占用时的提示、系统语言两个方向的切换、用同一个数据目录重启、应用崩溃后遗留网关的恢复、Intel 芯片的包、在默认端口上的正常安装，以及 Windows 启动器的双语提示。
+- macOS 与 Windows 的安装包未经公证、没有代码签名。
 
 **开发者平台**
 
 - 单网关加 SQLite：不支持多实例与 Postgres，也不做多个发布者各自结算。
-- 没有真实的支付渠道：点数不接支付；没有邮箱验证，也没有邮件找回密码（重置码由运营者经其它渠道交给开发者）。注册与登录的限流计数在进程内存里，重启后清零。
-- 开发者账号密钥的执行等级只能是 `workspace` 或 `sandbox`，不能是 `host`，所以调不了需要 `host` 等级的外部智能体（[平台文档](docs/zh-CN/platform.md)也建议不要把原生智能体上架给不认识的开发者）。实际能上架收费的主要是内置智能体。
+- 没有真实的支付渠道：点数不接支付；没有邮箱验证，也没有邮件找回密码（重置码由运营者经其它渠道交给开发者）。限流计数在进程内存里，重启后清零。
+- 账号密钥只能调用内置智能体，除非运营者为某个上架项打开 `host_execution`，那样这个外部智能体会以运行网关的系统用户的权限运行。这条路径用离线示例智能体测过；真实外部智能体的计费成功路径没有见到过。
 - 没有在真实公网部署上验证过。
 
 **其它**
 
+- 要求的 JSON schema 由网关自己强制保证，没有交给模型提供方自己的结构化输出功能；强制工具选择（`tool_choice` 为 required）不支持；不支持音频输入。
 - 外部智能体可能不报告 token 用量，此时只有按次价格生效；报告的 token 数不是费用估算，token 上限也不作为可强制执行的花费上限。
-- macOS 与 Windows 的安装包未经公证、没有代码签名。
+- 事件回调只对本机的接收端测过，没有对公网 HTTPS 端点测过。
+- 网关不防护什么（例如注册没有邮箱验证、登录失败计数只在内存里）见 [docs/zh-CN/security-model.md](docs/zh-CN/security-model.md)。
 - 不扫描用户主目录寻找密钥，不训练基础模型，不实现订阅池或隐藏的认证中转。
 
 ## 参与、安全与行为准则

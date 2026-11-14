@@ -17,7 +17,7 @@ import {
   type WorkContext,
 } from '../core/contracts.js';
 import { installBundle, builtin } from '../lang/bundle.js';
-import { createModelDriver, OpenAIModel, type ModelDriver } from '../providers/models.js';
+import { createModelDriver, providerApiKey, type ModelDriver } from '../providers/models.js';
 import { validateProviderState } from '../providers/provider-state.js';
 import {
   SrtLauncher,
@@ -134,7 +134,7 @@ export class WorkerRuntime implements Executor {
             .filter(([, p]) => {
               try {
                 validateEndpoint(p.baseUrl);
-                return !!process.env[p.apiKeyEnv];
+                return providerApiKey(p) !== undefined;
               } catch {
                 return false;
               }
@@ -266,7 +266,7 @@ export class WorkerRuntime implements Executor {
       if (injected?.withApiKey) return injected.withApiKey(apiKey);
     } else {
       const cfg = this.config.providers[provider];
-      if (cfg?.byok) return createModelDriver(cfg, apiKey);
+      if (cfg?.byok) return createModelDriver(cfg, apiKey, provider);
     }
     throw new Fault(
       'byok_not_supported',
@@ -474,9 +474,9 @@ export class WorkerRuntime implements Executor {
             'Model provider is not configured on this node.',
             503,
           );
-        const version = sha(canonical(cfg) + (process.env[cfg.apiKeyEnv] ?? ''));
+        const version = sha(canonical(cfg) + (providerApiKey(cfg) ?? ''));
         if (!driver || this.driverVersions.get(agent.provider) !== version) {
-          driver = createModelDriver(cfg);
+          driver = createModelDriver(cfg, undefined, agent.provider);
           this.drivers.set(agent.provider, driver);
           this.driverVersions.set(agent.provider, version);
         }

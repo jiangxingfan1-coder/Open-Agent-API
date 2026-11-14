@@ -97,4 +97,16 @@ def _():
     raise AssertionError("OpenAI accepted an unknown model name")
 
 
+@lab.scenario("openai_like.stream_progress")
+def _():
+    def read(headers):
+        text = ""
+        for r in like(default_headers=headers).stream_chat([ChatMessage(role="user", content="LONG")]):
+            text = r.message.content
+        return text
+
+    equal(read({"X-OAA-Progress": "reasoning", "Accept-Language": "en"}), read({"X-OAA-Progress": "off"}), "content with progress on")
+    return "reasoning_content ignored"
+
+
 lab.done()

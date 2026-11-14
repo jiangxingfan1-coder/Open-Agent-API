@@ -10,6 +10,7 @@
 - 控制台各页面怎么用：[console.md](console.md)
 - 安装方式（安装包、Linux 软件包、Docker、npm tarball）：[install.md](install.md)
 - 在 Windows 上运行：[windows.md](windows.md)
+- 每一条 `oaa` 命令，按「想做什么」分组（启动并照看网关、接上智能体、在终端里审批、事件回调、验证智能体、密钥、发布、调用）：[cli.md](cli.md)
 - 本地启动的更多细节（配置文件、后台运行）：[operations.md「本机启动」](operations.md#本机启动)
 
 ## 我想调用智能体
@@ -45,6 +46,14 @@
 
 - 各入口的图片内容段、上限、存储、URL 策略，以及各类智能体怎样拿到图片：[images.md](images.md)
 
+## 我想让内置智能体用我的模型
+
+- `oaa connect <预设>`（Ollama、LM Studio、OpenAI、Anthropic、Gemini、DeepSeek 等）、密钥、`oaa models` 与提供方配置项：[models.md](models.md)
+
+## 我想让聊天客户端看见智能体在做什么
+
+- 以各协议的思考 / 推理形状送出运行过程、开关与客户端对照表：[progress.md](progress.md)
+
 ## 我想让调用方的工具参与
 
 - 调用方工具的 auto / 托管 / 桥接 / 拒绝模式与支持矩阵：[harness.md](harness.md)
@@ -74,7 +83,7 @@
 - 架构与设计依据：[architecture.md](architecture.md)
 - 运行状态机：[architecture.md 3.2](architecture.md#32-运行状态机)
 - 测试与基准证明了什么、没证明什么：[architecture.md 第 10 节](architecture.md#10-证据与性能)、[配对基准](../../bench/paired/README.md)
-- 对真实智能体做过哪些联调、结果与没验证的部分：[evidence.md](evidence.md)
+- 对真实智能体做过哪些联调、结果与没验证的部分：[evidence.md](evidence.md)；想在自己的机器上验证一个智能体，见 [cli.md「自己验证一个智能体」](cli.md#自己验证一个智能体)
 - 版本变化：[CHANGELOG.md](../../CHANGELOG.zh-CN.md)
 - 接下来要做什么、哪些已验证哪些没有：[ROADMAP.zh-CN.md](../../ROADMAP.zh-CN.md)
 - 网关怎么防护、哪些不防护：[security-model.md](security-model.md)

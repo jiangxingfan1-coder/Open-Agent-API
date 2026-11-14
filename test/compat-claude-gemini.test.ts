@@ -280,7 +280,16 @@ test('gemini: ?key= authenticates on /v1beta only; no alt=sse streams a JSON arr
     const chunks = JSON.parse(array.body) as Record<string, any>[];
     assert.ok(chunks.length >= 2);
     assert.equal(chunks.at(-1)!.candidates[0].finishReason, 'STOP');
-    assert.equal(chunks.map((c) => c.candidates[0].content.parts[0]?.text ?? '').join(''), 'ok');
+    assert.equal(
+      chunks
+        .map(
+          (c) =>
+            (c.candidates[0].content.parts as Record<string, any>[]).filter((p) => !p.thought)[0]
+              ?.text ?? '',
+        )
+        .join(''),
+      'ok',
+    );
     const sse = await s.request(
       'POST',
       '/v1beta/models/agent%2Ftest:streamGenerateContent?alt=sse',

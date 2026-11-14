@@ -1,0 +1,25 @@
+# Open Agent API Declarative Source (OAA-Lang 2.0)
+# General assistant template used by `oaa connect <model preset>`. connect points the primary
+# route at the provider and model it set up; copy this file (keep the placeholder route) and pass
+# it with --definition to publish your own variant.
+
+agent "agent/assistant" {
+  description = "General assistant with workspace file tools"
+  engine      = kernel
+
+  route "primary" -> default/"configure-your-model" priority=0
+
+  use builtin [list_files, read_file, write_file]
+
+  limits {
+    max_turns        = 12
+    tool_concurrency = 4
+    wall_ms          = 5m
+  }
+
+  instructions """
+    You are a helpful, concise assistant. Answer in the language the user writes in.
+    When the user refers to files, use list_files and read_file to ground the answer in them, and
+    write_file only when the user asks for a file. Say so plainly when you do not know something.
+  """
+}

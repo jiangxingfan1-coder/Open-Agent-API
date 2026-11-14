@@ -364,4 +364,25 @@ def _():
     raise AssertionError("an answer that does not fit was returned as a success")
 
 
+# Stream progress (docs/progress.md): a thinking block before the text.
+@lab.scenario("messages.stream_progress")
+def _():
+    def read(headers):
+        thinking = ""
+        with client.messages.stream(model=MODEL, max_tokens=256, messages=[{"role": "user", "content": "LONG"}], extra_headers=headers) as stream:
+            for e in stream:
+                if e.type == "thinking":
+                    thinking += e.thinking
+            final = stream.get_final_message()
+        return text_of(final), thinking, final
+
+    on, off = read({"X-OAA-Progress": "reasoning", "Accept-Language": "en"}), read({"X-OAA-Progress": "off"})
+    equal(on[0], off[0], "text with progress on")
+    check(on[1].startswith("Started"), f"thinking: {on[1]!r}")
+    equal(on[2].content[0].type, "thinking", "thinking block first")
+    nxt = client.messages.create(model=MODEL, max_tokens=64, messages=[{"role": "user", "content": "first"}, {"role": "assistant", "content": [b.model_dump() for b in on[2].content]}, {"role": "user", "content": "hi"}])
+    equal(text_of(nxt), "Hello world from the fixture.", "next turn after echoed thinking")
+    return "thinking events; text unchanged; echo accepted"
+
+
 lab.done()

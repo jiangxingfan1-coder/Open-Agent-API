@@ -48,10 +48,10 @@ Open Agent API 把一个智能体发布成 API，支持四种协议：OpenAI Cha
 | NextChat | main@1d3dc33（最近发布 v2.16.1） | verified | 10 / 0 / 0 |
 | Dify（OpenAI-API-compatible 插件） | 插件 0.0.83、SDK 0.10.2 | verified | 10 / 3 / 0 |
 | n8n（OpenAI 凭据 / Chat Model） | 2.47.7 | verified | 10 / 4 / 0 |
-| Continue | `config.yaml`，`models[]` | `apiBase: http://<主机>:8787/v1` | `model: agent/sample` | 加 `capabilities: [tool_use]` 让 Agent 模式发工具：对内核或 ACP 智能体，工具会交给智能体。Tab 自动补全默认用 `POST /v1/completions`，网关不提供：补全留给别的模型，或设 `useLegacyCompletionsEndpoint: false` 让它改发 chat。 |
+| Continue | main@5522c6f（最近发布 v2.0.0-vscode 与预发布的 v2.1.0-vscode） | verified | 11 / 1 / 0 |
 | Cline | main@72b3d71（发布 4.1.26） | verified | 与 Roo Code 共用一个文件：11 / 3 / 0 |
 | Roo Code | b867ec9（2026-05-15 已归档） | verified | （同一个文件） |
-| Zed | `settings.json`，`language_models.openai_compatible.<名字>` | `api_url: "http://<主机>:8787/v1"` | `available_models[].name: "agent/sample"` | Zed 从不调用 `/models`，所以模型要手工列出。它的智能体配置会发 `tools`；对内核或 ACP 智能体，工具交给智能体。 |
+| Zed | main@f0fa51b（滚动的 main，没有读发布标签） | verified | 7 / 2 / 0 |
 
 「已核实」指用例来自该客户端在所述修订上的源码；「推断」指来自它所用的库或有文档的默认值；「未核实」指没有找到可靠来源，用例只是协议骨架。
 
@@ -86,9 +86,9 @@ Base URL 写错是 404 最常见的原因。网关现在忽略末尾斜杠与重
 | NextChat | 设置 > 自定义接口 > OpenAI 接口地址 | `http://<主机>:8787`，**不带 `/v1`** | 设置 > 自定义模型：`agent/sample` | NextChat 自己追加 `v1/chat/completions`（写成 `.../v1` 会变成 `/v1/v1/...`），而且从不拉取远端模型列表。匹配它视觉模型规则的模型名（`vision`、`vl`、`gpt-4o`、`o3` 等）会被多加 `max_tokens: 4000`。 |
 | Dify | 模型供应商 > OpenAI-API-compatible > 添加模型 | Dify 在 Docker 里时用 `http://host.docker.internal:8787/v1` | 模型名 = 智能体名 | Dify 从不调用 `/models`。它的流解析器要求每个分块都有 `choices` 数组（网关的 usage 分块是 `choices: []`），并忽略 `:` 注释帧。 |
 | n8n | 凭据 > OpenAI | Base URL `http://<主机>:8787/v1` | OpenAI Chat Model：「By ID」或「From List」 | 凭据的 Test 按钮调用 `GET /v1/models`。节点的「Use Responses API」模式（新版本默认开）与 Chat Completions 模式都建立在 LangChain 上；LangChain 的两种模式在实验室里对网关都能用，n8n 的请求形状按回放验证。挂了工具的 AI Agent 节点用同一个 Base URL：智能体能接管工具时（见下）正常工作，否则得到那条清楚的拒绝。 |
-| Continue | `config.yaml`，`models[]` | `apiBase: http://<主机>:8787/v1` | `model: agent/sample` | 只有在使用 compat Base URL 时才加 `capabilities: [tool_use]`。Tab 自动补全默认用 `POST /v1/completions`，网关不提供：补全留给别的模型，或设 `useLegacyCompletionsEndpoint: false` 让它改发 chat。 |
+| Continue | `config.yaml`，`models[]` | `apiBase: http://<主机>:8787/v1` | `model: agent/sample` | 加 `capabilities: [tool_use]` 让 Agent 模式发工具：对内核或 ACP 智能体，工具会交给智能体，用同一个 Base URL。Tab 自动补全默认用 `POST /v1/completions`，网关不提供：补全留给别的模型，或设 `useLegacyCompletionsEndpoint: false` 让它改发 chat。 |
 | Cline / Roo Code | API 提供方「OpenAI Compatible」 | `http://<主机>:8787/v1` | 智能体名 | 两者都总是发 `tools`。对内核或 ACP 智能体，同一个 Base URL 就能用，工具交给智能体（响应里 `X-OAA-Client-Tools: bridge`）；接管不了的智能体（原生引擎）得到一条点明出路的清楚的 400。Roo Code 上游已归档。 |
-| Zed | `settings.json`，`language_models.openai_compatible.<名字>` | `api_url: "http://<主机>:8787/v1"` | `available_models[].name: "agent/sample"` | Zed 从不调用 `/models`，所以模型要手工列出。它的智能体配置会发 `tools`（用 compat Base URL）。 |
+| Zed | `settings.json`，`language_models.openai_compatible.<名字>` | `api_url: "http://<主机>:8787/v1"` | `available_models[].name: "agent/sample"` | Zed 从不调用 `/models`，所以模型要手工列出。它的智能体配置会发 `tools`；对内核或 ACP 智能体，工具会交给智能体，用同一个 Base URL。 |
 | Cursor | 设置 > 模型 > 覆盖 OpenAI Base URL | 公网 HTTPS 地址，带 `/v1`（未核实） | 自定义模型名 | 未核实，见上。 |
 
 ### SDK 与框架
@@ -101,7 +101,7 @@ Base URL 写错是 404 最常见的原因。网关现在忽略末尾斜杠与重
 | Vercel AI SDK | `createOpenAI({ baseURL: ".../v1" })`（`.chat()` 与 `.responses()` 都行）、`createOpenAICompatible({ name, baseURL: ".../v1" })`、`createAnthropic({ baseURL: ".../v1" })`、`createGoogleGenerativeAI({ baseURL: ".../v1beta" })`；智能体名原样作为模型 id |
 | LangChain | `ChatOpenAI(model=..., base_url=".../v1", stream_usage=True)`（自定义 `base_url` 时 LangChain 不会自己请求流式用量），`ChatAnthropic(model=..., anthropic_api_url="http://127.0.0.1:8787")` |
 | LiteLLM | `litellm.completion(model="openai/agent/sample", api_base=".../v1")`；也可用 `anthropic/agent/sample` 加 `api_base="http://127.0.0.1:8787"`，以及 `gemini/agent/sample` 加 `api_base=".../v1beta"` |
-| OpenAI Agents SDK | `Agent(model=OpenAIResponsesModel(model="agent/sample", openai_client=AsyncOpenAI(base_url=".../v1", api_key=...)))` 或 `OpenAIChatCompletionsModel(...)`。调用 `set_tracing_disabled(True)`，否则 SDK 会把追踪上传给 OpenAI。函数工具需要 compat Base URL |
+| OpenAI Agents SDK | `Agent(model=OpenAIResponsesModel(model="agent/sample", openai_client=AsyncOpenAI(base_url=".../v1", api_key=...)))` 或 `OpenAIChatCompletionsModel(...)`。调用 `set_tracing_disabled(True)`，否则 SDK 会把追踪上传给 OpenAI。能接管工具的智能体用普通的 Base URL 就能带函数工具（见下文「调用方工具」）|
 | LlamaIndex | `OpenAILike(model="agent/sample", api_base=".../v1", api_key=..., is_chat_model=True)`。`OpenAI` 类在发任何请求之前会按 OpenAI 自己的列表检查模型名，并拒绝智能体名 |
 
 ## 调用方工具
@@ -116,6 +116,10 @@ Base URL 写错是 404 最常见的原因。网关现在忽略末尾斜杠与重
 ## 结构化输出
 
 `response_format`（`json_object`、`json_schema`）、Responses 的 `text.format`、Gemini 的 `responseMimeType: "application/json"` 加 `responseSchema` / `responseJsonSchema`，以及 Claude 的 `output_config.format` 是一份契约：成功的响应就是能解析、合乎 schema 的 JSON，不合格的答案送回去修正一次，否则运行以 `structured_output_invalid`（422）失败。流式响应扣到答案检查通过，再一次性送出。官方 SDK 的辅助函数都对着它跑过（OpenAI 的 Chat 与 Responses `parse`、Anthropic 的 `messages.parse`、Gemini 的 `response_schema`、Vercel AI SDK 的 `generateObject`、LangChain 的 `with_structured_output`）。不支持：靠强制工具调用拿结构（LangChain 的 `method="function_calling"`，`jsonTool` 模式的 `@ai-sdk/anthropic`）：请用 `method="json_schema"` / `structuredOutputMode: "outputFormat"`。细节见 [structured-output.md](structured-output.md)。
+
+## 流式过程
+
+流里可以用各协议自己的思考 / 推理形状（Chat 的 `reasoning_content`、Responses 的 `reasoning` 项、Claude 的 `thinking` 块、Gemini 的 `thought` part）显示智能体正在做什么，答案不变。每个实际运行的客户端都有 `*.stream_progress` 场景（开启与关闭时答案相同，SDK 暴露过程时能取到）。缺省 Responses 与 Gemini 开启；Chat 关闭，因为 Dify 会把 `reasoning_content` 用 `<think>…</think>` 拼进答案；Claude 出于谨慎关闭（thinking 块会改变 `content[0]` 和 LangChain 流式内容的形状）。按次开启用 `X-OAA-Progress: reasoning`。完整的协议 × 客户端对照表：[progress.md](progress.md)。
 
 ## 参数策略
 

@@ -182,7 +182,8 @@
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
         "stream.every_chunk_has_choices_array",
-        "stream.data_only_lf_frames"
+        "stream.data_only_lf_frames",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Parser details: (1) events split on '\\n\\n'; (2) each event must be exactly 'data: <json>' (after stripping 'data:'); '[DONE]' is skipped, not required; (3) EVERY JSON chunk is read via chunk_json['choices'] -> a chunk without a 'choices' key raises KeyError (the final usage chunk must carry choices: []); (4) usage is taken from whichever chunk has a truthy 'usage' (falls back to a local token estimate over messages[0] only if absent); (5) finish_reason is whatever the LAST chunk that has a non-empty choices[] carried (a late chunk with finish_reason null would overwrite it); (6) delta.role / chunk id / object are never read; (7) a non-JSON event silently terminates the stream. The Content-Type of the response is NOT checked. Content is read from delta.content, plus delta.reasoning_content / delta.reasoning which Dify wraps into <think>...</think>."
     },
@@ -227,7 +228,8 @@
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
         "stream.every_chunk_has_choices_array",
-        "stream.data_only_lf_frames"
+        "stream.data_only_lf_frames",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "'user' is a UUID-like string in Dify. Some gateways reject unknown optional fields; Dify has a per-model switch for exactly that reason."
     },
@@ -291,7 +293,8 @@
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
         "stream.every_chunk_has_choices_array",
-        "stream.data_only_lf_frames"
+        "stream.data_only_lf_frames",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "No top_k, seed, n, logit_bias, response_format (unless structured output is on), tool keys here. Dify has no per-model 'n' or 'seed'."
     },
@@ -381,7 +384,8 @@
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
         "stream.every_chunk_has_choices_array",
-        "stream.data_only_lf_frames"
+        "stream.data_only_lf_frames",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "The gateway should accept content as either a string or an array of {type:'text'} parts."
     },
@@ -433,7 +437,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
@@ -503,7 +508,8 @@
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
         "stream.every_chunk_has_choices_array",
-        "stream.data_only_lf_frames"
+        "stream.data_only_lf_frames",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Tool-call deltas are merged by tool_call id: a delta with a function name but no id gets a generated id; a delta with no id appends to the LAST tool call; arguments are concatenated; the result is emitted as one final chunk. Tool calls in the non-stream parser are read from message.tool_calls only in tool_call mode."
     },
@@ -592,7 +598,8 @@
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
         "stream.every_chunk_has_choices_array",
-        "stream.data_only_lf_frames"
+        "stream.data_only_lf_frames",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Gateway should tolerate assistant content '' or null together with tool_calls, and tool messages without a 'name'."
     },
@@ -637,7 +644,8 @@
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
         "stream.every_chunk_has_choices_array",
-        "stream.data_only_lf_frames"
+        "stream.data_only_lf_frames",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Off by default. Reasoning text coming back in delta.reasoning_content or delta.reasoning is rendered inside <think> tags; when thinking is configured 'not supported' Dify filters <think> blocks out of the reply."
     },
@@ -688,7 +696,8 @@
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
         "stream.every_chunk_has_choices_array",
-        "stream.data_only_lf_frames"
+        "stream.data_only_lf_frames",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Off by default."
     },
@@ -733,7 +742,8 @@
         "stream.finish_reason_chunk",
         "stream.usage_chunk",
         "stream.every_chunk_has_choices_array",
-        "stream.data_only_lf_frames"
+        "stream.data_only_lf_frames",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Included so the gateway proves it accepts max_completion_tokens. An agent literally named like 'o3-helper' or 'gpt-5-bot' triggers this shape automatically; the model-name validation path for these names uses the openai python SDK instead (headers then include OpenAI/Python User-Agent and X-Stainless-*)."
     }

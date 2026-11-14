@@ -144,6 +144,66 @@
         </div>
       </section>
 
+      <section id="install" aria-labelledby="t-install">
+        <div class="wrap">
+          <p class="eyebrow">Install</p>
+          <h2 class="display" id="t-install">Pick a way to install it</h2>
+          <p class="lede section-lede">
+            Every route ends with one command, <code class="inline">oaa quickstart</code>: it starts
+            a gateway on 127.0.0.1, publishes an offline sample agent and makes the first call. No
+            model key is needed.
+          </p>
+
+          <div class="lists">
+            <div>
+              <h3>Packages</h3>
+              <ul class="rows">
+                <li>
+                  <b>macOS and Windows</b
+                  ><span>Installers on the Releases page, Node.js bundled; not notarized or code-signed</span>
+                </li>
+                <li>
+                  <b>Linux</b
+                  ><span
+                    >x64 and arm64, no root:<br /><code class="inline">curl&nbsp;-fsSL&nbsp;…/install.sh&nbsp;|&nbsp;sh</code></span
+                  >
+                </li>
+                <li>
+                  <b>npm</b
+                  ><span
+                    >The tarball on the Releases page:
+                    <code class="inline">npm&nbsp;install&nbsp;-g&nbsp;&lt;URL&gt;</code></span
+                  >
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3>From a checkout</h3>
+              <ul class="rows">
+                <li>
+                  <b>Docker</b
+                  ><span
+                    ><code class="inline">docker&nbsp;compose&nbsp;up&nbsp;--build&nbsp;-d</code>; the port is published
+                    on 127.0.0.1 only</span
+                  >
+                </li>
+                <li>
+                  <b>Source</b
+                  ><span
+                    >Node.js 24 or 26: <code class="inline">npm&nbsp;run&nbsp;oaa&nbsp;--&nbsp;quickstart</code></span
+                  >
+                </li>
+              </ul>
+            </div>
+          </div>
+          <p class="note">
+            Steps, limits and uninstalling for each route are in
+            <a class="text-link" href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/docs/install.md">Installing</a>. The Linux
+            package, the npm tarball and the Docker image come with releases from 0.0.65 on.
+          </p>
+        </div>
+      </section>
+
       <section id="points" aria-labelledby="t-points">
         <div class="wrap">
           <p class="eyebrow">What it is</p>
@@ -165,8 +225,9 @@
               <h3>Three protocols, as they are</h3>
               <p>
                 OpenAI Chat and Responses, Claude Messages, Gemini generateContent. The official
-                SDKs only need a new service address and key. The OpenAI and Anthropic SDKs have
-                standing regression tests; the Gemini SDK was checked once.
+                SDKs only need a new service address and key; they and several frameworks are run
+                against the gateway in a compatibility lab. Images and JSON that is guaranteed to
+                fit a schema work on all of them.
               </p>
             </div>
             <div class="point">
@@ -174,8 +235,9 @@
               <h3>A person in the loop</h3>
               <p>
                 An operation that needs approval stops the task at "awaiting approval", and once you
-                approve it the same task carries on. Tasks can be cancelled, resumed, and made
-                idempotent, and every task's timeline and steps can be inspected.
+                approve it, in the console, the terminal or your own system through a webhook, the
+                same task carries on. Tasks can be cancelled, resumed, and made idempotent, and
+                every task's timeline and steps can be inspected.
               </p>
             </div>
           </div>
@@ -254,7 +316,7 @@
                 </li>
                 <li>
                   <b>Gemini</b
-                  ><span>generateContent; checked once with the official @google/genai</span>
+                  ><span>generateContent; run with the official Python and Node SDKs in the lab</span>
                 </li>
                 <li><b>oaa/1 native</b><span>POST /v1/invoke</span></li>
                 <li>
@@ -271,9 +333,7 @@
               class="text-link"
               href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/docs/adapters.md"
               >Connecting external agents</a
-            >
-            (in Chinese). An external agent's permissions are inherited; the gateway does not
-            sandbox it.
+            >. An external agent's permissions are inherited; the gateway does not sandbox it.
           </p>
         </div>
       </section>
@@ -299,6 +359,10 @@
               <li>
                 <b>Credits are only an accounting unit</b>: there is no real payment channel, and no
                 email is sent.
+              </li>
+              <li>
+                <b>External agents, one listing at a time</b>: a switch, off by default, lets
+                platform accounts call a chosen external agent.
               </li>
               <li><b>Off by default</b>: when it is not enabled none of this exists.</li>
             </ul>
@@ -332,18 +396,23 @@
               <h3>Done</h3>
               <ul>
                 <li>
-                  741 tests written with node:test, including regression tests with the official
-                  OpenAI and Anthropic SDKs.
+                  1,021 tests written with node:test, run in CI on Linux, macOS and Windows, on
+                  Node 24 and 26.
+                </li>
+                <li>
+                  A compatibility lab: the official SDKs and several frameworks run against the
+                  gateway, and popular chat clients are replayed (with a sample agent, not a real
+                  one).
                 </li>
                 <li>
                   One real-agent validation with Antigravity, 12 calls in all: OpenAI Chat
                   (non-streaming and streaming), Responses continuation, Claude Messages, Gemini
                   generateContent, cancellation, and concurrency.
                 </li>
-                <li>A one-off check with the official Gemini SDK.</li>
                 <li>
-                  Approvals, interrupt and resume, idempotency, the task inspector, and a developer
-                  platform you can enable in one click.
+                  Approvals, interrupt and resume, idempotency, the task inspector, structured
+                  output, image input, run-event webhooks, and a developer platform you can enable
+                  in one click.
                 </li>
               </ul>
             </div>
@@ -352,7 +421,8 @@
               <ul>
                 <li>
                   Codex, Claude Code, and built-in agents with a real model provider have not had
-                  end-to-end validation.
+                  end-to-end validation; image delivery to the first two is implemented from
+                  documentation only.
                 </li>
                 <li>Public deployment has not been validated in a real public environment.</li>
                 <li>
@@ -362,8 +432,8 @@
                   The developer platform is a single gateway with SQLite; no multiple instances.
                 </li>
                 <li>
-                  The macOS installer: there is no published build, and one you build yourself is
-                  not notarized.
+                  The macOS and Windows installers are not notarized or code-signed, and the
+                  desktop app was checked by hand only once.
                 </li>
               </ul>
             </div>

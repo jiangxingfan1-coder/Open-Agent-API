@@ -157,6 +157,7 @@ export const en = {
   'feature.platform-v1': 'Developer platform',
   'feature.queue-insight-v1': 'Queue visibility',
   'feature.run-timeline-v1': 'Task timeline',
+  'feature.stream-progress-v1': 'Run progress in streams',
   'feature.structured-output-v1': 'Structured output guarantee',
   'feature.webhooks-v1': 'Run-event webhooks',
   'feature.workflow-output-v1': 'Workflow result projection',
@@ -204,6 +205,7 @@ export const en = {
   'html.publish.externalNote':
     'An agent that runs through an external agent (a third-party agent with its own tools and model, such as Codex or Claude Code) can do everything you could do by using that software directly on your computer. This console adds no extra limits and no security isolation.',
   'html.publish.oaaSource': 'Declarative <code>.oaa</code> source',
+  'html.publish.oaaProvider': 'Model provider',
   'html.publish.oaaVerify': 'Format and check',
   'html.publish.oaaIdle': 'Click “Format and check” to see the result',
   'html.publish.bundleJson': 'Bundle JSON file',

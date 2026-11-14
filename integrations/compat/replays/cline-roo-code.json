@@ -213,7 +213,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Headers come from @ai-sdk/openai-compatible (Vercel AI SDK), NOT the openai npm SDK: Content-Type, Authorization (only if an API key is set), and a User-Agent built as 'ai-sdk-openai-compatible/<ver> ai-sdk-provider-utils/<ver> <runtime>'. No Accept, no X-Stainless-*, no HTTP-Referer/X-Title (those Cline identity headers are only added for the first-party `cline` providers, request-headers.ts L45-L102). User-defined custom headers (Cline setting `openAiHeaders`) are merged in. Exact version numbers vary with the installed packages; whether the `ai` package also appends an 'ai/<ver>' UA suffix was not found in stream-language-model-call.ts. Tool name/description/schema are illustrative (Cline's real tool set was not enumerated). Wrapper keys are verified from prepareTools: {type:'function', function:{name, description, parameters}} and `strict` only if the tool sets it. STRICT stream parsing (zod): every chunk must have a `choices` array (empty [] is fine for the usage chunk); delta.role, if present, must be 'assistant' or ''; tool_call deltas must have a `function` object; at least one chunk must carry a non-null finish_reason or the stream is reported as an error ('Response stream ended without a finish reason'). [DONE] is optional. A chunk with a top-level `error` is treated as an error part. Unknown extra fields are allowed (looseObject). temperature is sent only if Cline sets one (default not traced) and is omitted here; no top_p/penalties/seed/stop are ever set by Cline."
     },
@@ -284,7 +285,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "AI SDK never sends top_p/frequency_penalty/presence_penalty/seed/stop/response_format from Cline (not set in streamText call, ai-sdk.ts L2417-L2455). For model ids that look like OpenAI reasoning-era names (isOpenAIReasoningEraModelId) `max_tokens` is renamed to `max_completion_tokens` (openai-compatible.ts L140-L167); other ids keep `max_tokens`. Extra provider options (e.g. cache_control for Claude-like model ids, thinking) can be spliced into the body by Cline routing (routing/generic-compatible.ts, anthropic-compatible.ts); not traced for an arbitrary agent name."
     },
@@ -362,7 +364,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "System prompt is passed to the AI SDK as `system` and becomes `{role:'system', content:<string>}`; there is no developer role for this provider."
     },
@@ -450,7 +453,8 @@
       "consumes": [
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.every_chunk_has_choices_array"
+        "stream.every_chunk_has_choices_array",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Tool results that carry images are split by Cline's splitToolImagesMiddleware into a text placeholder in the tool message plus a following synthetic user message holding the image parts (openai-compatible.ts L279-L305). Streamed tool-call deltas: Cline buffers deltas until function.name is known and accepts a missing `index` (Gemini-style)."
     },
@@ -528,7 +532,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
@@ -645,7 +650,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.usage_chunk"
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Headers: `openai` npm SDK (package.json requires ^5.12.2; header builder read at v5.23.2) plus Roo DEFAULT_HEADERS (HTTP-Referer, X-Title, and a User-Agent 'RooCode/<ext version>' that overrides the SDK's 'OpenAI/JS'), plus any user-defined custom headers. Authorization is 'Bearer not-provided' when no API key is entered. X-Stainless-* values vary per machine. Roo post-processes every non-MCP tool schema: function.strict=true, all properties forced into `required`, additionalProperties:false, nullable types flattened (base-provider.ts L27-L106). MCP tools (names with the 'mcp--' prefix) keep their own schema with strict:false. Tool names/descriptions here are illustrative. Stream parsing is the openai SDK: [DONE] optional, delta.role not read, finish_reason only compared with 'tool_calls' to close tool calls (tool_call_end), usage read from any chunk that has `usage` (a final chunk with choices:[] is fine), `choices?.[0]` tolerant of an empty array. `<think>...</think>` tags inside delta.content are split into reasoning, and delta.reasoning_content is surfaced as reasoning. stream_options is dropped only when the base URL host contains 'x.ai'."
     },
@@ -735,7 +741,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.usage_chunk"
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Roo never sends top_p, penalties, seed, stop, response_format or n. A custom-model `supportsPromptCache` toggle ('Prompt caching') additionally rewrites the system message into [{type:'text', text, cache_control:{type:'ephemeral'}}] and adds cache_control:{type:'ephemeral'} to the last text part of the last two user messages (openai.ts L110-L150) - these `cache_control` keys appear inside content parts. Not part of the body above because it is off by default."
     },
@@ -926,7 +933,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.usage_chunk"
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "A user message that follows tool results is emitted as a separate role:'user' message with array content (or merged into the last tool message only for DeepSeek-R1/thinking providers, mergeToolResultText, not this provider). Assistant `reasoning_details` is passed through only if the history carries it."
     },
@@ -1015,7 +1023,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
@@ -1102,7 +1111,8 @@
       },
       "consumes": [
         "stream.content_deltas_present",
-        "stream.usage_chunk"
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "ONLY applies when the agent name contains one of those substrings (e.g. agent/to4). Gateway must accept role 'developer' on /v1/chat/completions. Streaming usage here is read from handleStreamResponse (chunk.usage.prompt_tokens/completion_tokens)."
     },

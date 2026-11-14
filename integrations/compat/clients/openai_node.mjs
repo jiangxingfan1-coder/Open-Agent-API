@@ -240,4 +240,43 @@ await lab.scenario('structured.failure_is_a_422_and_not_retried', async () => {
   equal(await runsCreated(before), 1, 'runs created');
 });
 
+// Stream progress (docs/progress.md): the same answer with progress on and off; progress readable.
+const ON = { headers: { 'X-OAA-Progress': 'reasoning', 'Accept-Language': 'en' } };
+const OFF = { headers: { 'X-OAA-Progress': 'off' } };
+await lab.scenario('chat.stream_progress', async () => {
+  const read = async (opts) => {
+    let content = '';
+    let reasoning = '';
+    for await (const c of await client.chat.completions.create(say('LONG', { stream: true }), opts)) {
+      content += c.choices[0]?.delta?.content ?? '';
+      reasoning += c.choices[0]?.delta?.reasoning_content ?? '';
+    }
+    return { content, reasoning };
+  };
+  const on = await read(ON);
+  const off = await read(OFF);
+  equal(on.content, off.content, 'content with progress on');
+  check(on.reasoning.startsWith('Started'), `reasoning_content: ${JSON.stringify(on.reasoning)}`);
+  equal(off.reasoning, '', 'no reasoning when off');
+  const final = await client.chat.completions.stream(say('LONG'), ON).finalChatCompletion();
+  equal(text(final), off.content, 'stream helper final content');
+  return 'reasoning_content exposed on delta; helper keeps it out of content';
+});
+await lab.scenario('responses.stream_progress', async () => {
+  const run = async (opts) => {
+    const stream = client.responses.stream({ model: M, input: 'LONG' }, opts);
+    let summary = '';
+    stream.on('response.reasoning_summary_text.delta', (e) => (summary += e.delta));
+    const final = await stream.finalResponse();
+    return { text: final.output_text, summary, final };
+  };
+  const on = await run(ON);
+  const off = await run(OFF);
+  equal(on.text, off.text, 'output_text with progress on');
+  check(on.summary.startsWith('Started'), `summary: ${JSON.stringify(on.summary)}`);
+  equal(on.final.output[0].type, 'reasoning', 'reasoning item first');
+  equal(off.summary, '', 'no summary when off');
+  return 'reasoning summary events; output_text unchanged';
+});
+
 lab.done();

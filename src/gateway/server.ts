@@ -61,9 +61,8 @@ import { assertUploadRoom } from './upload-quota.js';
 import { registerOwnerRoutes } from './shutdown-route.js';
 import { ERROR_CATALOG, ERROR_CATALOG_REVISION, ERROR_CATEGORIES } from '../core/errors.js';
 import { registerConsoleAssets } from './console-assets.js';
-import { streamEvents, type StreamMode } from './compat-stream.js';
-import { streamSlots } from './stream-slots.js';
-import { geminiQueryKey, sendError, sseRequested, zodFault } from './compat-errors.js';
+import { streamEvents, streamOptions, streamSlots, type StreamMode } from './compat-stream.js';
+import { geminiQueryKey, sendError, zodFault } from './compat-errors.js';
 import * as http from './compat-http.js';
 import { ignoredParamsHeader, paramFamily } from './compat-params.js';
 import { bridgeDialect, bridgedObject, resumeBridged, waitParkedOrTerminal } from './bridge.js';
@@ -118,6 +117,7 @@ export const GATEWAY_FEATURES = [
   'platform-setup-v1',
   'queue-insight-v1',
   'run-timeline-v1',
+  'stream-progress-v1',
   'structured-output-v1',
   'webhooks-v1',
   'workflow-output-v1',
@@ -1234,7 +1234,7 @@ export async function createGateway(
           streamMode,
           includeUsage,
           run,
-          { jsonArray: responseDialect === 'gemini' && !sseRequested(req), release },
+          streamOptions(req, responseDialect, release, config.streamProgress),
         );
         return;
       }

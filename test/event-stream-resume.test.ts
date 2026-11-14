@@ -158,10 +158,11 @@ test('a large run streams completely through the Responses replay and plain (non
     assert.equal(last.event, 'response.completed');
     const body = JSON.parse(last.data) as {
       type: string;
-      response: { status: string; output: { content: { text: string }[] }[] };
+      response: { status: string; output: { type: string; content: { text: string }[] }[] };
     };
     assert.equal(body.response.status, 'completed');
-    assert.equal(body.response.output[0]!.content[0]!.text, text);
+    const message = body.response.output.find((item) => item.type === 'message')!;
+    assert.equal(message.content[0]!.text, text);
     const plain = await s.request('GET', `/v1/runs/${run.id}/events`);
     assert.equal(plain.statusCode, 200);
     assert.match(plain.body.slice(-2_500_000), /event: response\.completed/);

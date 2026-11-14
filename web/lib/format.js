@@ -211,6 +211,7 @@ const FEATURE_LABELS = {
   'harness-bridge-v1': t('feature.harness-bridge-v1'),
   'image-input-v1': t('feature.image-input-v1'),
   'local-backends-v1': t('feature.local-backends-v1'),
+  'stream-progress-v1': t('feature.stream-progress-v1'),
   'structured-output-v1': t('feature.structured-output-v1'),
   'oaa-lang-roundtrip-v1': t('feature.oaa-lang-roundtrip-v1'),
   'overview-activity-v1': t('feature.overview-activity-v1'),

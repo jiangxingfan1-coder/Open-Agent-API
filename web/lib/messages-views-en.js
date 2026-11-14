@@ -55,6 +55,10 @@ export const en = {
   'agents.copied': 'Copied {id}',
   'agents.noDescription': 'No description',
   'agents.tools': '{n} {n|tool|tools}',
+  'agents.provider': 'model {name}',
+  'agents.providerNoKey': '{name}: key missing',
+  'agents.providerNoKeyHint':
+    'The gateway process cannot read this provider key ({ref}). Set it and restart the gateway, or use a key file.',
   'agents.skills': '{n} {n|skill|skills}',
   'agents.autoApprove': 'Auto-approve',
   'agents.noTasks': 'No tasks yet',
@@ -227,6 +231,8 @@ export const en = {
   'access.callerTitle': 'When the caller is an agent too',
   'access.callerText':
     'When the caller (such as Cursor, Claude Code or any agent SDK) brings tools of its own, the X-OAA-Client-Tools request header chooses how they are handled. Without it, the mode is auto: the tools go to an agent that can take them over, and otherwise things work as before.',
+  'access.progressText':
+    'Streams can show what the agent is doing (queueing, tool calls, approvals) as the thinking section of ordinary chat clients. The X-OAA-Progress request header (reasoning | off) chooses it per request; by default Responses and Gemini streams carry it, Chat and Claude streams do not.',
   'access.colMode': 'Mode',
   'access.colMeaning': 'Meaning',
   'access.modeAuto': 'auto (default)',

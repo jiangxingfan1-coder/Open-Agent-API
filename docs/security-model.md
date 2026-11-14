@@ -4,7 +4,7 @@ English · [简体中文](zh-CN/security-model.md)
 
 This document describes who can do what in an Open Agent API (OAA) gateway, what is exposed by
 default, what you must do before exposing a gateway to the internet, and where the gateway does
-**not** defend you. It reflects version 0.0.64. Report vulnerabilities as described in
+**not** defend you. It describes the code as of version 0.0.65. Report vulnerabilities as described in
 [`SECURITY.md`](../SECURITY.md).
 
 ## Parties and trust boundaries

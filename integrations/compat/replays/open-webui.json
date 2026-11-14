@@ -136,7 +136,8 @@
       "consumes": [
         "stream.content_type_sse",
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "The proxy branches on the response Content-Type containing text/event-stream; any other type is parsed as one JSON document. Lines must start with 'data:'. [DONE] is tolerated but the loop also ends at body EOF. delta.role is not required. A system message appears only when the user configured a system prompt (role system)."
     },
@@ -178,7 +179,8 @@
         "stream.content_type_sse",
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.usage_chunk"
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "A chunk with usage and an empty or absent choices array is handled (usage merged, then continue). Usage is read from any chunk's top-level usage object."
     },
@@ -286,7 +288,8 @@
         "stream.content_type_sse",
         "stream.content_deltas_present",
         "stream.finish_reason_chunk",
-        "stream.usage_chunk"
+        "stream.usage_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Risky for strict servers: Ollama-flavoured keys (top_k, min_p, repeat_penalty, repeat_last_n, tfs_z, mirostat*, num_*, think, format, keep_alive) are forwarded at the TOP level to ANY OpenAI-compatible connection (they only go into 'options' for Ollama connections). The gateway must ignore unknown fields. Admin-only extras (use_mmap, use_mlock, num_thread, num_gpu) behave the same. max_tokens stays max_tokens (renamed from max_completion_tokens) for non-OpenAI hosts."
     },
@@ -365,7 +368,8 @@
       },
       "consumes": [
         "stream.content_type_sse",
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Content is always a plain string for text-only turns (never an array of text parts). Messages carry no name field."
     },
@@ -412,7 +416,8 @@
         "status": 200
       },
       "consumes": [
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Image input (docs/images.md): the data-URL image is decoded, checked and stored as an input file of the caller, and reaches an image-capable agent (the lab fixture agent declares image input) in its provider's own image shape. A text-only agent answers 400 unsupported_content with error.param on this part instead."
     },
@@ -489,7 +494,8 @@
       "consumes": [
         "stream.content_type_sse",
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Unpaired tool messages are dropped client-side (sanitize_tool_pairs). Assistant messages replayed from reasoning models may additionally carry reasoning_content or reasoning_details; not for plain text models."
     },
@@ -547,7 +553,8 @@
       "consumes": [
         "stream.content_type_sse",
         "stream.content_deltas_present",
-        "stream.finish_reason_chunk"
+        "stream.finish_reason_chunk",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Only sent when the user enabled a tool/server in the chat; default chats send no tools key. Open WebUI also injects its own builtin tools (memory, web search, knowledge) when those features are on."
     },
@@ -585,7 +592,8 @@
       },
       "consumes": [
         "stream.content_type_sse",
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "The value is whatever string the user typed (low/medium/high are the suggestions)."
     },
@@ -625,7 +633,8 @@
       },
       "consumes": [
         "stream.content_type_sse",
-        "stream.content_deltas_present"
+        "stream.content_deltas_present",
+        "stream.no_reasoning_by_default"
       ],
       "notes": "Only relevant if an operator configures it; keep as a low-priority compatibility case."
     }

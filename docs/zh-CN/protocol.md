@@ -164,6 +164,10 @@ srt 后端的边界与局限：
 
 经过反向代理的请求和远程请求都看不到 `pid`，其余字段不变。
 
+### 本机关闭（`POST /v1/gateway/shutdown`）
+
+请网关自己关闭：先回答 `{"stopping": true, "pid": <pid>}`，然后让在途请求处理完、关闭数据库。需要覆盖整个所有者的管理员密钥，并且只在对端地址是 loopback 时接受（其他调用方得到 403 `scope_denied`），所以远程调用方永远不能用它停掉网关。`oaa stop` 在 Windows 上使用它，因为在那里信号没法让进程干净地停下来（见 [windows.md](windows.md#结束进程)）；在其他系统上 `oaa stop` 发送 SIGTERM。
+
 <a id="compatibility"></a>
 
 ## 兼容接口
@@ -578,6 +582,10 @@ data: {"revision":1794312000123460,"reasons":["runs","nodes"]}
 
 请求要求 JSON 时（Chat 的 `response_format` 为 `json_object` / `json_schema`，Responses 的 `text.format`，Gemini 的 `generationConfig.responseMimeType: "application/json"` 加 `responseSchema` / `responseJsonSchema`，Claude 的 `output_config.format`），它成为这次运行的输出契约：成功的响应就是能解析、合乎 schema 的 JSON（Ajv：draft-07、2019-09 与 2020-12，`format` 也校验），否则运行以 `structured_output_invalid` 失败（422；Responses 为 `status: "failed"`）。智能体的答案在校验通过前先扣着，所以流式响应在最后一次性送出最终的 JSON，其间有心跳保持连接。答案不合格时送回去修正（`structuredOutput.maxRepairs`，缺省 1 次；外部智能体只在会话可续接时才重问）。网关无法如实校验的 schema 在请求时就被拒绝：`output_schema_unsupported`（或 `invalid_schema` / `schema_dialect_unsupported`）。细节、限制与确切规则见 [structured-output.md](structured-output.md)。
 
+## 流式过程（`stream-progress-v1`）
+
+兼容入口的流可以带上每个运行阶段的一行说明（排队、开始执行、每次工具调用及其结果、审批、切换备选、结构化输出的修复轮），用各协议自己的思考形状：Chat 用 `delta.reasoning_content`；Responses 用 `output_index` 0 处的 `reasoning` 输出项与 `response.reasoning_summary_*` 帧（之后的 `output_index` 加一）；Claude 用 index 0 的 `thinking` 块（签名 `oaa-progress-v1`）；Gemini 用 `thought: true` 的 part。答案文字、非流式响应体与用量不变。按次用 `X-OAA-Progress: reasoning | off` 或 `metadata["oaa.progress"]`；网关缺省值 `streamProgress`（Chat 关、Responses 开、Claude 关、Gemini 开）。`response.reasoning_summary_*` 是线上帧，不是运行事件。结构化输出的一次修复轮会写一条 `tool.progress` 事件 `{source: "gateway", event: "output_repair", round}`。细节与客户端对照表：[progress.md](progress.md)。
+
 ## 工作流返回契约
 
 `GET /health` 的 `workflow-output-v1` 表示网关支持工作流的 `output` / `outputSchema` 与动态 `execute_graph.output`；`oaa-lang-roundtrip-v1` 表示 DSL 格式化会重新编译并比较契约。它们不要求客户端改变现有请求：未指定返回投影时仍返回完整步骤结果。详见 [OAA-Lang 执行契约](language.md)。
@@ -904,6 +912,9 @@ HTTP 错误响应默认使用形状 `{"error":{"code":"…","message":"…","typ
 | `model_not_configured` | 503 | 未设置提供方 API 密钥环境变量 |
 | `upstream_rate_limited` | 429/502 | 上游模型限流 |
 | `upstream_failed` | 429/502 | 上游模型响应失败 |
+| `upstream_auth_failed` | 502 | 上游模型服务拒绝了提供方的 API 密钥（HTTP 401/403） |
+| `upstream_model_not_found` | 502 | 上游模型服务不认识这个模型名或接口路径（HTTP 404） |
+| `upstream_incompatible` | 502 | 兼容服务不接受请求里的某个字段（如 max_completion_tokens、stream_options、工具或图片） |
 | `upstream_incomplete` | 502 | 上游以非正常原因结束 |
 | `upstream_truncated` | 502 | 上游未给出终止响应就结束 |
 | `upstream_output_limit` | 502 | 上游 HTTP 响应累计超过 8 MiB，或 SSE 事件超过 2 MiB；停止读取并释放连接 |
@@ -1018,4 +1029,4 @@ HTTP 错误响应默认使用形状 `{"error":{"code":"…","message":"…","typ
 
 ### 仅 CLI / 客户端本地
 
-以下只由 `oaa` 命令行或 `GatewayClient` 在本地产生，网关不会返回：`arguments`、`unknown_command`、`dsh_overlay_required`、`exposure_conflict`、`native_not_installed`、`node_startup_failed`、`startup_failed`、`startup_timeout`、`tunnel_binary_missing`、`tunnel_exited`、`tunnel_timeout`、`worker_required`、`output_exists`、`tool_conflict`、`mcp_descriptor_too_large`、`mcp_task_mode_unsupported`、`host_binding`（工具导入时所选工具属于另一个节点）、`gateway_error`、`gateway_response_too_large`、`gateway_timeout`、`invalid_gateway_path`、`invalid_gateway_response`、`request_cancelled`、`token_required`、`gateway_unreachable`（连不上网关）、`not_running`（`oaa stop` 找不到由 `--detach` 启动的网关）、`port_in_use`（`oaa quickstart` 要用的端口被占用）、`sample_agent_missing`（找不到随附的离线示例智能体）、`agent_conflict`（`oaa connect` 不覆盖同名的其它引擎智能体）、`approval_ambiguous`（`oaa approve/deny` 的运行有多个待审批项却没指定哪一项）、`approval_declined`（`oaa approve` 确认时选了不批准）。
+以下只由 `oaa` 命令行或 `GatewayClient` 在本地产生，网关不会返回：`arguments`、`unknown_command`、`dsh_overlay_required`、`exposure_conflict`、`native_not_installed`、`node_startup_failed`、`startup_failed`、`startup_timeout`、`tunnel_binary_missing`、`tunnel_exited`、`tunnel_timeout`、`worker_required`、`output_exists`、`tool_conflict`、`mcp_descriptor_too_large`、`mcp_task_mode_unsupported`、`host_binding`（工具导入时所选工具属于另一个节点）、`gateway_error`、`gateway_response_too_large`、`gateway_timeout`、`invalid_gateway_path`、`invalid_gateway_response`、`request_cancelled`、`token_required`、`gateway_unreachable`（连不上网关）、`not_running`（`oaa stop` 找不到由 `--detach` 启动的网关）、`port_in_use`（`oaa quickstart` 要用的端口被占用）、`sample_agent_missing`（找不到随附的离线示例智能体）、`agent_conflict`（`oaa connect` 不覆盖同名的其它引擎智能体）、`provider_conflict`（`oaa connect <预设>` 不覆盖同名但设置不同的模型提供方）、`provider_unreachable`（连不上模型提供方的端点）、`key_file_insecure`（`oaa connect --key-file` 给的密钥文件不私有或不是单行密钥）、`approval_ambiguous`（`oaa approve/deny` 的运行有多个待审批项却没指定哪一项）、`approval_declined`（`oaa approve` 确认时选了不批准）。

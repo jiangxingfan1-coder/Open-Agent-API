@@ -870,6 +870,7 @@ test('protocol matrix: every dialect and MCP render the same conversion, streame
       );
       pieces(
         gemini
+          .filter((e) => !e.candidates?.[0]?.content?.parts?.[0]?.thought)
           .map((e) => e.candidates?.[0]?.content?.parts?.[0]?.text)
           .filter((t): t is string => typeof t === 'string'),
       );

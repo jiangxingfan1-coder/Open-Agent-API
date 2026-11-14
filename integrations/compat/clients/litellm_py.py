@@ -144,4 +144,21 @@ def _():
     check("Paragraph 6" in text, "stream lost text")
 
 
+# Stream progress (docs/progress.md): LiteLLM passes reasoning_content through; content unchanged.
+@lab.scenario("openai.stream_progress")
+def _():
+    def read(headers):
+        content, reasoning = "", ""
+        for c in say("LONG", stream=True, extra_headers=headers):
+            if c.choices:
+                content += c.choices[0].delta.content or ""
+                reasoning += getattr(c.choices[0].delta, "reasoning_content", None) or ""
+        return content, reasoning
+
+    on, off = read({"X-OAA-Progress": "reasoning", "Accept-Language": "en"}), read({"X-OAA-Progress": "off"})
+    equal(on[0], off[0], "content with progress on")
+    equal(off[1], "", "no reasoning when off")
+    return "reasoning_content shown" if on[1] else "progress ignored"
+
+
 lab.done()
