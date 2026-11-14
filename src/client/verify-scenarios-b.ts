@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import OpenAI from 'openai';
+import { bi } from '../core/locale.js';
 import {
+  canTrackProcesses,
   clip,
   descendants,
   errorCode,
@@ -12,10 +13,12 @@ import {
   type Ctx,
   type PidTracker,
   type Secrets,
-} from './harness.js';
-import type { Env } from './scenarios-a.js';
+} from './verify-harness.js';
+import { ask, type Env } from './verify-env.js';
+import { chat } from './verify-wire.js';
 
-// S7–S11：取消、调用方工具桥接、并发、计费、错误面。S12 在主文件里（需要全部场景的 PID 记录）。
+// S7-S11: cancel, caller-tool bridging, concurrency, billing, error surfaces. S12 (cleanup) and S13
+// (usage, derived from the other scenarios) live in verify-run.ts because they need every scenario's data.
 
 export async function s7(env: Env, ctx: Ctx, pids: PidTracker) {
   const before = new Set((await descendants()).keys());
@@ -35,7 +38,11 @@ export async function s7(env: Env, ctx: Ctx, pids: PidTracker) {
   );
   const runId = get(r.body, 'id') as string | undefined;
   ctx.track(runId);
-  ctx.check('后台任务已受理', r.status === 200 && !!runId, r.status);
+  ctx.check(
+    bi('后台任务已受理', 'The background task was accepted'),
+    r.status === 200 && !!runId,
+    r.status,
+  );
   if (!runId) return;
   await sleep(3000);
   await pids.sample();
@@ -47,23 +54,34 @@ export async function s7(env: Env, ctx: Ctx, pids: PidTracker) {
   const status = (await env.gateway.run(runId)).status;
   ctx.observe('status_before_cancel', status);
   const c = await env.gateway.cancel(runId);
-  ctx.check('取消接口返回 200', c.status === 200, c.status);
+  ctx.check(bi('取消接口返回 200', 'The cancel call returns 200'), c.status === 200, c.status);
   const run = await env.gateway.wait(runId, 30_000);
   ctx.observe('final_status', run.status);
-  // docs/adapters.md：取消后已经开始的外部智能体回合记为 interrupted（effect_outcome_unknown）。
+  // docs/adapters.md: after a cancel an external agent turn that already started is `interrupted` (effect_outcome_unknown).
   ctx.check(
-    '状态为 cancelled 或 interrupted',
+    bi('状态为 cancelled 或 interrupted', 'The status is cancelled or interrupted'),
     run.status === 'cancelled' || run.status === 'interrupted',
     run.status,
   );
   ctx.observe('final_error_code', run.error?.code);
-  ctx.check('取消前确实看到了智能体子进程', scenarioPids.length > 0);
+  if (!canTrackProcesses) {
+    ctx.observe('process_checks', 'skipped: no ps on this platform');
+    return;
+  }
+  ctx.check(
+    bi('取消前确实看到了智能体子进程', 'An agent child process was seen before the cancel'),
+    scenarioPids.length > 0,
+  );
   const left = await waitGone(
     scenarioPids.map((p) => p.pid),
     15_000,
   );
   ctx.observe('still_alive_after_cancel', left);
-  ctx.check('该运行的智能体子进程都已退出', left.length === 0, left);
+  ctx.check(
+    bi('该运行的智能体子进程都已退出', "The run's agent child processes have all exited"),
+    left.length === 0,
+    left,
+  );
 }
 
 const ORDER_TOOL = {
@@ -99,13 +117,30 @@ export async function s8(env: Env, ctx: Ctx) {
   ctx.observe('first_http_status', first.status);
   ctx.observe('first_error_code', code);
   if (first.status === 400 && code === 'client_tools_bridge_unsupported') {
-    ctx.unsupported(code, '引擎不支持调用方工具桥接（按文档如实记录）；没有创建运行');
-    if (env.expect.bridge)
-      ctx.mismatch('S8 桥接：文档写支持，实际得到 client_tools_bridge_unsupported');
+    ctx.unsupported(
+      code,
+      bi(
+        '引擎不支持调用方工具桥接（按文档如实记录）；没有创建运行',
+        'The engine does not support caller-tool bridging (recorded as documented); no run was created',
+      ),
+    );
+    if (env.expect?.bridge)
+      ctx.mismatch(
+        bi(
+          'S8 桥接：文档写支持，实际得到 client_tools_bridge_unsupported',
+          'S8 bridging: the docs say supported, observed client_tools_bridge_unsupported',
+        ),
+      );
     return;
   }
   ctx.invoked();
-  if (!env.expect.bridge) ctx.mismatch(`S8 桥接：文档写不支持，实际得到 HTTP ${first.status}`);
+  if (env.expect && !env.expect.bridge)
+    ctx.mismatch(
+      bi(
+        `S8 桥接：文档写不支持，实际得到 HTTP ${first.status}`,
+        `S8 bridging: the docs say unsupported, observed HTTP ${first.status}`,
+      ),
+    );
   const runId = first.headers.get('x-run-id');
   ctx.track(runId);
   const choice = get(first.body, 'choices', 0) as
@@ -114,11 +149,11 @@ export async function s8(env: Env, ctx: Ctx) {
         message?: { tool_calls?: { id: string; function: { name: string; arguments: string } }[] };
       }
     | undefined;
-  ctx.check('第一次响应 finish_reason 为 tool_calls', choice?.finish_reason === 'tool_calls', {
-    status: first.status,
-    finish: choice?.finish_reason,
-    body: clip(first.text),
-  });
+  ctx.check(
+    bi('第一次响应 finish_reason 为 tool_calls', 'The first response has finish_reason tool_calls'),
+    choice?.finish_reason === 'tool_calls',
+    { status: first.status, finish: choice?.finish_reason, body: clip(first.text) },
+  );
   const call = choice?.message?.tool_calls?.[0];
   if (!call) return;
   let args: Record<string, unknown> = {};
@@ -126,8 +161,15 @@ export async function s8(env: Env, ctx: Ctx) {
     args = JSON.parse(call.function.arguments) as Record<string, unknown>;
   } catch {}
   ctx.observe('tool_call', { name: call.function.name, arguments: args });
-  ctx.check('调用的是 get_order_status', call.function.name === 'get_order_status');
-  ctx.check('参数里的订单号正确', args.order_id === orderId, args.order_id);
+  ctx.check(
+    bi('调用的是 get_order_status', 'The call is get_order_status'),
+    call.function.name === 'get_order_status',
+  );
+  ctx.check(
+    bi('参数里的订单号正确', 'The order ID in the arguments is right'),
+    args.order_id === orderId,
+    args.order_id,
+  );
   const second = await http(
     env.base,
     'POST',
@@ -148,64 +190,71 @@ export async function s8(env: Env, ctx: Ctx) {
   const text = String(get(second.body, 'choices', 0, 'message', 'content') ?? '');
   ctx.observe('second_http_status', second.status);
   ctx.observe('final_output', text);
-  ctx.check('回传后 HTTP 200', second.status === 200, second.status);
-  ctx.check('最终回答含工具结果', text.includes(status), status);
-  ctx.check('整个往返是同一个运行', !!runId && second.headers.get('x-run-id') === runId, {
-    first: runId,
-    second: second.headers.get('x-run-id'),
-  });
+  ctx.check(
+    bi('回传后 HTTP 200', 'HTTP 200 after returning the result'),
+    second.status === 200,
+    second.status,
+  );
+  ctx.check(
+    bi('最终回答含工具结果', 'The final answer contains the tool result'),
+    text.includes(status),
+    status,
+  );
+  ctx.check(
+    bi('整个往返是同一个运行', 'The whole round trip is one run'),
+    !!runId && second.headers.get('x-run-id') === runId,
+    { first: runId, second: second.headers.get('x-run-id') },
+  );
   if (runId) {
     const run = await env.gateway.wait(runId, 60_000);
-    ctx.check('运行 completed', run.status === 'completed', run.status);
+    ctx.check(bi('运行 completed', 'The run is completed'), run.status === 'completed', run.status);
   }
 }
 
 export async function s9(env: Env, ctx: Ctx) {
-  const client = new OpenAI({
-    baseURL: `${env.base}/v1`,
-    apiKey: env.key,
-    maxRetries: 0,
-    timeout: 600_000,
-  });
   const tokens = [nonce('OAA-A'), nonce('OAA-B'), nonce('OAA-C')];
   ctx.invoked(tokens.length);
   const results = await Promise.allSettled(
-    tokens.map((token) =>
-      client.chat.completions
-        .create(
-          {
-            model: env.agentId,
-            messages: [
-              { role: 'user', content: `只回复这一串字符：${token}，不要加任何其他内容。` },
-            ],
-          },
-          { signal: ctx.signal },
-        )
-        .withResponse(),
-    ),
+    tokens.map((token) => chat(env, ask(token), ctx.signal)),
   );
   const runIds = new Set<string>();
   results.forEach((r, i) => {
     const token = tokens[i]!;
     if (r.status === 'rejected') {
-      ctx.check(`任务 ${i + 1} 成功`, false, clip(String((r.reason as Error)?.message), 300));
+      ctx.check(
+        bi(`任务 ${i + 1} 成功`, `Task ${i + 1} succeeds`),
+        false,
+        clip(String((r.reason as Error)?.message), 300),
+      );
       return;
     }
-    const runId = r.value.response.headers.get('x-run-id');
-    ctx.track(runId);
-    if (runId) runIds.add(runId);
-    const text = r.value.data.choices[0]?.message.content ?? '';
-    ctx.observe(`output_${i + 1}`, text);
-    ctx.check(`任务 ${i + 1} 含自己的字符串`, text.includes(token), token);
+    ctx.track(r.value.runId);
+    if (r.value.runId) runIds.add(r.value.runId);
+    ctx.observe(`output_${i + 1}`, r.value.text);
     ctx.check(
-      `任务 ${i + 1} 不含别人的字符串`,
-      tokens.every((t) => t === token || !text.includes(t)),
+      bi(`任务 ${i + 1} 含自己的字符串`, `Task ${i + 1} contains its own string`),
+      r.value.text.includes(token),
+      r.value.status === 200
+        ? token
+        : { status: r.value.status, body: clip(JSON.stringify(r.value.body)) },
+    );
+    ctx.check(
+      bi(`任务 ${i + 1} 不含别人的字符串`, `Task ${i + 1} contains no other task's string`),
+      tokens.every((t) => t === token || !r.value.text.includes(t)),
     );
   });
-  ctx.check('三个任务是三个不同的运行', runIds.size === tokens.length, runIds.size);
+  ctx.check(
+    bi('三个任务是三个不同的运行', 'The three tasks are three different runs'),
+    runIds.size === tokens.length,
+    runIds.size,
+  );
   for (const runId of runIds) {
     const run = await env.gateway.wait(runId, 60_000);
-    ctx.check(`运行 ${runId} completed`, run.status === 'completed', run.status);
+    ctx.check(
+      bi(`运行 ${runId} completed`, `Run ${runId} is completed`),
+      run.status === 'completed',
+      run.status,
+    );
   }
 }
 
@@ -220,7 +269,11 @@ export async function s10(env: Env, ctx: Ctx, secrets: Secrets) {
     credits: 10,
   });
   const accountId = get(made.body, 'account', 'id') as string | undefined;
-  ctx.check('建开发者账号并发 10 点', made.status === 201 && !!accountId, made.status);
+  ctx.check(
+    bi('建开发者账号并发 10 点', 'Create a developer account with 10 credits'),
+    made.status === 201 && !!accountId,
+    made.status,
+  );
   if (!accountId) return;
   const login = await http(env.base, 'POST', '/v1/portal/login', undefined, { email, password });
   const session = get(login.body, 'session', 'token') as string | undefined;
@@ -230,12 +283,20 @@ export async function s10(env: Env, ctx: Ctx, secrets: Secrets) {
   });
   const accountKey = get(keyResp.body, 'token') as string | undefined;
   secrets.add(accountKey);
-  ctx.check('建账号密钥', keyResp.status === 201 && !!accountKey, keyResp.status);
+  ctx.check(
+    bi('建账号密钥', 'Create an account key'),
+    keyResp.status === 201 && !!accountKey,
+    keyResp.status,
+  );
   const listing = await http(env.base, 'PUT', '/v1/platform/listings', admin, {
     agent_id: env.agentId,
     price: { per_run: 2 },
   });
-  ctx.check('上架并定价每任务 2 点', listing.status === 200, listing.status);
+  ctx.check(
+    bi('上架并定价每任务 2 点', 'List the agent at 2 credits per run'),
+    listing.status === 200,
+    listing.status,
+  );
   const balance = async () =>
     Number(
       get((await http(env.base, 'GET', '/v1/portal/account', session)).body, 'account', 'balance'),
@@ -253,10 +314,7 @@ export async function s10(env: Env, ctx: Ctx, secrets: Secrets) {
     'POST',
     '/v1/chat/completions',
     accountKey,
-    {
-      model: env.agentId,
-      messages: [{ role: 'user', content: `只回复这一串字符：${token}，不要加任何其他内容。` }],
-    },
+    { model: env.agentId, messages: [{ role: 'user', content: ask(token) }] },
     {},
     ctx.signal,
   );
@@ -269,22 +327,44 @@ export async function s10(env: Env, ctx: Ctx, secrets: Secrets) {
   ctx.observe('balance_after_paid', b1);
   ctx.observe('ledger_run_rows_after_paid', rows1);
   if (paid.status === 403 && paidCode === 'isolation_required') {
-    // docs/platform.md：账号密钥只能是 workspace/sandbox 级，调不了原生智能体与适配器。
+    // docs/platform.md: an account key is workspace/sandbox level and cannot call native agents or adapters.
     ctx.unsupported(
       paidCode,
-      '账号密钥（workspace 级）不能调用外部智能体（需要 host 执行等级），未创建运行；按文档如实记录',
+      bi(
+        '账号密钥（workspace 级）不能调用外部智能体（需要 host 执行等级），未创建运行；按文档如实记录',
+        'An account key (workspace level) cannot call an external agent (it needs host execution); no run was created; recorded as documented',
+      ),
     );
-    ctx.check('被拒绝时不扣点', b1 === b0, { before: b0, after: b1 });
-    ctx.check('被拒绝时流水没有运行行', rows1 === 0, rows1);
+    ctx.check(bi('被拒绝时不扣点', 'No credits are charged when refused'), b1 === b0, {
+      before: b0,
+      after: b1,
+    });
+    ctx.check(
+      bi('被拒绝时流水没有运行行', 'The ledger has no run row when refused'),
+      rows1 === 0,
+      rows1,
+    );
   } else {
     ctx.invoked();
     const text = String(get(paid.body, 'choices', 0, 'message', 'content') ?? '');
-    ctx.check('付费任务成功', paid.status === 200 && text.includes(token), {
-      status: paid.status,
-      text: clip(text),
-    });
-    ctx.check('余额恰好减少一次价格', Math.abs(b0 - 2 - b1) < 1e-6, { before: b0, after: b1 });
-    ctx.check('流水里有且只有一行运行扣费', rows1 === 1, rows1);
+    ctx.check(
+      bi('付费任务成功', 'The paid task succeeds'),
+      paid.status === 200 && text.includes(token),
+      {
+        status: paid.status,
+        text: clip(text),
+      },
+    );
+    ctx.check(
+      bi('余额恰好减少一次价格', 'The balance drops by exactly one price'),
+      Math.abs(b0 - 2 - b1) < 1e-6,
+      { before: b0, after: b1 },
+    );
+    ctx.check(
+      bi('流水里有且只有一行运行扣费', 'The ledger has exactly one run charge'),
+      rows1 === 1,
+      rows1,
+    );
   }
   const missing = await http(env.base, 'POST', '/v1/chat/completions', accountKey, {
     model: 'agent/does-not-exist-live',
@@ -292,10 +372,20 @@ export async function s10(env: Env, ctx: Ctx, secrets: Secrets) {
   });
   ctx.observe('missing_model_status', missing.status);
   ctx.observe('missing_model_code', errorCode(missing.body));
-  ctx.check('不存在的模型名被拒绝', missing.status >= 400 && missing.status < 500, missing.status);
+  ctx.check(
+    bi('不存在的模型名被拒绝', 'An unknown model name is refused'),
+    missing.status >= 400 && missing.status < 500,
+    missing.status,
+  );
   const b2 = await balance();
-  ctx.check('失败请求不扣点', b2 === b1, { before: b1, after: b2 });
-  ctx.check('失败请求不新增流水', (await runRows()) === rows1);
+  ctx.check(bi('失败请求不扣点', 'A failed request is not charged'), b2 === b1, {
+    before: b1,
+    after: b2,
+  });
+  ctx.check(
+    bi('失败请求不新增流水', 'A failed request adds no ledger row'),
+    (await runRows()) === rows1,
+  );
 }
 
 type Shape = 'openai' | 'claude' | 'gemini';
@@ -308,6 +398,7 @@ const shapeOk = (shape: Shape, body: unknown) =>
       : typeof get(body, 'error', 'code') === 'number' &&
         typeof get(body, 'error', 'status') === 'string';
 
+/** Error paths: wrong key, key without access, malformed bodies — on all three wire formats. None reaches the agent. */
 export async function s11(env: Env, ctx: Ctx, secrets: Secrets) {
   const wrong = `sk-oaa-${randomBytes(24).toString('base64url')}`;
   secrets.add(wrong);
@@ -320,7 +411,7 @@ export async function s11(env: Env, ctx: Ctx, secrets: Secrets) {
   };
   const gemBody = { contents: [{ role: 'user', parts: [{ text: '你好' }] }] };
   const probe = async (
-    name: string,
+    name: { zh: string; en: string },
     url: string,
     shape: Shape,
     body: unknown,
@@ -328,17 +419,34 @@ export async function s11(env: Env, ctx: Ctx, secrets: Secrets) {
     expected: number[],
   ) => {
     const r = await http(env.base, 'POST', url, undefined, body, auth);
-    ctx.observe(name, {
+    ctx.observe(name.en, {
       status: r.status,
       code: errorCode(r.body) ?? get(r.body, 'error', 'type'),
     });
-    ctx.check(`${name}：HTTP ${expected.join('/')}`, expected.includes(r.status), r.status);
-    ctx.check(`${name}：${shape} 错误形状`, shapeOk(shape, r.body), clip(r.text, 300));
+    ctx.check(
+      bi(`${name.zh}：HTTP ${expected.join('/')}`, `${name.en}: HTTP ${expected.join('/')}`),
+      expected.includes(r.status),
+      r.status,
+    );
+    ctx.check(
+      bi(`${name.zh}：${shape} 错误形状`, `${name.en}: ${shape} error shape`),
+      shapeOk(shape, r.body),
+      clip(r.text, 300),
+    );
     if (r.headers.get('x-run-id'))
-      ctx.check(`${name}：不应创建运行`, false, r.headers.get('x-run-id'));
+      ctx.check(
+        bi(`${name.zh}：不应创建运行`, `${name.en}: no run should be created`),
+        false,
+        r.headers.get('x-run-id'),
+      );
   };
+  const label = (kind: { zh: string; en: string }, via: string) => ({
+    zh: `${kind.zh}·${via}`,
+    en: `${kind.en} / ${via}`,
+  });
+  const wrongKey = bi('错误密钥', 'Wrong key');
   await probe(
-    '错误密钥·Chat',
+    label(wrongKey, 'Chat'),
     '/v1/chat/completions',
     'openai',
     chatBody,
@@ -346,14 +454,21 @@ export async function s11(env: Env, ctx: Ctx, secrets: Secrets) {
     [401],
   );
   await probe(
-    '错误密钥·Messages',
+    label(wrongKey, 'Messages'),
     '/v1/messages',
     'claude',
     msgBody,
     { 'x-api-key': wrong },
     [401],
   );
-  await probe('错误密钥·Gemini', gemini, 'gemini', gemBody, { 'x-goog-api-key': wrong }, [401]);
+  await probe(
+    label(wrongKey, 'Gemini'),
+    gemini,
+    'gemini',
+    gemBody,
+    { 'x-goog-api-key': wrong },
+    [401],
+  );
 
   const k = await http(env.base, 'POST', '/v1/keys', env.gateway.admin, {
     name: 'live-no-access',
@@ -363,10 +478,15 @@ export async function s11(env: Env, ctx: Ctx, secrets: Secrets) {
   });
   const narrow = get(k.body, 'token') as string | undefined;
   secrets.add(narrow);
-  ctx.check('建一个无权访问该智能体的密钥', !!narrow, k.status);
+  ctx.check(
+    bi('建一个无权访问该智能体的密钥', 'Create a key without access to this agent'),
+    !!narrow,
+    k.status,
+  );
   if (narrow) {
+    const noAccess = bi('无权限', 'No access');
     await probe(
-      '无权限·Chat',
+      label(noAccess, 'Chat'),
       '/v1/chat/completions',
       'openai',
       chatBody,
@@ -374,7 +494,7 @@ export async function s11(env: Env, ctx: Ctx, secrets: Secrets) {
       [403, 404],
     );
     await probe(
-      '无权限·Messages',
+      label(noAccess, 'Messages'),
       '/v1/messages',
       'claude',
       msgBody,
@@ -382,7 +502,7 @@ export async function s11(env: Env, ctx: Ctx, secrets: Secrets) {
       [403, 404],
     );
     await probe(
-      '无权限·Gemini',
+      label(noAccess, 'Gemini'),
       gemini,
       'gemini',
       gemBody,
@@ -391,8 +511,9 @@ export async function s11(env: Env, ctx: Ctx, secrets: Secrets) {
     );
   }
   const bearer = { authorization: `Bearer ${env.key}` };
+  const malformed = bi('非法请求体', 'Malformed body');
   await probe(
-    '非法请求体·Chat',
+    label(malformed, 'Chat'),
     '/v1/chat/completions',
     'openai',
     { model: env.agentId, messages: 'x' },
@@ -400,7 +521,7 @@ export async function s11(env: Env, ctx: Ctx, secrets: Secrets) {
     [400],
   );
   await probe(
-    '非法请求体·Messages',
+    label(malformed, 'Messages'),
     '/v1/messages',
     'claude',
     { model: env.agentId, max_tokens: 16 },
@@ -408,7 +529,7 @@ export async function s11(env: Env, ctx: Ctx, secrets: Secrets) {
     [400],
   );
   await probe(
-    '非法请求体·Gemini',
+    label(malformed, 'Gemini'),
     gemini,
     'gemini',
     { contents: 5 },

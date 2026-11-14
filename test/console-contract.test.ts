@@ -265,7 +265,7 @@ test('console contract: list and overview rows carry waiting_on for requires_act
 });
 
 // The console's "开发者平台" page (web/views/platform.js, web/dialogs/platform-*.js) reads and
-// sends exactly these fields (docs/platform.md "接口一览"). The requests below are the ones the
+// sends exactly these fields (docs/platform.md "Endpoint overview"). The requests below are the ones the
 // page makes, with the bodies it builds; the response fields are the ones it renders.
 const hasFields = (row: object, fields: string[], where: string) => {
   for (const field of fields) assert.ok(field in row, `${where}: missing ${field}`);

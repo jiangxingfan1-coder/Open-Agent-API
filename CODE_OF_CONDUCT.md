@@ -1,27 +1,29 @@
-# 行为准则
+# Code of Conduct
 
-我们希望 Open Agent API 的社区对每个人都友善、专业、对事不对人。
+English · [简体中文](CODE_OF_CONDUCT.zh-CN.md)
 
-## 我们期望的行为
+We want the Open Agent API community to be friendly and professional to everyone, and to address the issue and not the person.
 
-- 尊重不同的经验、观点与语言背景；中文、英文提问都欢迎。
-- 讨论具体的问题与改动，给出可验证的信息；批评对事不对人。
-- 虚心接受建设性的意见，对维护者与其他贡献者的时间心存感激。
-- 帮助新人，耐心回答问题。
+## Behavior we expect
 
-## 不能接受的行为
+- Respect different experiences, viewpoints and language backgrounds; questions in Chinese or English are both welcome.
+- Discuss concrete problems and changes, and give information that can be verified; criticize the work, not the person.
+- Accept constructive feedback graciously, and be grateful for the time of maintainers and other contributors.
+- Help newcomers and answer questions patiently.
 
-- 人身攻击、侮辱、嘲讽，或基于种族、性别、性取向、年龄、残障、国籍、宗教等的歧视与骚扰。
-- 持续纠缠、恐吓，或未经同意公开他人的隐私信息（包括真实姓名、住址、联系方式、密钥与令牌）。
-- 刷屏、恶意灌水、发布与项目无关的广告。
-- 其他在专业场合明显不得体的行为。
+## Unacceptable behavior
 
-## 适用范围
+- Personal attacks, insults, mockery, or discrimination and harassment based on race, gender, sexual orientation, age, disability, nationality, religion and the like.
+- Persistent pestering, intimidation, or publishing other people's private information without consent (including real names, addresses, contact details, keys and tokens).
+- Spamming, deliberate flooding, or posting advertisements unrelated to the project.
+- Other conduct that is clearly inappropriate in a professional setting.
 
-本准则适用于本项目的所有社区空间：issue、Pull Request、讨论区、评审评论，以及在公开场合代表本项目发言的情形。
+## Scope
 
-## 处理方式
+This code applies to all community spaces of the project: issues, pull requests, discussions, review comments, and situations in which someone speaks publicly on behalf of the project.
 
-维护者有权编辑、隐藏或删除违反本准则的评论、提交、issue 与 PR，也可以对屡次违反者限制其参与。
+## Enforcement
 
-如遇违反本准则的行为，可以联系仓库维护者，或使用 GitHub 的举报功能（Report content / Block user）向 GitHub 举报。涉及安全漏洞的，请按 [SECURITY.md](SECURITY.md) 处理。我们会认真对待每一份举报，并尽量保护举报人的隐私。
+Maintainers have the right to edit, hide or delete comments, commits, issues and pull requests that violate this code, and may restrict the participation of repeat offenders.
+
+If you encounter behavior that violates this code, you can contact the repository maintainers, or report it to GitHub with GitHub's reporting features (Report content / Block user). For anything involving a security vulnerability, follow [SECURITY.md](SECURITY.md). We take every report seriously and will protect the reporter's privacy as far as we can.

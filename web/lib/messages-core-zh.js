@@ -145,6 +145,7 @@ export const zh = {
   'feature.platform-v1': '开发者平台',
   'feature.queue-insight-v1': '排队透明',
   'feature.run-timeline-v1': '运行时间线',
+  'feature.webhooks-v1': '运行事件回调',
   'feature.workflow-output-v1': '工作流结果投影',
   'html.nav.console': '控制台导航',
   'html.nav.workspace': '工作区',

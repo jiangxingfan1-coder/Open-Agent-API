@@ -1,3 +1,4 @@
+import { applySecurityProfile } from './security-profile.js';
 import { z } from 'zod';
 import { readFile, mkdir, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -245,7 +246,7 @@ export const platformSchema = z
     sessionTtlHours: z.number().int().min(1).max(8760).default(720),
   })
   .strict();
-export const gatewaySchema = z
+const gatewayObject = z
   .object({
     host: z.string().default('127.0.0.1'),
     port: z.number().int().min(0).max(65535).default(8787),
@@ -303,10 +304,21 @@ export const gatewaySchema = z
     defaultKeyExecution: z.enum(executionLevels).default('host'),
     /** Optional per-caller cap on unfinished requests (below the owner-wide cap of 32). */
     maxActiveRunsPerSubject: z.number().int().min(1).max(32).optional(),
+    /** Optional per-caller cap on stored file bytes (uploads and artifacts). Unset: unlimited. */
+    maxStoredBytesPerSubject: z.number().int().min(1).optional(),
     approvalTimeoutMs: z.number().int().min(50).max(86_400_000).default(600_000),
     leaseMs: z.number().int().min(100).max(120_000).default(15_000),
     /** Developer platform (accounts, account keys, listings, credits). Unset: nothing changes. */
     platform: platformSchema.optional(),
+    /** `public` fills stricter defaults for unset settings (security-profile.ts). */
+    security: z
+      .object({
+        profile: z.enum(['local', 'public']).default('local'),
+        /** Time to receive one request (not the response). Unset: no limit. */
+        requestTimeoutMs: z.number().int().min(1000).max(3_600_000).optional(),
+      })
+      .strict()
+      .default({ profile: 'local' }),
   })
   .strict()
   .superRefine((gateway, context) => {
@@ -331,6 +343,7 @@ export const gatewaySchema = z
         });
     }
   });
+export const gatewaySchema = z.preprocess(applySecurityProfile, gatewayObject);
 export type GatewayConfig = z.infer<typeof gatewaySchema>;
 export async function loadConfig(file: string): Promise<GatewayConfig> {
   return gatewaySchema.parse(JSON.parse(await readFile(file, 'utf8')));

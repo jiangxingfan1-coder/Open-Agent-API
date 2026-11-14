@@ -438,11 +438,16 @@ test('framework and routing failures use stable error codes', async () => {
   }
 });
 
-test('every gateway error code in the source is documented in docs/protocol.md', async () => {
+test('every gateway error code in the source is documented in docs/protocol.md and docs/zh-CN/protocol.md', async () => {
   const ts = createRequire(path.resolve('package.json'))(
     'typescript',
   ) as typeof import('typescript');
-  const docs = await readFile(path.resolve('docs/protocol.md'), 'utf8');
+  const docsByFile = await Promise.all(
+    ['docs/protocol.md', 'docs/zh-CN/protocol.md'].map(async (file) => ({
+      file,
+      text: await readFile(path.resolve(file), 'utf8'),
+    })),
+  );
   const codes = new Set<string>([
     // Codes assigned outside `new Fault(...)`: run errors and framework mappings.
     'gateway_restarted',
@@ -482,8 +487,10 @@ test('every gateway error code in the source is documented in docs/protocol.md',
     visit(source);
   }
   assert.ok(codes.size > 150, `expected the full code inventory, found ${codes.size}`);
-  const missing = [...codes].filter((code) => !docs.includes(`\`${code}\``)).sort();
-  assert.deepEqual(missing, [], `document these error codes: ${missing.join(', ')}`);
+  for (const { file, text } of docsByFile) {
+    const missing = [...codes].filter((code) => !text.includes(`\`${code}\``)).sort();
+    assert.deepEqual(missing, [], `document these error codes in ${file}: ${missing.join(', ')}`);
+  }
 });
 
 test('executable checks are memoized briefly and refreshed for explicit owner actions', async () => {

@@ -218,6 +218,7 @@ const FEATURE_LABELS = {
   'platform-v1': t('feature.platform-v1'),
   'queue-insight-v1': t('feature.queue-insight-v1'),
   'run-timeline-v1': t('feature.run-timeline-v1'),
+  'webhooks-v1': t('feature.webhooks-v1'),
   'workflow-output-v1': t('feature.workflow-output-v1'),
 };
 // A capability this console does not know yet (a newer gateway) reads as plain words and a

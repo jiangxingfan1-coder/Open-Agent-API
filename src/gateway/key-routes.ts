@@ -3,14 +3,23 @@ import { z } from 'zod';
 import type { Auth } from './auth.js';
 import type { AuditLog } from '../store/audit.js';
 import type { GatewayConfig } from '../config/config.js';
+import type { Store } from '../store/store.js';
 import { executionLevels, isOwnerWide, keyQuotaSchema } from '../core/contracts.js';
 import { Fault } from '../core/util.js';
+import { assertMayManageKey, assertQuotaWithin } from './key-guard.js';
+import { registerWebhookRoutes } from './webhook-routes.js';
 
-/** 审计记录与 API 密钥的管理接口（`/v1/audit`、`/v1/keys`）。 */
+/** 审计记录、API 密钥与运行事件回调的管理接口（`/v1/audit`、`/v1/keys`、`/v1/webhooks`）。 */
 export function registerKeyRoutes(
   app: FastifyInstance,
-  { auth, audit, config }: { auth: Auth; audit: AuditLog; config: GatewayConfig },
+  {
+    auth,
+    audit,
+    config,
+    store,
+  }: { auth: Auth; audit: AuditLog; config: GatewayConfig; store: Store },
 ): void {
+  registerWebhookRoutes(app, { store, config });
   app.get('/v1/audit', async (req) => {
     if (!isOwnerWide(req.principal))
       throw new Fault('scope_denied', 'The audit trail requires an owner-wide admin key.', 403);
@@ -36,6 +45,7 @@ export function registerKeyRoutes(
       })
       .strict()
       .parse(req.body);
+    assertQuotaWithin(req.principal, b.quota);
     return auth.create(
       req.principal,
       b.name,
@@ -54,15 +64,15 @@ export function registerKeyRoutes(
       })
       .strict()
       .parse(req.body);
-    return auth.updateQuota(
-      req.principal,
-      (req.params as { id: string }).id,
-      b.quota ?? undefined,
-      b.reset_usage,
-    );
+    const keyId = (req.params as { id: string }).id;
+    assertMayManageKey(req.principal, keyId, auth.list(req.principal));
+    assertQuotaWithin(req.principal, b.quota);
+    return auth.updateQuota(req.principal, keyId, b.quota ?? undefined, b.reset_usage);
   });
   app.delete('/v1/keys/:id', async (req, reply) => {
-    auth.revoke(req.principal, (req.params as { id: string }).id);
+    const keyId = (req.params as { id: string }).id;
+    assertMayManageKey(req.principal, keyId, auth.list(req.principal));
+    auth.revoke(req.principal, keyId);
     return reply.code(204).send();
   });
 }

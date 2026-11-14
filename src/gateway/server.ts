@@ -56,6 +56,7 @@ import {
 } from '../fabric/local-backends.js';
 import { registerLocalBackendRoutes } from './local-backend-routes.js';
 import { publishWarning, publishedNative } from '../fabric/runnability.js';
+import { assertUploadRoom } from './upload-quota.js';
 import { registerOwnerRoutes } from './shutdown-route.js';
 import { ERROR_CATALOG, ERROR_CATALOG_REVISION, ERROR_CATEGORIES } from '../core/errors.js';
 import { registerConsoleAssets } from './console-assets.js';
@@ -114,6 +115,7 @@ export const GATEWAY_FEATURES = [
   'platform-setup-v1',
   'queue-insight-v1',
   'run-timeline-v1',
+  'webhooks-v1',
   'workflow-output-v1',
 ].sort();
 export async function createGateway(
@@ -193,7 +195,7 @@ export async function createGateway(
     const app = Fastify({
       logger: false,
       bodyLimit: 24 * 1024 * 1024,
-      requestTimeout: 0,
+      requestTimeout: config.security.requestTimeoutMs ?? 0,
       forceCloseConnections: true,
       ...(config.tls
         ? {
@@ -1121,6 +1123,7 @@ export async function createGateway(
             );
         }
         if (!uploaded) throw new Fault('file_required', 'A file part is required.');
+        assertUploadRoom(store, config, req.principal, uploaded.bytes.length);
         const f = await store.addFile(
           req.principal.owner,
           uploaded.name,
@@ -1149,6 +1152,7 @@ export async function createGateway(
         .parse(req.body);
       relativeName(b.filename);
       const bytes = Buffer.from(b.content, b.encoding === 'utf8' ? 'utf8' : 'base64');
+      assertUploadRoom(store, config, req.principal, bytes.length);
       const file = await store.addFile(
         req.principal.owner,
         b.filename,

@@ -1,21 +1,24 @@
-## 改了什么，为什么
+<!-- 欢迎用中文填写 / You are welcome to fill this in Chinese. -->
 
-<!-- 简要说明这次改动与动机；关联的 issue 写 `Closes #编号` -->
+## What changed, and why
 
-## 怎么验证的
+<!-- A short description of the change and its motivation. Link the related issue with `Closes #number`. -->
 
-- [ ] 本地跑通 `npm run verify`（类型检查、排版检查、全部测试）
-- [ ] 功能改动有对应的测试；纯重构没有改测试断言
+## How it was verified
 
-## 检查清单
+- [ ] `npm run verify` passes locally (type check, format check, all tests)
+- [ ] A functional change has a matching test; a pure refactor did not change test assertions
 
-- [ ] 符合 CONTRIBUTING.md 的代码约定（分层、文件行数、不用 `any`、错误码登记）
-- [ ] 不改变既有请求的线上输出，也不改已发布的错误码与事件字段；若有变化，已在下面说明
-- [ ] 有用户可见的变化时，已在 `CHANGELOG.md` 的「未发布」里记录
-- [ ] 引入第三方素材或新依赖时，已更新 `THIRD_PARTY_NOTICES.md`
-- [ ] 提交信息为 `范围：做了什么` 的格式
-- [ ] 没有提交密钥、令牌或个人信息
+## Checklist
 
-## 兼容性与风险
+- [ ] Follows the code conventions in CONTRIBUTING.md (layers, file length, no `any`, error code registration)
+- [ ] Does not change the wire output of existing requests, or published error codes and event fields; if it does, explained below
+- [ ] User-visible text is bilingual (Chinese and English), and a documentation change is made in both `docs/` and `docs/zh-CN/` (or explained below)
+- [ ] A user-visible change is recorded under `## Unreleased` in `CHANGELOG.md`
+- [ ] Third-party material or a new dependency is added to `THIRD_PARTY_NOTICES.md`
+- [ ] Commit messages follow `scope: what changed`
+- [ ] No keys, tokens or personal information are committed
 
-<!-- 没有写「无」 -->
+## Compatibility and risk
+
+<!-- Write "none" if there is none -->

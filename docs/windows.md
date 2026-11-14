@@ -1,5 +1,7 @@
 # Open Agent API on Windows
 
+English · [简体中文](zh-CN/windows.md)
+
 This page describes how Open Agent API (OAA) behaves on Windows 10/11 and Windows Server, how it
 differs from macOS and Linux, and what is known not to work. The full test suite runs on
 `windows-latest` in `.github/workflows/windows.yml`; tests that only make sense on POSIX are
@@ -66,6 +68,9 @@ flight, not committed data.
 - Paths with spaces and non-ASCII user names (`C:\Users\名字 带空格\`) are supported.
 - Caller-tool relays use a named pipe (`\\.\pipe\oaa-relay-<random>`) instead of a Unix socket;
   every connection must present the per-run token from a file in the run's private directory.
+- `oaa status` derives the gateway's uptime from the age of `server.pid` (there is no
+  `ps -o etime`), so uptime is shown only for a gateway started with `--detach`. `oaa verify`
+  cannot list descendant processes without `ps` and notes that its process-leak check was skipped.
 
 ## Sandbox
 

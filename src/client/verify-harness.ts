@@ -3,24 +3,34 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
+import { bi, type LocalText } from '../core/locale.js';
 
-// 「真实智能体端到端验证」的公共部件：HTTP 调用、运行等待与取消、子进程 PID 记录、秘密扫描、
-// 场景执行器（每个场景独立 try/catch、硬超时、超时即取消）。不发起任何智能体调用。
+// Shared parts of the end-to-end agent verification (`oaa verify`, examples/live-agents-acceptance.ts):
+// HTTP calls, run waiting and cancelling, child-process PID tracking, secret scanning and the scenario
+// runner (each scenario has its own try/catch, a hard timeout, and is cancelled on timeout or Ctrl+C).
+// Nothing here calls an agent by itself.
 
-export type AgentKind = 'claude' | 'codex' | 'antigravity' | 'fixture';
+/** `acp` is any other ACP/adapter agent; `fixture` is the repository's offline ACP stand-in. */
+export type AgentKind = 'claude' | 'codex' | 'antigravity' | 'acp' | 'fixture';
 export type Status = 'pass' | 'fail' | 'unsupported' | 'skipped';
+export type Text = string | LocalText;
+/** A plain string reads the same in both languages (identifiers, error codes). */
+export const both = (text: Text): LocalText => (typeof text === 'string' ? bi(text, text) : text);
 export type ScenarioResult = {
+  /** Legacy id (`S1`..`S13`) kept for examples/live-agents-acceptance.ts and issue reports. */
   id: string;
-  title: string;
+  /** Stable short name (`chat`, `approvals`, ...) used by `oaa verify --scenarios`. */
+  key: string;
+  title: LocalText;
   status: Status;
   elapsed_ms: number;
-  /** 本场景预计/实际触发的智能体调用次数（fixture 下是假智能体）。 */
+  /** Agent invocations this scenario triggered (with the fixture: the offline stand-in). */
   agent_invocations: number;
   observations: Record<string, unknown>;
-  checks: { name: string; ok: boolean; detail?: unknown }[];
+  checks: { name: LocalText; ok: boolean; detail?: unknown }[];
   run_ids: string[];
-  error?: { code: string; message: string };
-  doc_mismatches: string[];
+  error?: { code: string; message: LocalText };
+  doc_mismatches: LocalText[];
 };
 
 export const nonce = (prefix: string) =>
@@ -29,7 +39,7 @@ export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve
 export const clip = (text: unknown, n = 300) =>
   typeof text === 'string' ? text.slice(0, n) : text === undefined ? undefined : text;
 
-/** 进程里持有的全部秘密值：报告写盘前与 S12 扫描时逐个做字符串搜索。 */
+/** Every secret value this process holds: searched for in reports before they are written and in the cleanup scan. */
 export class Secrets {
   private readonly values = new Set<string>();
   add(value: string | undefined) {
@@ -42,6 +52,9 @@ export class Secrets {
     let out = text;
     for (const v of this.values) out = out.split(v).join('[REDACTED]');
     return out.replace(/sk-oaa-[A-Za-z0-9_-]{8,}/g, 'sk-oaa-[REDACTED]');
+  }
+  redactText(text: LocalText): LocalText {
+    return bi(this.redact(text.zh), this.redact(text.en));
   }
 }
 
@@ -93,6 +106,8 @@ export const errorCode = (body: unknown): string | undefined => {
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'expired']);
 export type RunView = { status: string; error: { code?: string; message?: string } | null };
 export class Gateway {
+  /** Aborted on Ctrl+C: waiting loops stop at once instead of polling a gateway that is closing. */
+  signal: AbortSignal | undefined;
   constructor(
     readonly base: string,
     readonly admin: string,
@@ -104,10 +119,12 @@ export class Gateway {
       raw: r.body,
     }));
   }
-  /** 等运行进入终止状态（或待审批，若 `stopAtAction`）；超过 `ms` 抛错。 */
+  /** Waits for a terminal status (or a pending approval with `stopAtAction`); throws after `ms`. */
   async wait(id: string, ms: number, stopAtAction = false): Promise<RunView> {
     const deadline = Date.now() + ms;
     for (;;) {
+      if (this.signal?.aborted)
+        throw Object.assign(new Error('interrupted'), { code: 'interrupted' });
       const run = await this.run(id);
       if (TERMINAL.has(run.status) || (stopAtAction && run.status === 'requires_action'))
         return run;
@@ -154,8 +171,10 @@ export class Gateway {
   }
 }
 
-/** 本进程的全部后代进程（只读 `ps`）。只记 PID 与可执行文件名，不记参数与环境。 */
+/** All descendants of this process (read-only `ps`): PID and executable name only, no arguments or environment. */
 export async function descendants(): Promise<Map<number, string>> {
+  // Windows: no POSIX `ps` (see canTrackProcesses); agent trees are ended by taskkill instead.
+  if (process.platform === 'win32') return new Map();
   const out = await new Promise<string>((resolve) =>
     execFile('ps', ['-A', '-o', 'pid=,ppid=,comm='], { maxBuffer: 16 << 20 }, (_e, stdout) =>
       resolve(String(stdout ?? '')),
@@ -187,7 +206,7 @@ export const alive = (pid: number) => {
   }
 };
 
-/** 后台每 250 毫秒取一次后代进程快照，记下所有出现过的 PID（附带首次出现时所属场景）。 */
+/** Samples the descendants every 250 ms and remembers every PID seen (with the scenario it first appeared in). */
 export class PidTracker {
   readonly seen = new Map<number, { comm: string; scenario: string }>();
   scenario = '-';
@@ -220,8 +239,29 @@ export async function waitGone(pids: number[], ms: number) {
   while (Date.now() < deadline && pids.some(alive)) await sleep(200);
   return pids.filter(alive);
 }
+/** `ps` is how descendants are listed; without it (Windows) process checks are skipped and noted. */
+export const canTrackProcesses = process.platform !== 'win32';
 
-/** 递归读目录下全部文件（含 SQLite 与 WAL），按原始字节查找每个秘密值。 */
+/**
+ * Last resort after a run or an interrupt: stop agent processes that are still our descendants
+ * (SIGTERM, then SIGKILL). Only PIDs that `ps` still lists below this process are touched.
+ */
+export async function terminateLeftovers(pids: number[]): Promise<number[]> {
+  const current = await descendants();
+  const targets = pids.filter((pid) => alive(pid) && current.has(pid));
+  for (const pid of targets)
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {}
+  const stubborn = await waitGone(targets, 2000);
+  for (const pid of stubborn)
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {}
+  return targets;
+}
+
+/** Reads every file under the roots (SQLite and WAL included) and searches the raw bytes for each secret. */
 export async function scanForSecrets(roots: string[], secrets: string[]) {
   const hits: { file: string; secret_index: number }[] = [];
   let files = 0;
@@ -250,27 +290,28 @@ export async function scanForSecrets(roots: string[], secrets: string[]) {
 export type Ctx = {
   result: ScenarioResult;
   signal: AbortSignal;
-  /** 记下本场景产生的运行；超时或出错时脚本会取消其中未结束的运行。 */
+  /** Remember a run this scenario created; unfinished ones are cancelled when the scenario ends. */
   track: (runId: string | null | undefined) => void;
-  check: (name: string, ok: boolean, detail?: unknown) => boolean;
+  check: (name: Text, ok: boolean, detail?: unknown) => boolean;
   observe: (key: string, value: unknown) => void;
-  unsupported: (code: string, message: string) => void;
-  mismatch: (text: string) => void;
+  unsupported: (code: string, message: Text) => void;
+  mismatch: (text: Text) => void;
   invoked: (n?: number) => void;
 };
 
+export type ScenarioHead = { id: string; key: string; title: LocalText };
+
 export async function runScenario(
-  id: string,
-  title: string,
+  head: ScenarioHead,
   timeoutMs: number,
   gateway: Gateway,
   secrets: Secrets,
   pids: PidTracker,
   body: (ctx: Ctx) => Promise<void>,
+  interrupt?: AbortSignal,
 ): Promise<ScenarioResult> {
   const result: ScenarioResult = {
-    id,
-    title,
+    ...head,
     status: 'pass',
     elapsed_ms: 0,
     agent_invocations: 0,
@@ -280,7 +321,11 @@ export async function runScenario(
     doc_mismatches: [],
   };
   const controller = new AbortController();
+  const stopOnInterrupt = () => controller.abort();
+  interrupt?.addEventListener('abort', stopOnInterrupt, { once: true });
   let unsupported = false;
+  const clipText = (text: LocalText) =>
+    bi(clip(secrets.redact(text.zh), 500) as string, clip(secrets.redact(text.en), 500) as string);
   const ctx: Ctx = {
     result,
     signal: controller.signal,
@@ -288,7 +333,7 @@ export async function runScenario(
       if (runId && !result.run_ids.includes(runId)) result.run_ids.push(runId);
     },
     check: (name, ok, detail) => {
-      result.checks.push({ name, ok, ...(detail !== undefined ? { detail } : {}) });
+      result.checks.push({ name: both(name), ok, ...(detail !== undefined ? { detail } : {}) });
       return ok;
     },
     observe: (key, value) => {
@@ -296,14 +341,14 @@ export async function runScenario(
     },
     unsupported: (code, message) => {
       unsupported = true;
-      result.error = { code, message: clip(secrets.redact(message), 500) as string };
+      result.error = { code, message: clipText(both(message)) };
     },
-    mismatch: (text) => result.doc_mismatches.push(text),
+    mismatch: (text) => result.doc_mismatches.push(both(text)),
     invoked: (n = 1) => {
       result.agent_invocations += n;
     },
   };
-  pids.scenario = id;
+  pids.scenario = head.id;
   const start = performance.now();
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -313,33 +358,50 @@ export async function runScenario(
         timer = setTimeout(() => {
           controller.abort();
           reject(
-            Object.assign(new Error(`场景超过 ${timeoutMs} 毫秒的硬超时`), {
+            Object.assign(new Error(`scenario exceeded its hard timeout of ${timeoutMs} ms`), {
               code: 'scenario_timeout',
             }),
           );
         }, timeoutMs);
       }),
+      new Promise<never>((_, reject) => {
+        const stop = () => reject(Object.assign(new Error('interrupted'), { code: 'interrupted' }));
+        if (interrupt?.aborted) stop();
+        else interrupt?.addEventListener('abort', stop, { once: true });
+      }),
     ]);
     if (result.checks.some((c) => !c.ok)) result.status = 'fail';
     else if (unsupported) result.status = 'unsupported';
   } catch (error) {
-    result.status = 'fail';
     const e = error as { code?: unknown; status?: unknown; message?: unknown };
-    result.error = {
-      code: typeof e.code === 'string' ? e.code : e.status ? `http_${e.status}` : 'exception',
-      message: clip(secrets.redact(String(e.message ?? error)), 500) as string,
-    };
+    if (interrupt?.aborted) {
+      result.status = 'skipped';
+      result.error = {
+        code: 'interrupted',
+        message: bi('收到 Ctrl+C，场景被中断。', 'Interrupted by Ctrl+C.'),
+      };
+    } else {
+      result.status = 'fail';
+      result.error = {
+        code: typeof e.code === 'string' ? e.code : e.status ? `http_${e.status}` : 'exception',
+        message: clipText(both(String(e.message ?? error))),
+      };
+    }
   } finally {
     clearTimeout(timer);
+    interrupt?.removeEventListener('abort', stopOnInterrupt);
     controller.abort();
-    // 收尾：本场景留下的未结束运行一律取消，不让它继续消耗。
+    // Cleanup: every run this scenario left unfinished is cancelled so it stops consuming.
     for (const runId of result.run_ids) {
       try {
         const run = await gateway.run(runId);
         if (!gateway.isTerminal(run.status)) {
           await gateway.cancel(runId);
           result.checks.push({
-            name: `收尾取消未结束的运行 ${runId}`,
+            name: bi(
+              `收尾取消未结束的运行 ${runId}`,
+              `Cancelled the unfinished run ${runId} at the end`,
+            ),
             ok: true,
             detail: run.status,
           });

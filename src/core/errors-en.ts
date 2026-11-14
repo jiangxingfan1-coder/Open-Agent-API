@@ -8,6 +8,7 @@ export const ERROR_EN: Readonly<Record<string, readonly [string, string?]>> = {
   unauthorized: ['The API key is missing, invalid, or revoked.', 'Check the API key in the Authorization header.'],
   key_expired: ['The API key has expired.', 'Ask the owner for a new API key.'],
   scope_denied: ['The key lacks the required scope, or cannot access this agent or resource.'],
+  quota_exceeds_own: ["A new key's quota cannot exceed your own key's quota.", 'Set every quota limit of the new key no higher than your own.'],
   invalid_host: ['The Host header is not in the allowlist.'],
   origin_denied: ['The Origin of this cross-origin request is not allowed.'],
   admin_host_denied: ['An admin key was used outside the configured console host.'],
@@ -20,6 +21,7 @@ export const ERROR_EN: Readonly<Record<string, readonly [string, string?]>> = {
   key_concurrency_limit: ['This key has reached its concurrent run limit.', 'Retry after some running tasks finish.'],
   run_quota_exceeded: ['This key has used up its run quota.', 'Ask the owner to raise or reset this key\'s quota.'],
   token_quota_exceeded: ['This key has used up its token quota.', 'Ask the owner to raise or reset this key\'s quota.'],
+  storage_quota_exceeded: ['This caller has reached its stored-file limit.', 'Ask the owner to raise maxStoredBytesPerSubject.'],
   too_many_streams: ['This key (or owner) has too many event streams open at once.', 'Close unused event streams, then reconnect.'],
   invalid_request: ['A request field is invalid or missing (404 for a malformed Gemini path).'],
   client_tools_unsupported: ['The request includes client tools, but reject mode was selected.', 'Remove tools, or send X-OAA-Client-Tools: managed.'],
@@ -275,6 +277,8 @@ export const ERROR_EN: Readonly<Record<string, readonly [string, string?]>> = {
   sample_agent_missing: ['The bundled offline sample agent examples/sample-agent.mjs is missing.', 'Reinstall, or run from a source checkout.'],
   agent_conflict: ['An agent with this name is already published with another engine; connect does not overwrite it.'],
   not_running: ['No running gateway started by oaa serve --detach was found.'],
+  approval_ambiguous: ['This run has several pending approvals and none was chosen.', 'Pass --action ACTION_ID for one, or --all for every item; oaa approvals lists them.'],
+  approval_declined: ['You answered no at the confirmation, so nothing was approved.'],
   // platform
   registration_closed: ['This site does not allow self-service sign-up.', 'Contact the site operator to get an account.'],
   invite_required: ['Sign-up requires an invite code.', 'Ask the site operator for an invite code.'],
@@ -290,4 +294,11 @@ export const ERROR_EN: Readonly<Record<string, readonly [string, string?]>> = {
   code_not_found: ['The redeem code does not exist.'],
   reference_conflict: ['This external reference was already used for a credit with a different amount.', 'Use another reference, or check the amount.'],
   platform_managed_by_config: ['The configuration file has a platform section, so the developer platform is managed there and cannot be changed in the console.', 'Edit the platform section in the configuration file and restart, or remove that section and enable it in the console.'],
+  // webhooks
+  webhook_not_found: ['No webhook endpoint with that ID.', 'Run oaa webhook list to see the endpoint IDs.'],
+  webhook_url_invalid: ['Invalid webhook URL: only http/https without user name or password; addresses other than loopback must use https.', 'Use an https URL, or set allow_insecure_http explicitly if plain http is really intended.'],
+  webhook_target_denied: ['Under the public security profile a webhook URL must not point to a private, loopback, link-local or cloud metadata address.', 'Use a public address, or set allow_private_network on the endpoint if an internal target is really intended.'],
+  webhook_limit_reached: ['The owner has reached the webhook endpoint limit (20).', 'Delete endpoints you no longer use first.'],
+  webhook_delivery_not_found: ['No delivery with that ID for this endpoint.'],
+  webhook_delivery_pending: ['This delivery is still queued and cannot be redelivered.', 'Wait until it succeeds or finally fails, then redeliver it.'],
 };

@@ -1,5 +1,6 @@
 // 网关的 OpenAPI 描述（静态文档，由 /openapi.json 提供）。
 import { GATEWAY_VERSION } from './endpoints.js';
+import { WEBHOOK_OPERATIONS } from './webhook-core.js';
 
 const inspectionQueries: Record<string, Record<string, Record<string, unknown>>> = {
   '/v1/catalog/agents': {
@@ -237,6 +238,7 @@ export const openapi = {
         'ACP initialize-only handshake check; no session, prompt or model call',
       ],
       ['/health', 'get', 'Public liveness and sorted optional feature list'],
+      ...WEBHOOK_OPERATIONS,
       ['/v1/keys', 'get', 'List API keys (deleted keys are not listed)'],
       [
         '/v1/audit',

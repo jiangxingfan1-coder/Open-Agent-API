@@ -1,0 +1,44 @@
+# The Dockerfile copies named paths only; this keeps everything else out of the build context.
+.git
+.github
+.claude
+.vscode
+.idea
+**/.DS_Store
+node_modules
+dist
+release
+output
+coverage
+**/*.tgz
+
+# runtime data, secrets and local environment
+.oaa*/
+**/admin.token
+**/*.sqlite
+**/*.sqlite-shm
+**/*.sqlite-wal
+**/*.db
+**/*.log
+**/*.key
+**/*.pem
+**/.env
+**/.env.*
+
+# not needed to build or run the gateway
+docs
+site
+desktop
+integrations
+tools
+README*.md
+CHANGELOG.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+Dockerfile
+docker-compose*.yml
+
+# of scripts/ only the entrypoint is copied
+scripts/*
+!scripts/docker-entrypoint.mjs

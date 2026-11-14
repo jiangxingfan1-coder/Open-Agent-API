@@ -1,4 +1,7 @@
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { FastifyInstance } from 'fastify';
 import { Fault } from '../core/util.js';
 
@@ -8,6 +11,21 @@ export const CONSOLE_CSP =
 /** 智能体图标（SVG）的 CSP：不加载任何东西，只允许图里自带的样式。 */
 export const AGENT_ICON_CSP =
   "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'";
+
+/**
+ * The icon library script (lucide.js), found with Node's own package resolution. A global
+ * `npm install -g` keeps lucide in this package's node_modules, but npx and project installs hoist
+ * it next to the package, so a fixed ../../../node_modules path would miss it.
+ */
+export const lucideScriptUrl = (): URL =>
+  pathToFileURL(
+    path.join(
+      path.dirname(createRequire(import.meta.url).resolve('lucide/package.json')),
+      'dist',
+      'umd',
+      'lucide.js',
+    ),
+  );
 
 /** 字体文件名白名单（`web/fonts/`）与缓存头：同名文件内容不变，可以缓存一年。 */
 export const FONT_FILE = /^[a-z0-9-]{1,64}\.woff2$/;
@@ -96,10 +114,6 @@ export function registerConsoleAssets(app: FastifyInstance): void {
     return reply.type('image/svg+xml').send(body);
   });
   app.get('/icons.js', async (_req, reply) =>
-    reply
-      .type('text/javascript')
-      .send(
-        await readFile(new URL('../../../node_modules/lucide/dist/umd/lucide.js', import.meta.url)),
-      ),
+    reply.type('text/javascript').send(await readFile(lucideScriptUrl())),
   );
 }

@@ -117,7 +117,7 @@ try {
     ...(await import(distFile('src/config/config.js'))),
     ...(await import(distFile('src/gateway/server.js'))),
     ...(await import(distFile('src/engines/process.js'))),
-    ...(await import(distFile('examples/live-agents/harness.js'))),
+    ...(await import(distFile('src/client/verify-harness.js'))),
   };
 } catch (error) {
   fatal(`读不到 dist/ 下的编译产物（${error.code ?? error.message}）。请先运行 npm run build。`);

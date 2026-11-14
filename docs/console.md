@@ -1,76 +1,78 @@
-# 控制台使用说明
+# Using the console
 
-控制台由网关（本机运行的 Open Agent API 服务）自己提供（默认 `http://127.0.0.1:8787`），桌面版 macOS 应用内嵌的是同一个控制台。所有数据都用当前 API 密钥的权限读取（所有者（owner）与可访问的智能体），读取统计和时间线不会调用任何模型或工具。
+English · [简体中文](zh-CN/console.md)
 
-接口细节、字段口径和上限，见[协议文档](protocol.md)里的「可观测内核：运行时间线、活动脉搏、排队与能力协商」和「控制台概览：修订号、ETag 与事件流」两节。
+The console is served by the gateway itself (the Open Agent API service running on your machine, by default at `http://127.0.0.1:8787`), and the macOS desktop app embeds the same console. All data is read with the permissions of the current API key (the owner and the agents it may access), and reading statistics and timelines never calls any model or tool.
 
-## 概览：运行驾驶舱
+For endpoint details, field definitions and limits, see the sections [Observable kernel: run timeline, activity pulse, queueing and capability negotiation](protocol.md#observable-kernel-run-timeline-activity-pulse-queueing-and-capability-negotiation) and [Console overview: revision, ETag and event stream](protocol.md#console-overview-revision-etag-and-event-stream) in the protocol document.
 
-从上到下依次是：
+## Overview: the run cockpit
 
-- **需要处理**：等待你审批的任务，以及已中断、需要人工恢复的任务。数量来自概览的 `metrics.requires_action`；列表最多显示最近任务中的 3 条。待审批的任务如果早于最近 12 条任务，这里只显示数量，点「在任务页查看」会打开「需处理」筛选。
-- **指标带**：统计窗口内的任务数（带趋势线）、成功率、中位耗时（P50，一半的任务在这个时间内完成；附 P95 耗时，即 95% 的任务在这个时间内完成，以及样本数）、当前进行中的任务（拆分为排队、运行、待审批；有任务在等调用方执行它自己的工具时，会注明「其中 N 个在等调用方」，这类任务计入运行、不计入待审批，较早版本的网关不提供这一项时不显示）。成功率的口径以协议文档为准，取消的任务不计入失败。
-- **活动统计**（协议文档称「活动脉搏」）：24 小时（每小时一格）或 7 天（每 6 小时一格）内的任务，按状态叠加显示：完成、进行中、取消、中断、失败。时段按 UTC 对齐，显示为本地时间；鼠标悬停可看该时段的明细。
-- **时间去向**：最近至多 100 个已结束任务的耗时，沿每个任务的**关键路径**（决定总耗时的那条链）归因到模型推理、工具执行、排队等待、等待审批和其他五类。并行的工具调用不会重复计时，所以各项之和就是任务的实际耗时。下方给出一句解读，例如排队占比达到 25% 时，会提示执行容量可能不足。
-- **智能体**：每个智能体在统计窗口内的调用次数、成功率和中位耗时。
+From top to bottom:
 
-统计窗口可以在活动统计卡片右上角切换，也可以在「设置 › 使用偏好 › 活动统计窗口」里设默认值。
+- **Needs attention**: tasks waiting for your approval, and tasks that were interrupted or ended incomplete and need manual recovery. The count comes from `metrics.requires_action` of the overview; the list shows at most 3 of the most recent tasks. If a task waiting for approval is older than the latest 12 tasks, only the count is shown here, and "View on the Tasks page" opens the "Needs attention" filter.
+- **Key metrics**: the number of tasks in the statistics window (with a trend line), the success rate, the median duration (P50: half of the tasks finish within this time; with the P95 duration, meaning 95% of tasks finish within this time, and the sample count), and the tasks currently in progress (split into queued, running and awaiting approval; when tasks are waiting for the caller to run its own tools, it notes "N waiting for the caller": these count as running and not as awaiting approval, and the note is not shown when an older gateway does not provide it). The definition of the success rate is the one in the protocol document, and cancelled tasks do not count as failures.
+- **Activity statistics** (called the "activity pulse" in the protocol document): tasks in the last 24 hours (one bar per hour) or 7 days (one bar per 6 hours), stacked by status: completed, in progress, cancelled, interrupted, failed. Intervals are aligned to UTC and displayed in local time; hover to see the details of an interval.
+- **Where the time went**: the duration of up to the latest 100 finished tasks, attributed along each task's **critical path** (the chain that determines the total duration) to five categories: model reasoning, tool execution, queue wait, approval wait, and other. Parallel tool calls are not timed twice, so the items add up to the actual duration of the tasks. A one-line reading is given below; for example when queue wait reaches 25%, it suggests that execution capacity may be short.
+- **Agents**: each agent's number of calls, success rate and median duration within the statistics window.
 
-## 任务与运行详情
+You can switch the statistics window at the top right of the activity statistics card, or set a default in "Settings › Preferences › Activity window".
 
-- **任务表格**（一次调用就是一个任务）：按状态筛选（全部、进行中、需处理、已完成、失败）。排队中的任务会显示排在第几位，以及预计多久开始；运行中的任务，如果当前这一步还在执行机器的队列里等待（执行机器满载或模型冷却），会显示「下一步约 N 秒后开始」。预计时间是根据近期执行耗时做的估计，不是承诺；排位只统计你自己的任务。运行中的任务，耗时会在本地持续累加。
-- **运行详情 › 时间线**：按泳道显示一次任务的各个阶段。主线是排队、模型推理和审批，并行的工具调用各占一条泳道；颜色区分阶段类型。
-  - 底部有深色描边的是**关键路径**。
-  - 进行中的阶段带流动条纹；命中缓存的工具调用带斜纹；结果未知的步骤用橙色虚线框标出。本版本之前完成的任务没有记录模型轮次，它们的模型阶段是由工具调用之间的间隔推算出来的，用灰色虚线框标出，标题会注明「部分模型阶段为推算值」。
-  - 排队阶段会注明原因：排队、公平调度让出、审批后重新排队、等待执行机器。悬停在模型阶段上可以看到所用模型线路（智能体可选用的一个模型及其提供方）和重试次数；子智能体阶段可以点击，打开它自己的任务。
-  - 调用方执行它自己的工具（桥接，见 [harness.md](harness.md)）单独成段，名为「调用方执行工具」，颜色与工具阶段相同。
-  - 如果某一段等待（审批、调用方执行工具或排队）占总时长 70% 以上，并且是其余工作的 8 倍以上，时间轴会把这段折叠成固定宽度，用斜纹和刻度标出它的实际时长，其余部分仍按真实比例显示。
-  - 下方是这一次任务的「时间去向」；只有一种类别时（例如仍在排队）不显示。
-- **排队提示**：排队中的任务会在详情顶部显示位置、预计开始时间和原因（等待执行槽位、公平调度暂时让出、审批通过后重新排队、执行机器繁忙、模型冷却中）；运行中的任务如果当前步骤在执行机器的队列里等待，也会显示原因和预计等待时间。
-- **审批**：待审批的操作排在详情最上面，可以直接批准或拒绝；拒绝、过期或取消都不会授予执行。发布时设为自动批准的智能体，它的权限请求由策略直接批准，不出现在这里，也不进入「需处理」；每次自动批准仍有记录（事件 `approval.resolved`，`actor: "policy:auto"`）。
-- **发布时自动批准**：发布对话框选「外部智能体」时有一个开关「自动批准它的权限请求」，默认关闭，下面一行警示说明开启的后果（它执行命令、修改文件前不再等你批准，能做的事和你在这台电脑上直接用这个软件时一样，只对信任的调用方开放）。开启后，智能体卡片上有「自动批准」标记，悬停说明含义；智能体详情「接入能力」的「审批」一行显示「自动批准（发布时设定）」。
-- **等待调用方**：任务停在调用方自己的工具上（桥接模式）时，详情里单列「等待调用方」一节，说明「这个任务在等调用方执行它自己的工具，结果回传后继续。」，并列出每个待处理调用的工具名、参数摘要（点开可看全文）和剩余时间。这类调用不需要你处理，也不出现在「审批」里；待办全是这类调用时，详情顶部的状态显示「等待调用方」。到期仍未回传时任务以 `client_tool_timeout` 结束。任务列表与概览的最近任务也显示「等待调用方」（读列表行的 `waiting_on`），这类任务不出现在概览的「需要处理」卡片里，也不计入任务页的「需处理」筛选；概览的待审批数量同样不含它们。较早版本的网关不提供 `waiting_on`，这时仍按「待审批」显示。
-- **调用地址 › 调用方自己也是智能体时**：网关支持 `client-tools-policy-v1` 时显示。说明调用方带工具时的三种处理方式（托管、桥接、拒绝），附一条带 `X-OAA-Client-Tools: bridge` 请求头的 curl 示例。详见 [harness.md](harness.md)。
+## Tasks and run details
 
-## 开发者平台（运营者）
+- **Task table** (one call is one task): filter by status (All, Active, Needs attention, Completed, Failed). A queued task shows its position in the queue and the estimated time until it starts; for a running task whose current step is still waiting in an execution machine's queue (the machine is at capacity or the model is cooling down), it shows "Next step starts in about N seconds". The estimated time is an estimate based on recent execution durations, not a promise; the position counts only your own tasks. The duration of a running task keeps counting up locally.
+- **Run details › Timeline**: shows the phases of a task in lanes. The main line is queueing, model reasoning and approval, and parallel tool calls each get their own lane; colors distinguish the phase types.
+  - The ones with a dark outline at the bottom are on the **critical path**.
+  - In-progress phases have flowing stripes; tool calls that hit the cache have diagonal stripes; steps whose outcome is unknown are marked with an orange dashed frame. Tasks completed before this version have no recorded model turns, so their model phases are estimated from the gaps between tool calls, marked with a gray dashed frame, and the caption notes "some model phases are estimates".
+  - A queue phase notes its reason: queued, yielding to waiting tasks (fair scheduling), re-queued after approval, switched to a fallback agent, or waiting for an execution machine. Hovering over a model phase shows the model route used (one of the models the agent may use, with its provider) and the number of retries; a subagent phase is clickable and opens its own task.
+  - A caller running its own tools (bridge, see [harness.md](harness.md)) is its own segment, named "Caller tool", in the same color as tool phases.
+  - If one wait (approval, a caller running a tool, or queueing) takes more than 70% of the total duration and is more than 8 times the rest of the work, the timeline collapses that segment to a fixed width, marks its actual duration with stripes and ticks, and shows the rest at true scale.
+  - Below is this task's "Where the time went"; it is not shown when there is only one category (for example, still queued).
+- **Queue hints**: a queued task shows its position, estimated start time and reason at the top of its details (waiting for an execution slot, fair scheduling yielding for now, re-queued after approval, execution machine busy, model cooling down); a running task whose current step is waiting in an execution machine's queue also shows the reason and the estimated wait.
+- **Approvals**: operations awaiting approval sit at the very top of the details, and you can approve or deny them right there; denial, expiry or cancellation never grants execution. For an agent published with automatic approval, its permission requests are approved directly by policy, do not appear here, and do not enter "Needs attention"; every automatic approval is still recorded (the event `approval.resolved`, with `actor: "policy:auto"`).
+- **Automatic approval at publish time**: when you choose "External agent" in the publish dialog there is a switch, "Approve its permission requests automatically", off by default, with a line below warning about the consequences of turning it on (it no longer waits for your approval before running commands or changing files, it can do what you could do by using the software directly on this computer, and it should be opened only to callers you trust). Once on, the agent card carries an "Auto-approve" mark whose tooltip explains it; in the agent details, the "Approvals" row of the access capabilities shows "Auto-approved (set at publish)".
+- **Waiting for the caller**: when a task is parked on the caller's own tools (bridge mode), the details have a separate "Waiting for the caller" section saying "This task is waiting for the caller to run its own tools. It continues once the results are sent back.", and listing each pending call's tool name, an argument summary (expand it to see the full text) and the time remaining. These calls need nothing from you and do not appear under "Approvals"; when all pending actions are of this kind, the status at the top of the details shows "Waiting for the caller". If no result comes back by the deadline, the task ends with `client_tool_timeout`. The task list and the recent tasks of the overview also show "Waiting for the caller" (they read `waiting_on` of the list row); such tasks do not appear in the overview's "Needs attention" card and do not count toward the Tasks page's "Needs attention" filter, and the overview's awaiting-approval count does not include them either. An older gateway does not provide `waiting_on`, in which case they are still shown as awaiting approval.
+- **Endpoints › When the caller is an agent too**: shown when the gateway supports `client-tools-policy-v1`. It explains the three ways caller tools are handled (managed, bridge, reject), with a curl example carrying the `X-OAA-Client-Tools: bridge` request header. See [harness.md](harness.md) for details.
 
-「接入」分组下的「开发者平台」页，给运营者上架智能体并定价、管理开发者账号与余额、生成兑换码。需要管理员权限（admin）。接口见 [platform.md「接口一览」](platform.md#接口一览)；页面显示的金额单位都是「点」。
+## Developer platform (operators)
 
-- **未启用时**：网关的 `GET /health` 没有 `platform-v1` 特性时，页面只显示一页说明：用途（把智能体开放给别人用）、什么时候不需要它、「API 密钥」与「开发者平台」两种分发方式的对照，以及「启用」按钮（填站点名、注册方式、新账号赠送点数）。设置经 `PUT /v1/platform/setup` 保存在网关数据里，**重启网关后生效**；保存后、重启前页面提示「重启后生效」（`pending_restart`）。配置文件里写了 `platform` 段时（`managed_by_config`）设置只读。不显示数据区，除 `GET/PUT /v1/platform/setup` 外不读取平台接口。
-- **概况**：开发者账号数（有效 / 已停用）、余额合计、累计消耗、任务数，以及站点名和注册方式（`closed`、`invite`、`open`，在网关配置里修改，这里只读）；右上角可复制开发者门户地址（`/portal/`）。
-- **用量**（在「概况」与「上架与定价」之间）：标题右侧的「任务数 / 消耗」切换一张近 30 天按天的柱状图（日期按 UTC，画法与概览页「最近活动」一致，悬停柱子可看当天的任务数、消耗和 token）；图右上是 30 天的合计。30 天内没有任务（或在「消耗」口径下没有消耗）时，图换成一句空状态。图下并排两张小表：按智能体（智能体、任务、token、消耗）与按账号（邮箱、任务、token、消耗；网关最多返回消耗最高的 50 个账号）；点邮箱会把顶栏搜索框填成这个邮箱，开发者表随之按邮箱搜索并滚动到那一节。数据读自 `GET /v1/platform/usage?days=30`，跟随这一页的刷新节奏。
-- **上架与定价**：表格列出智能体、标题、每个任务的价格、每千 token 的价格和是否上架。「上架智能体」从已发布、还没上架的智能体里选，填标题、简介、标签和两个价格（外部智能体不一定报告 token，没有报告时只有每个任务的价格生效）。行内可修改、下架 / 重新上架、移除上架记录；下架和移除要二次确认。智能体已被删除的上架记录会标出「智能体已移除」。
-- **开发者**：表格列出邮箱、名称、状态、余额、密钥数、任务数、累计消耗和最近活动，数据多时用「加载更多」翻页。顶部搜索框按邮箱在网关里搜索。行内操作：调整余额（增加或扣减，备注必填，结果不能小于 0；可选填「外部单号」，同一个单号只会入账一次，适合对接支付回调，重复提交时提示「这个单号已经入过账，没有重复入账」，不会再加点数）、查看流水（带外部单号的行在备注下面以小字显示单号）、重置密码、停用 / 启用；停用和重置密码要二次确认。「重置密码」有两种做法：**生成一次性重置码**（默认、推荐）——明文只在结果页显示一次，可复制，注明到期时间（24 小时有效，生成新的会使旧的失效），关闭对话框后页面上的副本即被清除；你把重置码发给开发者，由他在门户登录页自己设新密码，你不会知道他的密码；或**直接设置新密码**（你替他设，你会知道这个密码）。「新建账号」不受注册方式限制，初始密码可以用「生成」得到一个随机密码。
-- **密钥的「充值（billing）」权限**：生成 API 密钥时，如果网关启用了开发者平台，权限里多一项「充值（billing）」，说明是只能给开发者账号加点数、按邮箱查账号，用于支付回调；没有 `platform-v1` 特性时不显示这一项。「设置 › 连接」与密钥列表里把它显示为「充值（billing）」。
-- **兑换码**：表格列出类型（点数码、邀请码）、点数、已用 / 可用次数、到期、备注和状态，行内可作废（要二次确认，已兑换到账的点数不会收回）。「生成兑换码」可设类型、点数、可用次数、数量（1 到 100）、有效期和备注；兑换码明文只在生成后的结果页显示一次，可整批复制，关闭对话框后页面上的副本即被清除，网关里只有散列。
+The "Developer platform" page under the "Connect" group lets operators list agents and set prices, manage developer accounts and balances, and generate redeem codes. It requires admin permission. For the endpoints see [platform.md](platform.md#endpoint-overview) ("Endpoint overview"); all amounts shown on the page are in credits.
 
-这一页的数据只在页面上显示时才读取，约每 20 秒或点顶栏的刷新按钮时更新，每次操作后立即更新；读取失败时已有的数据继续显示，并在页首提示原因。
+- **When not enabled**: when `GET /health` of the gateway has no `platform-v1` feature, the page shows a single explanation page: what it is for (opening your agents to other people), when you do not need it, a comparison of the two ways to hand out access ("API keys" and the "Developer platform"), and an "Enable" button (fill in the site name, the registration mode and the credits given to new accounts). Settings are saved through `PUT /v1/platform/setup` in the gateway's data and **take effect after the gateway restarts**; after saving and before restarting, the page says it takes effect after the restart (`pending_restart`). When the configuration file has a `platform` section (`managed_by_config`), the settings are read-only. No data area is shown, and no platform endpoints are read other than `GET/PUT /v1/platform/setup`.
+- **Summary**: the number of developer accounts (active / disabled), the total balance, cumulative consumption and task count, plus the site name and registration mode (`closed`, `invite`, `open`; change it in the gateway configuration, read-only here); the developer portal address (`/portal/`) can be copied at the top right.
+- **Usage** (between "Summary" and "Listings & pricing"): a switch at the right of the title, "Tasks / Spent", changes a bar chart of the last 30 days by day (dates in UTC, drawn the same way as "Recent activity" on the overview; hover over a bar to see that day's tasks, spend and tokens); the top right of the chart is the 30-day total. When there are no tasks in 30 days (or no spend, under "Spent"), the chart is replaced by one line of empty state. Below the chart are two small tables side by side: by agent (agent, tasks, tokens, spent) and by account (email, tasks, tokens, spent; the gateway returns at most the 50 accounts with the highest spend); clicking an email fills the search box in the top bar with that email, and the developer table then searches by email and scrolls to that section. The data is read from `GET /v1/platform/usage?days=30` and follows this page's refresh rhythm.
+- **Listings & pricing**: the table lists the agent, title, price per task, price per 1,000 tokens and whether it is listed. "List an agent" chooses from agents that are published but not yet listed, and fills in the title, summary, tags and the two prices (an external agent does not necessarily report tokens; when it does not, only the per-task price takes effect). Rows can be edited in place, taken off the shelf or put back, or have their listing removed; taking off the shelf and removing need a second confirmation. A listing whose agent has been deleted is marked "Agent removed".
+- **Developers**: the table lists email, name, status, balance, key count, task count, cumulative spend and last activity, and uses "Load more" to page when there is a lot of data. The search box in the top bar searches the gateway by email. Row actions: adjust balance (add or deduct, a note is required, and the result cannot go below 0; an optional "External reference": the same reference is credited only once, which suits payment callbacks, and a repeated submission shows "This reference has already been credited; nothing was added twice." and adds no more credits), view the ledger (for lines with an external reference, the reference is shown in small text under the note), reset password, and disable / enable; disabling and resetting a password need a second confirmation. "Reset password" has two ways: **generate a one-time reset code** (default, recommended): the plaintext is shown only once on the result page, can be copied, and states its expiry time (valid for 24 hours; generating a new one invalidates the old one), and once you close the dialog the copy on the page is cleared; you send the reset code to the developer, who sets a new password themselves on the portal sign-in page, and you never learn their password; or **set a new password directly** (you set it for them, so you know the password). "New account" is not limited by the registration mode, and "Generate" can produce a random initial password.
+- **The key's "Top-up (billing)" permission**: when you generate an API key and the gateway has the developer platform enabled, the permissions have one more item, "Top-up (billing)", which can only add credits to developer accounts and look accounts up by email, for payment callbacks; without the `platform-v1` feature this item is not shown. It appears as "Top-up (billing)" in the key list.
+- **Redeem codes**: the table lists the kind (credit code, invite code), credits, used / available uses, expiry, note and status, and a row can be revoked (needs a second confirmation; credits already redeemed are not taken back). "Generate redeem codes" sets the kind, credits, number of uses, quantity (1 to 100), validity and note; the plaintext of the codes is shown only once on the result page after generation and can be copied as a batch, and once you close the dialog the copy on the page is cleared, so the gateway holds only hashes.
 
-## 实时同步与兼容
+The data on this page is read only while the page is shown, refreshed about every 20 seconds or when you click the refresh button in the top bar, and refreshed immediately after every action; when a read fails, the existing data stays on screen and the reason is shown at the top of the page.
 
-- 网关提供 `/v1/overview/events` 时，顶栏显示「实时同步」，变化约 250 毫秒内推送到控制台；不提供时按设置的间隔轮询。
-- 每个变化事件都带有原因（`runs`、`catalog`、`nodes`），控制台只重新读取受影响的数据。例如执行机器负载变化不会重新读取活动统计。所有读取都使用 ETag 条件请求，数据没变时网关返回 304，不传正文。
-- **能力协商**：控制台从 `GET /health` 的 `features` 判断网关支持哪些功能。连接到较早版本的网关时，活动统计、时间线和排队提示会自动隐藏，其余功能照常使用。「设置 › 连接 › 协议能力」会列出网关声明的能力。
+## Live sync and compatibility
 
-## 设置
+- When the gateway provides `/v1/overview/events`, the top bar shows "Live", and changes are pushed to the console within about 250 ms; when it does not, the console polls at the interval you set.
+- Every change event carries a reason (`runs`, `catalog`, `nodes`), and the console re-reads only the affected data. For example, a change in an execution machine's load does not re-read the activity statistics. All reads use ETag conditional requests: when the data has not changed, the gateway returns 304 with no body.
+- **Capability negotiation**: the console decides which features the gateway supports from `features` in `GET /health`. When connected to an older gateway, the activity statistics, timeline and queue hints are hidden automatically, and everything else works as usual.
 
-- **外观**：语言（中文、English；首次打开跟随浏览器语言，切换后页面重新载入，选择保存在 localStorage 的 `oaa.console.lang`）、主题（跟随系统、浅色、深色）、深色配色（墨黑、深潮）、界面密度、动效、侧栏。窗口宽度在 901 到 1180 像素之间时，侧栏自动收成只有图标的窄栏（悬停或用键盘聚焦某一项会显示名称，进行中的任务数变成图标角上的一个小点）；再窄就变成页面上方的一条横栏。「收起侧栏」仍然把侧栏整个藏起来。
-- **使用偏好**：默认首页、数据刷新间隔、时间显示（相对或具体时间）、活动统计窗口、默认优先考虑（模型线路的选择策略）、快速上手清单。
-- **连接**：密钥名称、所有者（owner）、权限范围、可访问的智能体、网关地址、网关版本和协议能力。
-- **桌面应用**（只在 macOS 应用里出现）：Dock 角标、审批通知、打开数据目录、在浏览器中打开、复制服务地址（Base URL）、复制管理员密钥、重启网关。
-- **快捷键**：`⌘K` 命令面板，`⌘,` 设置，`⌘\` 切换侧栏，`/` 聚焦搜索，`⌘↵` 提交智能体任务。在 Windows 和 Linux 上，`⌘` 换成 `Ctrl`。
+## Settings
 
-偏好只保存在本机浏览器里（localStorage 的 `oaa.prefs.v1`），不会上传到网关。
+- **Appearance**: language (Chinese, English; on first open it follows the browser language, and after switching the page reloads, with the choice saved in localStorage under `oaa.console.lang`), theme (System, Light, Dark), dark palette (Black, Tide), density, motion and the sidebar. When the window width is between 901 and 1180 pixels, the sidebar automatically folds into a narrow icon rail (hover or focus an item with the keyboard to see its name, and the number of tasks in progress becomes a small dot on the icon corner); narrower than that, it becomes a bar above the page. "Collapse sidebar" still hides the sidebar entirely.
+- **Preferences**: default home page, data refresh interval, time display (relative or exact), activity window, default preference (the selection strategy for model routes), and the getting-started checklist.
+- **Connection**: the key name, permissions, accessible agents and the gateway Base URL, with "Switch key", "Disconnect", and, for admin keys, "Manage API keys".
+- **Desktop app** (only in the macOS app): the Dock badge, approval notifications, showing the data folder, opening in the browser, copying the admin key, and restarting the gateway.
+- **Keyboard shortcuts**: `⌘K` command palette, `⌘,` settings, `⌘\` toggle the sidebar, `/` focus the search box, `⌘↵` run the task in the agent sheet, `Esc` close a sheet or dialog. On Windows and Linux, `⌘` becomes `Ctrl`.
 
-## macOS 桌面应用
+Preferences are saved only in the local browser (localStorage `oaa.prefs.v1`) and are never uploaded to the gateway.
 
-- **原生窗口**：顶部没有标题栏条，红黄绿按钮嵌在侧栏顶部，跟侧栏折叠按钮、页面路径和搜索框在同一行。双击空白的标题区域时，按系统设置缩放或最小化窗口。
-- **Dock 角标与菜单栏**：显示等待你审批的任务数，可以在「设置 › 桌面应用」里关闭。
-- **审批通知**：默认关闭。第一次开启时，macOS 会询问是否允许通知；之后可以用「发送测试通知」确认权限。控制台窗口在前台时不会弹通知。通知里只有智能体名称，不含任务内容，因为通知可能显示在锁屏上。点击通知会打开对应的任务。
-- 关闭窗口不会停止网关：网关继续在菜单栏里运行；从菜单栏图标可以重新打开控制台，也可以退出应用。
+## The macOS desktop app
 
-## 隐私与安全
+- **Native window**: there is no title-bar strip at the top; the red, yellow and green buttons sit at the top of the sidebar, on the same row as the sidebar toggle, the page path and the search box. Double-clicking the empty title area zooms or minimizes the window according to your system setting.
+- **Dock badge and menu bar**: show the number of tasks waiting for your approval; you can turn them off in "Settings › Desktop app".
+- **Approval notifications**: off by default. The first time you turn them on, macOS asks whether to allow notifications; afterwards you can use "Send test notification" to confirm the permission. No notification pops up while the console window is in front. A notification contains only the agent name and no task content, because notifications may appear on the lock screen. Clicking a notification opens the matching task.
+- Closing the window does not stop the gateway: the gateway keeps running in the menu bar; from the menu bar icon you can reopen the console or quit the app.
 
-- 统计与时间线只读取持久化的运行事件，不调用模型或工具，也不新增存储内容。
-- 时间线只包含阶段类型、时间和机器可读的标识（例如工具名、步骤 ID），不包含任务输入、工具参数或输出内容；这些内容只在你展开对应步骤或下载时才读取。
-- 控制台页面遵循严格的内容安全策略（CSP）：不加载第三方脚本，不使用内联脚本和内联样式，密钥不会出现在 URL 里。
+## Privacy and security
+
+- Statistics and timelines read only persisted run events; they call no model or tool and add nothing to storage.
+- A timeline contains only phase types, times and machine-readable identifiers (such as tool names and step IDs), and never task input, tool arguments or output content; that content is read only when you expand the matching step or download it.
+- The console page follows a strict content security policy (CSP): no third-party scripts, no inline scripts or inline styles, and keys never appear in the URL.

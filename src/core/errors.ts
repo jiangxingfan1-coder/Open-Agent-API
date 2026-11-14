@@ -1,7 +1,7 @@
 /**
  * 错误目录：网关、执行节点与客户端会产生的全部稳定错误码（`error.code`）。
  *
- * - 含义以 docs/protocol.md「错误码（error.code）」一章为准；新增错误码时先在这里登记，再补文档表格。
+ * - 含义以 docs/protocol.md「Error codes (`error.code`)」一章为准（中文版在 docs/zh-CN/protocol.md）；新增错误码时先在这里登记，再补两份文档的表格。
  * - `status` 是该码最常用的 HTTP 状态；同一个码在不同场景用不同状态时，`statuses` 列出全部。
  *   `null` 表示它不作为 HTTP 响应出现（只是运行的错误码，或只在 worker / 客户端本地产生）。
  * - `retryable`：调用方原样重试有可能成功（限流、超时、容量、节点暂时不可用、网关关闭中）。
@@ -66,6 +66,7 @@ const ROWS: Row[] = [
   ['unauthorized', 401, 'request', _, '缺少或无效/已吊销的 API 密钥', '检查 Authorization 头里的 API 密钥'],
   ['key_expired', 401, 'request', _, 'API 密钥已过期', '向 owner 申请新的 API 密钥'],
   ['scope_denied', 403, 'request', _, '密钥缺少所需 scope，或无权访问该智能体/资源'],
+  ['quota_exceeds_own', 403, 'request', _, '新密钥的额度不能高于你自己密钥的额度', '为新密钥设置不高于自己的各项额度'],
   ['invalid_host', 403, 'request', _, 'Host 不在允许列表中'],
   ['origin_denied', 403, 'request', _, '跨源请求的 Origin 未被允许'],
   ['admin_host_denied', 403, 'request', _, '配置了控制台域名后，在非控制台域名上使用了 admin 密钥'],
@@ -78,6 +79,7 @@ const ROWS: Row[] = [
   ['key_concurrency_limit', 429, 'request', R, '达到该密钥的并发运行上限', '等待已有运行完成后重试'],
   ['run_quota_exceeded', 429, 'request', _, '该密钥的运行次数配额已用完', '请 owner 调高或重置该密钥的配额'],
   ['token_quota_exceeded', 429, 'request', _, '该密钥的 token 配额已用完', '请 owner 调高或重置该密钥的配额'],
+  ['storage_quota_exceeded', 413, 'request', _, '该调用方存储的文件已达上限', '请 owner 调高 maxStoredBytesPerSubject'],
   ['too_many_streams', 429, 'request', R, '该密钥（或 owner）同时打开的事件流已达上限', '关闭不用的事件流后重连'],
   ['invalid_request', [400, 404], 'request', _, '请求字段无效或缺失（Gemini 路径格式错误时为 404）'],
   ['client_tools_unsupported', 400, 'request', _, '请求带了调用方工具，但选择了拒绝模式（reject）', '去掉 tools，或改用 X-OAA-Client-Tools: managed'],
@@ -333,6 +335,8 @@ const ROWS: Row[] = [
   ['sample_agent_missing', 500, 'client', _, '找不到随附的离线示例智能体 examples/sample-agent.mjs', '重新安装，或在源码目录里运行'],
   ['agent_conflict', 409, 'client', _, '同名智能体已发布为另一个引擎，connect 不覆盖'],
   ['not_running', 404, 'client', _, '没有找到由 oaa serve --detach 启动、仍在运行的网关'],
+  ['approval_ambiguous', 400, 'client', _, '这个运行有多个待审批项，没有指定要处理哪一项', '用 --action 审批项编号指定一项，或用 --all 处理全部；oaa approvals 列出它们'],
+  ['approval_declined', 400, 'client', _, '你在确认时选择了不批准，没有批准任何项'],
   // platform
   ['registration_closed', 403, 'platform', _, '这个站点不开放自助注册', '联系站点运营者开通账号'],
   ['invite_required', 403, 'platform', _, '注册需要邀请码', '向站点运营者索取邀请码'],
@@ -348,6 +352,13 @@ const ROWS: Row[] = [
   ['code_not_found', 404, 'platform', _, '兑换码不存在'],
   ['reference_conflict', 409, 'platform', _, '这个外部单号已经用于另一笔金额不同的入账', '换一个单号，或核对金额'],
   ['platform_managed_by_config', 409, 'platform', _, '配置文件里已有 platform 段，开发者平台由配置文件管理，控制台里不能修改', '改配置文件里的 platform 段后重启；或删掉该段，改在控制台里启用'],
+  // webhooks
+  ['webhook_not_found', 404, 'request', _, '没有这个编号的事件回调端点', '用 oaa webhook list 查看已有的端点编号'],
+  ['webhook_url_invalid', 400, 'request', _, '回调地址无效：只允许 http/https、不能带用户名密码；非本机回环地址必须用 https', '改用 https 地址；确实要用明文 http 时显式设置 allow_insecure_http'],
+  ['webhook_target_denied', 400, 'request', _, 'public 安全档位下，回调地址不能指向私网、本机回环、链路本地或云元数据地址', '换成公网地址；确实要回调内网时为该端点显式设置 allow_private_network'],
+  ['webhook_limit_reached', 409, 'request', _, '事件回调端点数已达上限（每个 owner 20 个）', '先删除不再使用的端点'],
+  ['webhook_delivery_not_found', 404, 'request', _, '这个端点下没有这个编号的投递记录'],
+  ['webhook_delivery_pending', 409, 'request', _, '这条投递还在队列里，不能重发', '等它投递成功或最终失败后再重发'],
 ];
 
 /** 第一轮模型调用失败时可以换一条线路重试的码。 */

@@ -156,6 +156,7 @@ export const en = {
   'feature.platform-v1': 'Developer platform',
   'feature.queue-insight-v1': 'Queue visibility',
   'feature.run-timeline-v1': 'Task timeline',
+  'feature.webhooks-v1': 'Run-event webhooks',
   'feature.workflow-output-v1': 'Workflow result projection',
   'html.nav.console': 'Console navigation',
   'html.nav.workspace': 'Workspace',

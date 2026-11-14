@@ -1,0 +1,188 @@
+name: Docker
+
+# When a GitHub Release is published (or on manual dispatch): build linux/amd64 and linux/arm64 and push
+# ghcr.io/<owner>/open-agent-api:<version> and :latest. On push and pull_request: build linux/amd64
+# only and run the container smoke test below, never push. Details: docs/releasing.md.
+#
+# The Release workflow only creates a DRAFT release; this one runs when a person publishes it.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (no leading v; must equal package.json at the chosen ref)'
+        required: true
+        type: string
+  push:
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: docker-${{ github.event_name }}-${{ github.ref }}
+  # A publish is never cancelled half way; verification builds of an outdated push are.
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+
+jobs:
+  image:
+    name: Build image (${{ github.event_name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PUBLISH: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Work out version and image names
+        id: meta
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          INPUT_VERSION: ${{ inputs.version }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          pkg="$(node -p "require('./package.json').version")"
+          case "$EVENT" in
+            release) version="${TAG_NAME#v}" ;;
+            workflow_dispatch) version="${INPUT_VERSION#v}" ;;
+            *) version="$pkg" ;;
+          esac
+          if [ "$PUBLISH" = "true" ] && [ "$version" != "$pkg" ]; then
+            echo "::error::Version ${version} does not match package.json (${pkg}) at this commit; refusing to publish."
+            exit 1
+          fi
+          # Image names must be lower case; a repository owner may not be.
+          image="ghcr.io/${OWNER,,}/open-agent-api"
+          tags="${image}:${version}"
+          # :latest only for a final release (not a GitHub pre-release, not a 1.2.3-rc.1 style version).
+          if [ "$PRERELEASE" != "true" ] && [[ "$version" != *-* ]]; then tags="${tags}"$'\n'"${image}:latest"; fi
+          {
+            echo "version=${version}"
+            echo "image=${image}"
+            echo "tags<<TAGS_END"
+            echo "${tags}"
+            echo "TAGS_END"
+          } >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU (arm64 emulation, publishing only)
+        if: env.PUBLISH == 'true'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Always build amd64 once into the local daemon and test the container before anything is pushed.
+      - name: Build linux/amd64 for the smoke test
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: oaa-smoke:ci
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=oaa-image
+          cache-to: type=gha,scope=oaa-image,mode=max
+
+      - name: Smoke test the container (first start, key files, API call, restart, graceful stop)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker logs oaa-smoke > "${RUNNER_TEMP}/oaa-smoke.log" 2>&1 || true
+            docker rm -f oaa-smoke > /dev/null 2>&1 || true
+          }
+          trap 'cleanup' EXIT
+          # Port 18787 on the runner's loopback only, like docker-compose.yml.
+          docker run -d --name oaa-smoke --init -p 127.0.0.1:18787:8787 oaa-smoke:ci
+          wait_http() {
+            for _ in $(seq 1 90); do
+              if curl -fsS http://127.0.0.1:18787/healthz > /dev/null 2>&1; then return 0; fi
+              if [ "$(docker inspect -f '{{.State.Running}}' oaa-smoke)" != "true" ]; then break; fi
+              sleep 1
+            done
+            echo "::error::The gateway did not answer /healthz"; docker logs oaa-smoke; return 1
+          }
+          wait_key() {
+            for _ in $(seq 1 90); do
+              if docker exec oaa-smoke test -f /data/.oaa/keys/quickstart.key; then return 0; fi
+              sleep 1
+            done
+            echo "::error::No caller key file appeared"; docker logs oaa-smoke; return 1
+          }
+          call() {
+            curl -fsS http://127.0.0.1:18787/v1/chat/completions \
+              -H "Authorization: Bearer $1" -H 'Content-Type: application/json' \
+              -d '{"model":"agent/sample","messages":[{"role":"user","content":"Hello"}]}'
+          }
+          wait_http
+          wait_key
+          test "$(docker exec oaa-smoke id -u)" != "0"
+          key="$(docker exec oaa-smoke cat /data/.oaa/keys/quickstart.key)"
+          admin="$(docker exec oaa-smoke cat /data/.oaa/admin.token)"
+          # Output goes through files, not pipes: grep -q closing a pipe early would fail under pipefail.
+          call "$key" > "${RUNNER_TEMP}/oaa-reply.json"
+          cat "${RUNNER_TEMP}/oaa-reply.json"
+          grep -q 'offline sample agent' "${RUNNER_TEMP}/oaa-reply.json"
+          docker logs oaa-smoke > "${RUNNER_TEMP}/oaa-log.txt" 2>&1
+          grep -q 'admin.token' "${RUNNER_TEMP}/oaa-log.txt"
+          if grep -qF -e "$key" -e "$admin" "${RUNNER_TEMP}/oaa-log.txt"; then
+            echo "::error::A key was printed in the container log"; exit 1
+          fi
+          # A wrong Host header is refused (the allowlist stays in force on 0.0.0.0).
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example.net' http://127.0.0.1:18787/healthz)" = "403"
+          # Restart: same data volume, same key, nothing created twice.
+          docker restart oaa-smoke
+          wait_http
+          call "$key" > "${RUNNER_TEMP}/oaa-reply2.json"
+          grep -q 'offline sample agent' "${RUNNER_TEMP}/oaa-reply2.json"
+          test "$(docker exec oaa-smoke cat /data/.oaa/keys/quickstart.key)" = "$key"
+          for _ in $(seq 1 60); do
+            if [ "$(docker inspect -f '{{.State.Health.Status}}' oaa-smoke)" = "healthy" ]; then break; fi
+            sleep 2
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' oaa-smoke)" = "healthy"
+          docker stop -t 20 oaa-smoke
+          test "$(docker inspect -f '{{.State.ExitCode}}' oaa-smoke)" = "0"
+
+      - name: Upload the container log when the smoke test fails
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oaa-docker-smoke-log
+          path: ${{ runner.temp }}/oaa-smoke.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Log in to ghcr.io
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push linux/amd64 + linux/arm64
+        if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=oaa-image
+          cache-to: type=gha,scope=oaa-image,mode=max

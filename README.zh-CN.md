@@ -81,7 +81,7 @@ Node.js 同理：
 
 ## 三分钟跑起来
 
-需要 Node.js 24.18 及以上（24.x，`package.json` 的 `engines` 为 `>=24.18.0 <25`）。不需要 Docker、Redis 或全局安装的包，也不需要任何模型密钥。
+下面的源码路线需要 Node.js 24.18 及以上（24.x，`package.json` 的 `engines` 为 `>=24.18.0 <25`）；安装包与 Linux 包自带 Node.js（其他路线见[其他安装方式](#其他安装方式)）。不需要 Redis，也不需要任何模型密钥。
 
 ### 最短路径：一条命令
 
@@ -98,6 +98,22 @@ npm run oaa -- quickstart
 示例智能体是仓库里的 `examples/sample-agent.mjs`：**不调用任何模型、不联网、不花钱**，回答由固定规则生成，开头写明「这是 Open Agent API 的离线示例智能体」。它演示多步执行、一次工具调用，任务里写上「审批」时还会停下来等你批准（在控制台批准，或用调用方密钥调用 `POST /v1/runs/{id}/actions/{action}`），批准后同一个任务接着完成。
 
 默认端口是 8787；被占用时 `quickstart` 会明确报 `port_in_use`，用 `npm run oaa -- quickstart --port 18787` 换一个（端口写进 `.oaa/config.json`，下文的 `8787` 都要跟着换）。停止网关用 `npm run oaa -- stop`。
+
+### 其他安装方式
+
+每条路线最后都是 `oaa quickstart`。各路线的最短步骤、适用范围与卸载方法见 [docs/zh-CN/install.md](docs/zh-CN/install.md)。Linux 包、`install.sh`、npm tarball 与 Docker 镜像随 0.0.64 之后的版本发布。
+
+- **macOS 与 Windows 安装包**（`.dmg`、`.zip`）：从[发布页](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases)下载。自带 Node.js；未做公证与代码签名，第一次打开要多点一下（步骤见 install.md）。
+- **Linux，x64 与 arm64**（glibc 2.28 及以上；不需要 root，也不需要装 Node.js）：
+
+  ```sh
+  curl -fsSL https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh | sh
+  oaa quickstart
+  ```
+
+  脚本会用发布页的 `SHA256SUMS` 校验下载，装到 `~/.local` 下。
+- **Docker**（在仓库目录里 `docker compose up --build -d`）：网关只发布在宿主机的 `127.0.0.1:8787`。容器里没有宿主机上装的命令行智能体（没有 Codex、没有 Claude Code），所以适合：用你自己的模型密钥的内置智能体、ACP / A2A 远程智能体、以及连进来的执行节点。Dockerfile 还没有在 CI 之外构建过，第一次验证的构建就是 CI 那一次。
+- **npm tarball**（需要 Node.js 24.18 及以上）：`npm install -g <发布页上 open-agent-api-<版本>.tgz 的地址>`，然后 `oaa quickstart`。这个包是 `private` 的，不在 npm 官方源上。
 
 ### 接上你自己的智能体：`oaa connect`
 
@@ -122,7 +138,7 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
      --url http://127.0.0.1:8787 --token-file .oaa/admin.token
    ```
 
-   也可以用 OAA-Lang 或 JSON 定义一个内置智能体，见 [docs/language.md](docs/language.md) 与 [操作手册](docs/operations.md)（那需要你自己配置模型提供方，仓库里的示例用的是占位符）。
+   也可以用 OAA-Lang 或 JSON 定义一个内置智能体，见 [docs/zh-CN/language.md](docs/zh-CN/language.md) 与 [操作手册](docs/zh-CN/operations.md)（那需要你自己配置模型提供方，仓库里的示例用的是占位符）。
 3. **创建 API 密钥**：控制台「API 密钥」页点「生成密钥」，结果页会给出服务地址（Base URL）、API Key（形如 `sk-oaa-…`，只显示一次）和模型名，各自可以一键复制。为每个调用方应用单独创建一把。命令行的等价写法（密钥写进私有文件，不打印到屏幕上）：
 
    ```sh
@@ -183,13 +199,13 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 | 自写适配器（`oaa/1` stdio、`oaa/1-stream`、HTTP） | 取决于所选形式 | `oaa/1-stream` 支持 | 不支持 | 给没有现成接入的智能体包一层 |
 | A2A 远程智能体 | 支持（SSE） | 不桥接：`input-required` 以智能体的问题结束本轮 | 不支持 | 经 `contextId` 续接同一任务 |
 
-这张表是摘要，每种接入方式在每个协议下的取消、续接、用量与产物能力见 [docs/adapters.md](docs/adapters.md#agentapi-转换契约2026-11-08)，每个智能体的 `conversion` 字段也会给出同样的画像。几点说明：
+这张表是摘要，每种接入方式在每个协议下的取消、续接、用量与产物能力见 [docs/zh-CN/adapters.md](docs/zh-CN/adapters.md#agentapi-转换契约2026-11-08)，每个智能体的 `conversion` 字段也会给出同样的画像。几点说明：
 
 - 能力差异在「交互深度」，不在「能不能接入」。四类接入方式都可以把智能体发布成 Agent API。
-- 外部智能体的权限是继承的，网关不对它做沙箱隔离：一次调用可以读取或修改宿主运行时允许的任何内容。调用方的密钥需要具备 `host` 执行等级才能调用外部智能体；对外分发时请阅读[公网部署](docs/deploy-public.md)里的建议。
-- 发布外部智能体时可以把权限请求设为自动批准（`--approvals auto`）。这等于让调用方以你在这台机器上的权限驱动它，只对你信任的调用方开放，风险说明见 [docs/adapters.md](docs/adapters.md#agentapi-转换契约2026-11-08)。
-- 调用方自己也是智能体（Cursor、Cline、Claude Code 之类）时，它传来的 `tools` 有三种处理方式：托管（默认，智能体用自己的工具）、桥接（工具交回调用方执行，结果回传后同一个任务接着做）、拒绝。见 [docs/harness.md](docs/harness.md)。
-- 调用方也可以经 MCP 入口发现并调用智能体：`npm run oaa -- mcp --url … --token-file …` 或 `npm run oaa -- integration` 生成启动配置，见[操作手册](docs/operations.md)。出于安全考虑，MCP 入口刻意不提供批准审批的工具。
+- 外部智能体的权限是继承的，网关不对它做沙箱隔离：一次调用可以读取或修改宿主运行时允许的任何内容。调用方的密钥需要具备 `host` 执行等级才能调用外部智能体；对外分发时请阅读[公网部署](docs/zh-CN/deploy-public.md)里的建议。
+- 发布外部智能体时可以把权限请求设为自动批准（`--approvals auto`）。这等于让调用方以你在这台机器上的权限驱动它，只对你信任的调用方开放，风险说明见 [docs/zh-CN/protocol.md](docs/zh-CN/protocol.md#approval-policy-for-external-agents-approval-policy-v1)。
+- 调用方自己也是智能体（Cursor、Cline、Claude Code 之类）时，它传来的 `tools` 有三种处理方式：托管（默认，智能体用自己的工具）、桥接（工具交回调用方执行，结果回传后同一个任务接着做）、拒绝。见 [docs/zh-CN/harness.md](docs/zh-CN/harness.md)。
+- 调用方也可以经 MCP 入口发现并调用智能体：`npm run oaa -- mcp --url … --token-file …` 或 `npm run oaa -- integration` 生成启动配置，见[操作手册](docs/zh-CN/operations.md)。出于安全考虑，MCP 入口刻意不提供批准审批的工具。
 
 ## 兼容的协议与 SDK
 
@@ -198,9 +214,9 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 | OpenAI Chat Completions 与 Responses（流式与非流式） | 仓库里有常驻的回归测试，用官方 `openai` Node SDK 经进程内网关运行，不监听端口 |
 | Claude Messages | 同样有常驻的回归测试，用官方 `@anthropic-ai/sdk` 1.3.0 |
 | Gemini `generateContent` / `streamGenerateContent` | 用临时安装的官方 `@google/genai` 3.2.0 做过一次性实测，不是项目依赖，探测脚本在 [examples/gemini-sdk-probe.mjs](examples/gemini-sdk-probe.mjs)；回归测试按线上格式断言 |
-| `oaa/1` 原生协议、UAP/1、MCP | 见 [docs/protocol.md](docs/protocol.md) |
+| `oaa/1` 原生协议、UAP/1、MCP | 见 [docs/zh-CN/protocol.md](docs/zh-CN/protocol.md) |
 
-任何兼容这几家协议的客户端，只要填 Base URL 和 API 密钥就能用；`Authorization: Bearer`、`x-api-key`、`x-goog-api-key` 三种鉴权头都接受。不支持的输入会明确报错，而不是悄悄降级：例如内联的图片与音频（base64 或 URL）一律返回 400 `unsupported_content`，需要先经 `POST /v1/files` 上传再引用，见 [docs/protocol.md](docs/protocol.md#兼容入口的参数错误与结束原因060)。
+任何兼容这几家协议的客户端，只要填 Base URL 和 API 密钥就能用；`Authorization: Bearer`、`x-api-key`、`x-goog-api-key` 三种鉴权头都接受。不支持的输入会明确报错，而不是悄悄降级：例如内联的图片与音频（base64 或 URL）一律返回 400 `unsupported_content`，需要先经 `POST /v1/files` 上传再引用，见 [docs/zh-CN/protocol.md](docs/zh-CN/protocol.md#兼容入口的参数错误与结束原因060)。
 
 ## 控制面：让人留在回路里
 
@@ -234,7 +250,7 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
   </picture>
 </p>
 
-控制台的使用说明见 [docs/console.md](docs/console.md)。
+控制台的使用说明见 [docs/zh-CN/console.md](docs/zh-CN/console.md)。
 
 ## 作为开发者平台对外提供
 
@@ -247,16 +263,16 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
   </picture>
 </p>
 
-点数是运营者发放的记账单位，平台不接支付、不发邮件。计费规则、接口与限制见 [docs/platform.md](docs/platform.md)，英文开发者指南见 [docs/platform.en.md](docs/platform.en.md)。
+点数是运营者发放的记账单位，平台不接支付、不发邮件。计费规则、接口与限制见 [docs/zh-CN/platform.md](docs/zh-CN/platform.md)。
 
 ## 桌面应用与命令行
 
 - **命令行**：`npm run oaa -- --help` 列出全部子命令，包括 `quickstart`、`init`、`serve`、`stop`、`doctor`、`key create`、`publish`、`publish-native`、`invoke`、`wait`、`cancel`、`resume`、`nodes`、`mcp`；`check` 与 `fmt` 用来检查和格式化 OAA-Lang 源码，编译、检查和格式化都不调用模型。
-- **macOS 桌面应用**：源码在 `desktop/macos`，内嵌的是同一个控制台，提供 Dock 角标与审批通知。可以用 `npm run package:mac` 从源码打包（`npm run package:win` 对应 Windows）。目前没有公开发布的安装包，自己打包的安装包未经公证。
+- **macOS 桌面应用**：源码在 `desktop/macos`，内嵌的是同一个控制台，提供 Dock 角标与审批通知。可以用 `npm run package:mac` 从源码打包（`npm run package:win` 对应 Windows）。安装包在发布页（[安装路线](docs/zh-CN/install.md)）；macOS 与 Windows 的安装包未经公证、没有代码签名，自己打包的也一样。
 
 ## 文档
 
-按「我想……」组织的完整索引在 [docs/README.md](docs/README.md)。常用入口：[操作手册](docs/operations.md)、[协议与兼容](docs/protocol.md)、[双层 Harness](docs/harness.md)、[OAA-Lang](docs/language.md)、[接入外部智能体](docs/adapters.md)、[控制台](docs/console.md)、[公网部署](docs/deploy-public.md)、[开发者平台](docs/platform.md)、[架构](docs/architecture.md)、[工程规范](docs/engineering.md)、[变更记录](CHANGELOG.md)。
+按「我想……」组织的完整索引在 [docs/zh-CN/README.md](docs/zh-CN/README.md)。常用入口：[操作手册](docs/zh-CN/operations.md)、[协议与兼容](docs/zh-CN/protocol.md)、[双层 Harness](docs/zh-CN/harness.md)、[OAA-Lang](docs/zh-CN/language.md)、[接入外部智能体](docs/zh-CN/adapters.md)、[控制台](docs/zh-CN/console.md)、[公网部署](docs/zh-CN/deploy-public.md)、[开发者平台](docs/zh-CN/platform.md)、[架构](docs/zh-CN/architecture.md)、[工程规范](docs/zh-CN/engineering.md)、[变更记录](CHANGELOG.zh-CN.md)、[路线图](ROADMAP.zh-CN.md)。
 
 ## 现状与边界
 
@@ -265,29 +281,29 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 **测试**
 
 - 项目用 `node:test` 写了 788 项测试，`npm run verify` 跑类型检查、排版检查与全量测试，`npm run test:offline` 只跑不监听端口的那部分。
-- 测试用本地确定性模型、本地协议服务器和自有的子进程夹具。它们**不能**证明真实提供方的兼容性、真实的跨机器性能或账号访问。流式、公平性与配对基准都是本地测量，条件与限定见[操作手册](docs/operations.md)与 [docs/architecture.md](docs/architecture.md)。
+- 测试用本地确定性模型、本地协议服务器和自有的子进程夹具。它们**不能**证明真实提供方的兼容性、真实的跨机器性能或账号访问。流式、公平性与配对基准都是本地测量，条件与限定见[操作手册](docs/zh-CN/operations.md)与 [docs/zh-CN/architecture.md](docs/zh-CN/architecture.md)。
 
 **真实智能体验证**
 
 - 经过真实验证的只有 Antigravity：一次端到端验证共 12 次真实调用，通过了 OpenAI Chat 非流式与流式、Responses 续接、Claude Messages、Gemini `generateContent`、取消与并发。这只验证了那一条本地线路和那一个引擎；审批与调用方工具桥接在 Antigravity 下不支持。验证脚本是 [examples/live-agents-acceptance.ts](examples/live-agents-acceptance.ts)。
-- Codex、Claude Code、内置智能体搭配真实模型提供方、公网部署，**尚未**做过这样的端到端验证。[docs/evidence.md](docs/evidence.md) 记录了更早的一次手工联调：它的结论是 Codex 的一次托管调用通过，Claude Code 因命令行未登录而失败，之后代码有过改动，没有复测。
+- Codex、Claude Code、内置智能体搭配真实模型提供方、公网部署，**尚未**做过这样的端到端验证。[docs/zh-CN/evidence.md](docs/zh-CN/evidence.md) 记录了更早的一次手工联调：它的结论是 Codex 的一次托管调用通过，Claude Code 因命令行未登录而失败，之后代码有过改动，没有复测。
 
 **开发者平台**
 
 - 单网关加 SQLite：不支持多实例与 Postgres，也不做多个发布者各自结算。
 - 没有真实的支付渠道：点数不接支付；没有邮箱验证，也没有邮件找回密码（重置码由运营者经其它渠道交给开发者）。注册与登录的限流计数在进程内存里，重启后清零。
-- 开发者账号密钥的执行等级只能是 `workspace` 或 `sandbox`，不能是 `host`，所以调不了需要 `host` 等级的外部智能体（[平台文档](docs/platform.md)也建议不要把原生智能体上架给不认识的开发者）。实际能上架收费的主要是内置智能体。
+- 开发者账号密钥的执行等级只能是 `workspace` 或 `sandbox`，不能是 `host`，所以调不了需要 `host` 等级的外部智能体（[平台文档](docs/zh-CN/platform.md)也建议不要把原生智能体上架给不认识的开发者）。实际能上架收费的主要是内置智能体。
 - 没有在真实公网部署上验证过。
 
 **其它**
 
 - 外部智能体可能不报告 token 用量，此时只有按次价格生效；报告的 token 数不是费用估算，token 上限也不作为可强制执行的花费上限。
-- 桌面安装包未经公证，没有公开发布的安装包。
+- macOS 与 Windows 的安装包未经公证、没有代码签名。
 - 不扫描用户主目录寻找密钥，不训练基础模型，不实现订阅池或隐藏的认证中转。
 
 ## 参与、安全与行为准则
 
-欢迎提 issue 与 Pull Request：见 [CONTRIBUTING.md](CONTRIBUTING.md)。发现安全漏洞请阅读 [SECURITY.md](SECURITY.md)，不要公开提交。参与即表示同意遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
+欢迎提 issue 与 Pull Request：见 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。发现安全漏洞请阅读 [SECURITY.zh-CN.md](SECURITY.zh-CN.md)，不要公开提交。参与即表示同意遵守 [CODE_OF_CONDUCT.zh-CN.md](CODE_OF_CONDUCT.zh-CN.md)。
 
 ## 许可与署名
 

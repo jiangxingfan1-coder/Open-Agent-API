@@ -29,10 +29,18 @@ const enableHint = (engine: string) =>
     `Enable it under "Execution machines" in the console, or POST /v1/local/backends/${encodeURIComponent(engine)} with {"enabled":true} using the admin key.`,
   );
 
+/** `unavailableReason` 只读智能体的这几个字段（`oaa status` 用目录里的条目调用它）。 */
+export type RunnabilityShape = Pick<
+  AgentDefinition,
+  'id' | 'engine' | 'allowedNodes' | 'provider'
+> & {
+  routes: { provider: string }[];
+};
+
 /** 这个智能体在本机 local worker 上跑不起来的具体原因；跑得起来或看不出来时返回 undefined。 */
 export function unavailableReason(
   worker: WorkerConfig | undefined,
-  agent: AgentDefinition,
+  agent: RunnabilityShape,
   env: NodeJS.ProcessEnv = process.env,
 ): LocalText | undefined {
   if (!worker || (agent.allowedNodes?.length && !agent.allowedNodes.includes(worker.nodeId)))

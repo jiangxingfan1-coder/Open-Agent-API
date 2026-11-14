@@ -243,6 +243,9 @@ export function callerToolPermission(
   if (!toolNames.length) return null;
   const call = record(toolCall);
   if (typeof call.title !== 'string') return null;
+  // A call the agent itself classifies as running a command or changing files is never a caller
+  // tool, whatever its title says.
+  if (typeof call.kind === 'string' && NATIVE_KINDS.has(call.kind)) return null;
   const title = call.title.slice(0, 1024);
   const raw = record(call.rawInput);
   const identifiers = [title, ...RAW_IDENTIFIERS.map((key) => raw[key])].filter(
@@ -251,8 +254,30 @@ export function callerToolPermission(
   const relay = CALLER_RELAY_NAME.toLowerCase();
   if (!identifiers.some((value) => value.toLowerCase().includes(relay))) return null;
   const words = title.split(/[^A-Za-z0-9_-]+/).filter(Boolean);
+  const named = (word: string, name: string) =>
+    word === name || (word.endsWith(`_${name}`) && word.toLowerCase().includes(relay));
   return (
-    toolNames.find((name) => words.some((word) => word === name || word.endsWith(`_${name}`))) ??
-    null
+    toolNames.find(
+      (name) =>
+        words.some((word) => named(word, name)) &&
+        // Every other word must be filler, so a shell command or file edit whose title merely
+        // mentions the relay and a tool name (e.g. `echo oaa-caller x; cat ~/.ssh/id_rsa`) still
+        // goes to owner approval.
+        words.every((word) => named(word, name) || TITLE_FILLER.has(word.toLowerCase())),
+    ) ?? null
   );
 }
+/** Words a relay tool-call title may contain besides the tool name. */
+/** ACP tool kinds that act on the host; a caller tool is always reported as another kind. */
+const NATIVE_KINDS = new Set(['execute', 'edit', 'delete', 'move']);
+const TITLE_FILLER = new Set([
+  'run',
+  'call',
+  'calling',
+  'use',
+  'using',
+  'tool',
+  'mcp',
+  'server',
+  CALLER_RELAY_NAME,
+]);
