@@ -411,9 +411,10 @@ test('activity pulse: UTC buckets, totals, success rate, latency, agents, breakd
       if (text.includes('block')) {
         await Promise.race([
           gate.promise,
-          new Promise((_r, reject) =>
-            signal.addEventListener('abort', () => reject(new Error('aborted'))),
-          ),
+          new Promise((_r, reject) => {
+            if (signal.aborted) reject(new Error('aborted'));
+            signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          }),
         ]);
       }
       return { text: 'ok' };
@@ -986,9 +987,10 @@ test('incremental activity matches a full scan as runs start, finish and arrive'
       if (text.includes('block'))
         await Promise.race([
           gate.promise,
-          new Promise((_r, reject) =>
-            signal.addEventListener('abort', () => reject(new Error('aborted'))),
-          ),
+          new Promise((_r, reject) => {
+            if (signal.aborted) reject(new Error('aborted'));
+            signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          }),
         ]);
       return { text: 'ok' };
     }),

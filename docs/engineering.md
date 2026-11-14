@@ -96,7 +96,7 @@ CI（`.github/workflows/ci.yml`）在 push 与 pull request 时用 Node 24.18 �
 | 离线测试 | 文件里不含 `.listen(`、`WebSocketServer(`、`createServer(` | `npm run test:offline` |
 | 监听端口的测试 | 含上述任一写法 | 只能随全量 `npm test` 运行 |
 
-- `scripts/test-offline.mjs` 按上面的规则自动挑出离线文件，交给 `node --test --test-concurrency=1`，退出码原样返回；一个文件都没挑到或缺少编译产物时以非零退出。
+- `scripts/test-offline.mjs` 按上面的规则自动挑出离线文件，交给 `node --test --test-concurrency=1 --test-timeout=120000`（另有 20 分钟总时限，到点结束进程树并报错；不用 `--test-force-exit`，它会让部分测试不被执行）（任何一项卡住都会在 2 分钟内以测试名报失败），退出码原样返回；一个文件都没挑到或缺少编译产物时以非零退出。
 - 监听端口的测试一律用 `port: 0`，只在 127.0.0.1 上临时监听随机端口，用测试替身代替真实模型，不访问外网，也不会占用桌面应用的 8787 端口。`test/sandbox-srt.test.ts` 会启动 srt 的本地代理，文件里特意写了 `createServer(`，让它归入监听端口一类。
 - **何时跑**：改动过程中频繁跑 `npm run check` 和 `npm run test:offline`；提交前、合并前跑 `npm run verify`（含全量测试）。在本机运行会监听端口的测试前，按个人约定先确认是否允许。
 - `test/architecture.test.ts` 是离线测试，只静态读取 `src/`，改结构后先跑它。

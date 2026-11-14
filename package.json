@@ -36,7 +36,7 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.{ts,mjs}\" \"bench/**/*.ts\" \"examples/**/*.ts\" \"scripts/*.mjs\" \"tools/**/*.{mjs,js,css}\" \"web/*.js\" \"web/{lib,views,dialogs,shared}/*.js\" \"web/*.css\" \"web/{styles,shared}/*.css\" \"web/portal/*.js\" \"web/portal/*.css\" \"web/portal/styles/*.css\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.{ts,mjs}\" \"bench/**/*.ts\" \"examples/**/*.ts\" \"scripts/*.mjs\" \"tools/**/*.{mjs,js,css}\" \"web/*.js\" \"web/{lib,views,dialogs,shared}/*.js\" \"web/*.css\" \"web/{styles,shared}/*.css\" \"web/portal/*.js\" \"web/portal/*.css\" \"web/portal/styles/*.css\"",
-    "test": "npm run build && node --import ./dist/test/setup-locale.js --test --test-concurrency=1 dist/test/*.test.js",
+    "test": "npm run build && node scripts/test-offline.mjs --all",
     "test:offline": "npm run build && node scripts/test-offline.mjs",
     "verify": "npm run check && npm run format:check && npm test",
     "start": "node dist/src/cli.js serve",

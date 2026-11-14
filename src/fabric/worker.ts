@@ -509,10 +509,11 @@ export class WorkerRuntime implements Executor {
         );
       // A delta the gateway cannot accept (persistence, backpressure) ends this turn with that
       // error instead of becoming an unhandled rejection.
+      // 工作区准备等 await 期间可能已被取消：不再把已中止的 signal 交给驱动（只听事件的驱动会永远等下去）。
+      checkAbort(signal);
       const turn = new AbortController();
       const stop = () => turn.abort(signal.reason);
-      if (signal.aborted) stop();
-      else signal.addEventListener('abort', stop, { once: true });
+      signal.addEventListener('abort', stop, { once: true });
       let refused: Error | undefined;
       try {
         const result = await driver.call(effectiveAgent, work.messages, turn.signal, (delta) => {
