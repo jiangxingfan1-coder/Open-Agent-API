@@ -46,6 +46,17 @@ The console and the developer portal ship four fonts with the product, so they d
 
 The font files are not modified; only the file names were changed and the `@font-face` rules rewritten following the CSS that each package ships. Font names belong to their respective owners; the OFL allows redistribution with software, but the fonts themselves may not be sold on their own.
 
+## Optional Usage Collectors
+
+The Usage & Quotas panel integrates machine-readable output from these projects. Open Agent API implements its own UI and normalization layer; it does not copy their interfaces, styles or account-management UI. Collector executables are installed separately and remain subject to their own licenses and dependencies.
+
+| Project | Integration | License / reviewed source |
+| --- | --- | --- |
+| [CodexBar](https://github.com/steipete/CodexBar) | Quota CLI JSON and opt-in private shared quota cache | MIT, Copyright (c) 2026 Peter Steinberger; `licenses/CodexBar-MIT.txt`. Interface reviewed at `1f6da9bec44455288ddee5ef6f3617a803d8eb2a`; CLI 0.84.0. |
+| [ccusage](https://github.com/ccusage/ccusage) | Offline per-agent daily token JSON | MIT, Copyright (c) 2025 ryoppippi; `licenses/ccusage-MIT.txt`. Interface reviewed at `bd4563bc144fc7a3cf77a09c2b89eb8c46594895`; CLI 20.0.51. |
+
+Only aggregate allowlisted fields enter OAA responses. Credentials, conversation bodies, raw diagnostics, project paths and session identifiers are not imported. See [Usage monitoring](docs/usage-monitor.md) for collection boundaries and configuration.
+
 ## npm runtime dependencies
 
 These are the `dependencies` (runtime dependencies) of `package.json`. They are not committed with this repository's source; users install them from npm with `npm ci`, and each is subject to its own license (the license file is under `node_modules/<package>/` after installation). The versions and licenses in the table are taken from `package-lock.json` and the installed packages' `package.json` (checked 2026-11-13).

@@ -16,6 +16,11 @@ export const signedPoints = (n) => formatSignedPoints(n, lang);
 export const compactTokens = (n) => formatTokensShort(n, lang);
 
 export const VIEWS = {
+  usage: {
+    title: t('view.usage.title'),
+    group: t('view.group.workspace'),
+    desc: t('view.usage.desc'),
+  },
   overview: {
     title: t('view.overview.title'),
     group: t('view.group.workspace'),
@@ -63,6 +68,7 @@ export const VIEWS = {
   },
 };
 export const VIEW_ICONS = {
+  usage: 'chart-no-axes-combined',
   overview: 'layout-dashboard',
   agents: 'bot',
   requests: 'activity',
@@ -224,6 +230,7 @@ export const STRATEGY_PROFILES = { auto: 'auto', speed: '@fast', quality: '@best
 // Names for capabilities a gateway advertises in GET /health `features` (src/gateway/server.ts
 // GATEWAY_FEATURES, plus platform-v1 when the developer platform is on).
 const FEATURE_LABELS = {
+  'local-usage-v1': t('feature.local-usage-v1'),
   'local-connections-v1': t('feature.local-connections-v1'),
   'agent-orchestration-v1': t('feature.agent-orchestration-v1'),
   'agent-policy-v1': t('feature.agent-policy-v1'),

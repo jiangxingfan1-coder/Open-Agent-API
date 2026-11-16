@@ -4,6 +4,13 @@ English · [简体中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+## 0.0.67 (2026-11-16)
+
+- Add Usage & Quotas using OAA's existing design system, separating gateway token accounting, local key allowances, upstream quota snapshots and local token history.
+- Integrate CodexBar quota/cache JSON and ccusage offline daily JSON as optional collectors, with MIT notices and source attribution. No third-party UI is embedded.
+- Deduplicate settled delegated usage, preserve unknown/partial counts, distinguish synthetic quota placeholders from measured zero, and age quota, budget and balance observations independently.
+- Protect local account monitoring with owner-only loopback access, explicit collection consent, revision checks, bounded processes, and sanitized aggregate output. Local-history scans remain disabled by default.
+
 ## 0.0.66 (2026-11-16)
 
 - Discover native/ACP model catalogs instead of fixed model lists, with explicit discovery errors, bounded catalogs and stable route identities.

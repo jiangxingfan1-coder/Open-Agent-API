@@ -1,5 +1,21 @@
 /** Local host-management operations shared by the public OpenAPI directory. */
 export const LOCAL_MANAGEMENT_OPERATIONS = [
+  [
+    '/v1/local/usage',
+    'get',
+    'Local owner-admin usage ledger, account quota snapshots and key allowances',
+  ],
+  [
+    '/v1/local/usage/settings',
+    'post',
+    'Confirm optional collector access with a revision-checked configuration',
+  ],
+  ['/v1/local/usage/refresh', 'post', 'Refresh enabled usage collectors without model generation'],
+  [
+    '/v1/local/usage/import',
+    'post',
+    'Import allowlisted aggregate fields from CodexBar or ccusage JSON',
+  ],
   ['/v1/local/backends', 'get', 'Local native engines, owner adapters and the preset catalog'],
   [
     '/v1/local/connections',
