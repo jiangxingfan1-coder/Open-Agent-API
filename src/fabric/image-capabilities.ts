@@ -10,6 +10,7 @@
  *   receive text only and are not listed, so images for them are refused before a run exists.
  */
 import type { WorkerConfig } from '../config/config.js';
+import path from 'node:path';
 import type { ExecutionCapabilities, WorkContext } from '../core/contracts.js';
 import type { ModelDriver } from '../providers/models.js';
 import { providerImageInput } from '../providers/image-wire.js';
@@ -49,9 +50,12 @@ export function imageNote(context: Pick<WorkContext, 'images'>): string {
 }
 
 /** The input of a workspace agent: the request, its image note, the input file list. */
-export function nativeInputText(input: string, context: WorkContext): string {
+export function nativeInputText(input: string, context: WorkContext, taskRoot?: string): string {
+  const absolute = (name: string) => (taskRoot ? path.join(taskRoot, name) : name);
   const inputPaths = context.files
-    .map((f) => f.workspacePath ?? `inputs/${f.id}/${f.name}`)
+    .map((f) => absolute(f.workspacePath ?? `inputs/${f.id}/${f.name}`))
     .join('\n');
+  if (taskRoot)
+    return `${input}${imageNote({ images: context.images?.map((i) => ({ ...i, workspacePath: absolute(i.workspacePath) })) })}\n\nAvailable task inputs:\n${inputPaths}\nPlace downloadable deliverables in ${JSON.stringify(path.join(taskRoot, 'outputs'))}. Do not copy credentials into outputs.`;
   return `${input}${imageNote(context)}\n\n${inputPaths ? `Available input files:\n${inputPaths}\n` : ''}Place any downloadable deliverables under the outputs/ directory of this task workspace. Do not copy credentials into outputs.`;
 }

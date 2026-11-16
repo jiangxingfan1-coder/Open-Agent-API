@@ -289,6 +289,8 @@ dialog {
 }
 .model-chip {
   display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
   align-items: stretch;
   border: 1px solid var(--border);
   border-radius: var(--r-pill);
@@ -306,7 +308,8 @@ dialog {
   transform: scale(0.97);
 }
 .model-chip button {
-  height: 30px;
+  min-height: 30px;
+  height: auto;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -315,10 +318,16 @@ dialog {
   font-weight: 500;
 }
 .model-chip .chip-main {
+  min-width: 0;
   gap: var(--s-1);
-  padding: 0 var(--s-3);
+  padding: 4px var(--s-3);
   font-family: var(--mono);
   font-size: var(--fs-sm);
+}
+.model-chip .chip-main > span:not(.model-glyph) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 .model-chip .chip-main svg {
   width: 13px;
@@ -327,6 +336,7 @@ dialog {
   fill: currentColor;
 }
 .model-chip .chip-remove {
+  flex-shrink: 0;
   width: 26px;
   padding: 0;
   margin-left: -6px;

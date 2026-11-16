@@ -944,6 +944,11 @@ Error codes and response shapes do not depend on language; only the text of `mes
 | `worker_required` | 409/400 | On one-step enablement, the configuration file has no local execution machine (`localWorker`); the command line also produces this code locally |
 | `check_unsupported` | 400 | Handshake checks apply only to ACP and A2A adapters |
 | `local_node_policy` | 409 | Remote credential controls cannot change the local worker |
+| `local_connection_unavailable` | 409 | Local client, publication policy or configuration location cannot be connected automatically |
+| `local_connection_conflict` | 409 | Client configuration changed, is locked, or the preview expired |
+| `local_connection_invalid` | 400 | Unsafe or invalid local client configuration; no overwrite |
+| `local_connection_not_found` | 404 | Local connection record not found |
+| `local_connection_failed` | 500 | Local connection write failed; its new key was revoked |
 | `node_not_found` | 404 | The node registration does not exist |
 | `node_exists` | 409 | This node ID is already registered |
 | `node_owner_conflict` | 409 | The node identity is held by another owner |

@@ -62,6 +62,10 @@ instead. Quit with ⌘Q and delete the temporary folder afterwards. What the iso
 
 ## Local development packaging vs release packaging
 
+Use `npm run package:mac -- --no-install` to stage a local development package without replacing installed applications or CLI links. Verify it before installing; this does not turn the development payload into a redistributable release package.
+
+When upgrading an installation whose adapters refer to its bundled Node, also pass `--node-dir <verified-runtime-directory>`. Local packaging then validates, copies and signs that runtime as well, preserving those paths without rewriting the user's configuration.
+
 | | Local development packaging | Release packaging |
 | --- | --- | --- |
 | Command | `npm run package:mac` / `package:win` / `package:all` (`all` = mac + win; the Linux package exists only in release mode) | `npm run package:release:mac -- --arch <arm64\|x64> --node-dir <dir> [--node-version <v>]`, `npm run package:release:win -- --node-dir <dir> --node-version <v>`, `npm run package:release:linux -- --arch <x64\|arm64> --node-dir <dir> [--node-version <v>]` |

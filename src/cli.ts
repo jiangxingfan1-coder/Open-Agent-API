@@ -87,6 +87,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       engine: { type: 'string' },
       id: { type: 'string' },
       models: { type: 'string' },
+      'if-absent': { type: 'boolean' },
       approvals: { type: 'string' },
       'public-url': { type: 'string' },
       detach: { type: 'boolean' },
@@ -368,7 +369,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       return;
     }
     const client = await GatewayClient.fromOptions(values.url, values['token-file']);
-    print(await client.request('POST', '/v1/agents/publish', bundle));
+    print(
+      await client.request('POST', '/v1/agents/publish', bundle, { ifAbsent: values['if-absent'] }),
+    );
     return;
   }
   const client = await GatewayClient.fromOptions(values.url, values['token-file']);

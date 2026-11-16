@@ -10,7 +10,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Auth } from './auth.js';
 import type { Principal } from '../core/contracts.js';
 import { Fault, noAgent } from '../core/util.js';
-import { claudeModelInfo, openaiModel } from './compat-models.js';
+import { claudeModelInfo, openaiModel, modelAliases } from './compat-models.js';
 
 const notFound = (req: FastifyRequest) =>
   new Fault(
@@ -118,13 +118,13 @@ export function registerGeminiModelRoutes(
   const find = (req: FastifyRequest) => {
     auth.require(req.principal, 'read');
     const id = decodeURIComponent(String((req.params as { '*': string })['*'] ?? ''));
-    const found = agents(req.principal).find((a) => a.id === id);
+    const found = modelAliases(agents(req.principal)).find((a) => a.id === id);
     if (!found) throw noAgent();
     return found;
   };
   app.get('/v1beta/models', async (req) => {
     auth.require(req.principal, 'read');
-    return geminiModelList(agents(req.principal));
+    return geminiModelList(modelAliases(agents(req.principal)));
   });
   app.get('/v1beta/models/*', async (req) => geminiModel(find(req)));
   // `GET /v1/models/{id}` is shared by three SDKs (agent ids contain a slash, which SDKs send

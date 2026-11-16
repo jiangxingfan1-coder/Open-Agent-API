@@ -15,6 +15,8 @@
 
 ## 我想调用智能体
 
+- 不手动复制密钥，把已发布智能体配入本机 DSH，并可预览和撤销：[本地互联](local-connections.md)
+
 - 用 OpenAI SDK 或 `oaa/1` 调用：[operations.md「发布与调用」](operations.md#发布与调用)
 - 支持的协议与字段、文件上传、流式、审批、恢复、取消：[protocol.md「Compatibility」](protocol.md#compatibility)、[「Execution and actions」](protocol.md#execution-and-actions)
 - 兼容入口的参数、错误形状、422 不重试与结束原因（`finish_reason`、`stop_reason` 等）：[protocol.md「兼容入口的参数、错误与结束原因」](protocol.md#兼容入口的参数错误与结束原因060)

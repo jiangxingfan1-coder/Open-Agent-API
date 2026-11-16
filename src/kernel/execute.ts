@@ -17,10 +17,11 @@ import type { ExecutionSlice } from './types.js';
 import { checkExecution } from './submission.js';
 import { autoApprove, awaitApproval, expireApprovals } from './approvals.js';
 import { abandonCallerTool, awaitCallerTool } from './client-tools.js';
-import { runModelTurn } from './model-turn.js';
-import { nativeStepId, runNativeAgent } from './native-turn.js';
+import { nativeStepId } from './native-turn.js';
+import { runAgentPass } from './agent-pass.js';
+import { orchestrationMode, runOrchestration } from './orchestration.js';
+import { ORCHESTRATION_PROFILES } from '../core/orchestration.js';
 import { settleStructuredOutput } from './structured-output.js';
-import { runToolPhase } from './tool-phase.js';
 import { imageDemand } from './images.js';
 import { releaseRun } from './lifecycle.js';
 
@@ -44,7 +45,15 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
       if (slice.progressed && rt.admission.queue.length) throw new SchedulingSuspension(approvals);
     },
   };
-  run.checkpoint.deadlineAt ??= Date.now() + agent.limits.timeoutMs;
+  const orchestration = orchestrationMode(run, agent);
+  run.checkpoint.deadlineAt ??=
+    Date.now() +
+    Math.min(
+      agent.limits.timeoutMs,
+      orchestration
+        ? (agent.orchestration?.timeoutMs ?? ORCHESTRATION_PROFILES[orchestration].timeoutMs)
+        : Infinity,
+    );
   let timedOut = Date.now() >= run.checkpoint.deadlineAt;
   if (timedOut) controller.abort();
   const timer = setTimeout(
@@ -96,7 +105,11 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
         return { decision: tooLarge.decision };
       }
       writer.flush();
-      if (external && agent.approvals === 'auto') return autoApprove(rt, run, event.data);
+      if (
+        external &&
+        (agent.access?.approval === 'auto' || (!agent.access && agent.approvals === 'auto'))
+      )
+        return autoApprove(rt, run, event.data);
       if (activeApprovals++ === 0) approvalStart = Date.now();
       try {
         return await awaitApproval(
@@ -156,8 +169,8 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
     let nativeInput: string | undefined;
     for (;;) {
       let answer: string;
-      if (agent.engine !== 'kernel') {
-        answer = await runNativeAgent(rt, run, bundle, agent, controller.signal, {
+      const pass = (input?: string) =>
+        runAgentPass(rt, run, bundle, controller.signal, slice, {
           emit,
           writer,
           approvalElapsed,
@@ -166,35 +179,20 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
           },
           failure: () => eventError,
           split: () => callerSplit,
-          input: nativeInput,
+          input,
+          timedOut: () => timedOut,
         });
-      } else {
-        while (run.checkpoint.phase !== 'done') {
-          checkAbort(controller.signal);
-          if (run.checkpoint.phase === 'model') {
-            await runModelTurn(rt, run, bundle, agent, controller.signal, slice, {
-              emit,
-              writer,
-              pending: (value) => {
-                modelPending = value;
-              },
-              failure: () => eventError,
-              timedOut: () => timedOut,
-            });
-          }
-          if (run.checkpoint.phase === 'tools') {
-            await runToolPhase(
-              rt,
-              run,
-              bundle,
-              agent.limits.toolConcurrency,
-              controller.signal,
-              slice,
-            );
-          }
+      if (orchestration && nativeInput === undefined) {
+        writer.hold(true);
+        answer = await runOrchestration(rt, run, bundle, controller.signal, slice, (input) =>
+          pass(input),
+        );
+        if (!run.checkpoint.outputContract) {
+          const finished = writer.publishFinalOnce(answer);
+          if (finished.length) rt.store.checkpoint(run, finished);
+          writer.close();
         }
-        answer = run.checkpoint.messages.findLast((m) => m.role === 'assistant')?.content ?? '';
-      }
+      } else answer = await pass(nativeInput);
       checkAbort(controller.signal);
       const settled = settleStructuredOutput(rt, run, agent, writer, answer);
       if (!settled.again) break;

@@ -35,7 +35,12 @@ const preview = (value: string, bytes: number) => {
   const text = textPrefix(value, bytes);
   return { text, truncated: text !== value };
 };
-function page<T>(rows: T[], offset: number, total: number, metadata: Record<string, unknown>) {
+export function page<T>(
+  rows: T[],
+  offset: number,
+  total: number,
+  metadata: Record<string, unknown>,
+) {
   const data: T[] = [];
   const result = () => ({
     ...metadata,
@@ -104,6 +109,14 @@ export function publicMetadata(agent: AgentDefinition, digest: string) {
     version: digest,
     description: agent.description,
     engine: agent.engine,
+    ...(agent.modelPolicy
+      ? {
+          model_policy: agent.modelPolicy,
+          models_endpoint: `/v1/agents/models?agent=${encodeURIComponent(agent.id)}`,
+        }
+      : {}),
+    ...(agent.access ? { access: agent.access } : {}),
+    ...(agent.orchestration ? { orchestration: agent.orchestration } : {}),
     toolkit_source: agent.engine === 'kernel' ? 'bundle' : 'native_host',
     routes: agent.routes.length
       ? agent.routes

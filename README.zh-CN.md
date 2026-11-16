@@ -198,7 +198,7 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 | 内置内核（OAA-Lang / JSON 定义） | 逐 token | 支持，工具声明需要审批时停车等待 | 支持 | 模型线路接受图片时支持 | 用你配置的模型提供方，可多线路与故障转移 |
 | Codex | 逐 token | 支持 | 不支持 | 原生支持（没有对真实智能体运行过） | 专用的 app-server 接入，支持会话续接 |
 | Claude Code | 按消息 | 支持 | 不支持 | 原生支持（没有对真实智能体运行过） | 官方 Agent SDK，使用单独安装的命令行与它自己的配置 |
-| Antigravity | 逐 token | 不支持：智能体自身拒绝时任务以 `permission_denied` 失败 | 不支持 | 作为工作区里的文件 | `stream-json` 接入，是目前唯一做过真实验证的外部智能体 |
+| Antigravity | 逐 token | 新审批策略经 ACP 转交；旧 headless 拒绝仍视为失败 | 已确认 ACP 入口支持混合桥接，不是仅客户端模式 | ACP 按智能体声明；其余作为工作区文件 | 真实模型发现，按能力选择传输路径 |
 | ACP 智能体 | 逐 token | 支持（只选 `allow_once`） | 支持 | 智能体声明支持时用 ACP 图片块，否则作为文件 | [Agent Client Protocol](https://agentclientprotocol.com)，内置了常见 ACP 智能体的接入预设 |
 | 自写适配器（`oaa/1` stdio、`oaa/1-stream`、HTTP） | 取决于所选形式 | `oaa/1-stream` 支持 | 不支持 | stdio：作为文件；HTTP：不支持 | 给没有现成接入的智能体包一层 |
 | A2A 远程智能体 | 支持（SSE） | 不桥接：`input-required` 以智能体的问题结束本轮 | 不支持 | 不支持 | 经 `contextId` 续接同一任务 |
@@ -302,7 +302,7 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 
 **真实智能体验证**
 
-- 经过真实验证的只有 Antigravity：一次端到端验证（2026-11-13）共 12 次真实调用，通过了 OpenAI Chat 非流式与流式、Responses 续接、Claude Messages、Gemini `generateContent`、取消与并发。这只验证了那一条本地线路和那一个引擎；审批与调用方工具桥接在 Antigravity 下不支持。验证脚本是 [examples/live-agents-acceptance.ts](examples/live-agents-acceptance.ts)，`oaa verify` 在你的机器上运行同一批场景。
+- 历史上的 Antigravity 验证（2026-11-13，12 次调用）覆盖了一条本地线路的 OpenAI Chat、Responses 续接、Claude Messages、Gemini、取消与并发，没有覆盖新增的 ACP 审批与调用方工具路径。当前能力和限制见 [harness.md](docs/harness.md)；模型发现不代表账号权限或任务成功。`oaa verify` 使用 [examples/live-agents-acceptance.ts](examples/live-agents-acceptance.ts) 中的场景。
 - Codex、Claude Code、内置智能体搭配真实模型提供方（包括 `oaa connect` 的预设）、公网部署，**尚未**做过这样的端到端验证。向 Codex 与 Claude Code 交付图片是按厂商文档实现的，没有对真实智能体运行过。[docs/zh-CN/evidence.md](docs/zh-CN/evidence.md) 记录了更早的一次手工联调：它的结论是 Codex 的一次托管调用通过，Claude Code 因命令行未登录而失败，之后代码有过改动，没有复测。如果你装了 Codex 或 Claude Code，运行 `oaa verify` 并用[智能体验证报告](https://github.com/jiangxingfan1-coder/Open-Agent-API/issues/new/choose)模板把报告发给我们，是最有用的帮助。
 
 **安装与平台**

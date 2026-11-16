@@ -189,7 +189,7 @@ export const zh = {
   'html.publish.autoApproveNote':
     '开启后，这个智能体执行命令、修改文件前不再等你批准，调用方拿到的就是它直接执行的结果。它能做的事和你在这台电脑上直接用这个软件时一样，请只对你信任的调用方开放。',
   'html.publish.externalNote':
-    '通过外部智能体（自带工具与模型的第三方智能体，如 Codex、Claude Code）运行的智能体，能做的事和你在电脑上直接用这个软件时一样，这里不会额外限制，也不会做安全隔离。',
+    '外部智能体使用本机账号与工具。发布权限控制请求和审批，但不等于操作系统沙箱；请只向可信调用方开放。',
   'html.publish.oaaSource': '声明式 <code>.oaa</code> 源码',
   'html.publish.oaaProvider': '模型提供方',
   'html.publish.oaaVerify': '格式化并校验',

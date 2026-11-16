@@ -57,6 +57,7 @@
             ><small id="node-count"></small
           ></a>
           <div class="nav-label" data-i18n="view.group.connect"></div>
+          <a href="#connections" data-view="connections"><i data-lucide="cable"></i><span data-i18n="view.connections.title"></span></a>
           <a href="#access" data-view="access"
             ><i data-lucide="plug"></i><span data-i18n="view.access.title"></span
           ></a>
@@ -258,6 +259,9 @@
               </button>
             </div>
             <input id="native-models" type="hidden" value="default" />
+            <div class="field-row"><small id="model-source-status" role="status"></small><button id="model-refresh" type="button" class="subtle small-btn" data-i18n-attr="title:models.refresh;aria-label:models.refresh"><i data-lucide="refresh-cw"></i></button></div>
+            <label class="inline-check"><input id="model-follow" type="checkbox" checked /><span data-i18n="models.follow"></span></label>
+            <label class="inline-check"><input id="model-restrict" type="checkbox" /><span data-i18n="models.restrict"></span></label>
           </div>
           <div>
             <label class="inline-check"
@@ -277,6 +281,13 @@
             <i data-lucide="shield-alert"></i
             ><span data-i18n="html.publish.autoApproveNote"></span>
           </p>
+          <label class="field"><span data-i18n="access.mode"></span><select id="publish-tool-boundary"><option value="managed" data-i18n="access.managed"></option><option value="client" data-i18n="access.client"></option><option value="hybrid" data-i18n="access.hybrid"></option></select></label>
+          <label class="field"><span data-i18n="access.approver"></span><select id="publish-approver"><option value="owner" data-i18n="access.owner"></option><option value="caller" data-i18n="access.caller"></option><option value="native" data-i18n="access.native"></option></select></label>
+          <small data-i18n="access.private"></small>
+          <label class="inline-check"><input id="publish-project-use" type="checkbox" /><span data-i18n="workspace.use"></span></label>
+          <div id="publish-project-fields" hidden><label class="field"><span data-i18n="workspace.path"></span><input id="publish-project-path" type="text" autocomplete="off" spellcheck="false" /></label><button id="publish-project-bind" type="button" class="subtle small-btn"><i data-lucide="folder-check"></i><span data-i18n="workspace.bind"></span></button></div>
+          <label class="inline-check"><input id="publish-orchestrate" type="checkbox" checked /><span data-i18n="orchestration.enabled"></span></label>
+          <label class="field"><span data-i18n="orchestration.helpers"></span><select id="publish-helpers" multiple size="3"></select></label>
           <p class="callout">
             <i data-lucide="shield-alert"></i
             ><span data-i18n="html.publish.externalNote"></span>
@@ -377,6 +388,8 @@
             </p>
           </section>
           <section class="key-section" id="key-model-section">
+            <label class="field"><span data-i18n="access.audience"></span><select id="key-audience"><option value="private" data-i18n="access.personal_key"></option><option value="external" data-i18n="access.external_key"></option></select></label>
+            <label class="field"><span data-i18n="access.mode"></span><select id="key-tool-boundary"><option value="managed" data-i18n="access.managed"></option><option value="client" data-i18n="access.client"></option><option value="hybrid" data-i18n="access.hybrid"></option></select></label>
             <div class="key-section-head">
               <span class="step-num">2</span>
               <strong data-i18n="html.key.defaultModel"></strong>

@@ -132,7 +132,11 @@ export async function runModelTurn(
         'Required execution capabilities are no longer available. Inspect node placement before resuming.',
         503,
       );
-    run.checkpoint.offeredTools = availability.toolNames;
+    run.checkpoint.offeredTools =
+      run.metadata['oaa.tool_boundary'] === 'client' ||
+      run.metadata['oaa.tools_disabled'] === 'true'
+        ? []
+        : availability.toolNames;
     // Model-turn boundaries ride in checkpoints that are written anyway (no extra events).
     mark = {
       turn: run.checkpoint.turn + 1,
@@ -173,7 +177,15 @@ export async function runModelTurn(
       work = await rt.hub.execute(
         {
           kind: 'model',
-          ...clientTools.withClientBindings(agent, availability.toolNames, run.checkpoint.bridge),
+          ...clientTools.withClientBindings(
+            agent,
+            run.checkpoint.offeredTools,
+            run.checkpoint.bridge,
+          ),
+          ...(run.metadata['oaa.tool_boundary'] === 'client' ||
+          run.metadata['oaa.tools_disabled'] === 'true'
+            ? { toolBoundary: 'client' as const }
+            : {}),
           ...(outputCap < agent.limits.maxOutputTokens ? { maxOutputTokens: outputCap } : {}),
           messages,
           context,

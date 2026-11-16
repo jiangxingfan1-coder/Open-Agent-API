@@ -20,6 +20,9 @@ export type PlacementCode =
   | 'native_disabled'
   | 'native_model_unsupported'
   | 'native_model_unreported'
+  | 'agent_policy_unreported'
+  | 'project_workspace_unavailable'
+  | 'tool_free_reasoning_unsupported'
   | 'capability_scope'
   | 'host_binding'
   | 'capability_unavailable'
@@ -94,6 +97,42 @@ export function modelPlacement(
   const reasons = commonPlacement(request, node);
   const a = request.agent;
   const advert = node.advertisement;
+  if (
+    a.engine === 'antigravity' &&
+    a.access &&
+    a.access.approval !== 'native' &&
+    !advert.execution?.clientTools?.native.includes('antigravity')
+  )
+    reasons.push(
+      reason(
+        'client_tools_unsupported',
+        'This Antigravity approval policy requires verified ACP support.',
+      ),
+    );
+  if (
+    a.access?.workspace === 'project' &&
+    (!advert.execution?.projectWorkspaces?.includes(a.id) ||
+      !advert.execution?.projectEngines?.includes(a.engine))
+  )
+    reasons.push(
+      reason(
+        'project_workspace_unavailable',
+        'This node has no publisher-bound local project for this agent.',
+      ),
+    );
+  if (
+    (a.access ||
+      a.orchestration ||
+      a.modelPolicy ||
+      a.routes.some((r) => r.qualityTier !== undefined)) &&
+    advert.execution?.agentPolicyVersion !== 1
+  )
+    reasons.push(
+      reason(
+        'agent_policy_unreported',
+        'This worker has not negotiated agent-policy-v1 for the publication.',
+      ),
+    );
   if (request.images && !imagesSupported(advert, a, request.images))
     reasons.push(
       reason(
@@ -150,6 +189,15 @@ export function modelPlacement(
         ),
       );
     if (advert.natives.includes(a.engine)) {
+      if (
+        a.modelPolicy?.mode === 'discover' &&
+        a.model !== 'default' &&
+        !a.routes.some((r) => r.model === a.model && !r.discovered) &&
+        !advert.execution?.modelCatalogs?.[a.engine]?.models.some((m) => m.id === a.model)
+      )
+        reasons.push(
+          reason('native_model_unreported', 'This worker has not discovered the selected model.'),
+        );
       const models = advert.execution?.nativeModels[a.engine];
       if (models?.mode === 'allowlist' && !models.models.includes(a.model))
         reasons.push(
@@ -244,6 +292,17 @@ export function workPlacement(
       (work.kind === 'model' && work.agent.tools.length > agent.tools.length),
     images: workImageDemand(work),
   };
+  if (
+    work.kind === 'native' &&
+    work.toolsDisabled &&
+    !node.advertisement.execution?.toolFreeReasoning?.includes(work.agent.engine)
+  )
+    return [
+      reason(
+        'tool_free_reasoning_unsupported',
+        'This worker cannot enforce tool-free reasoning for this engine.',
+      ),
+    ];
   return work.kind === 'tool'
     ? toolPlacement(request, node, work.binding)
     : modelPlacement(request, node, work.kind === 'model' ? work.toolNames : undefined);

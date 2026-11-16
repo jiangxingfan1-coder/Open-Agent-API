@@ -19,6 +19,7 @@ export interface CompiledRoute {
   tags?: string[];
   costTier?: number;
   speedTier?: number;
+  qualityTier?: number;
 }
 
 /**
@@ -80,9 +81,10 @@ export function parseRoute(ctx: ParseContext, kw: Token, state: AgentState): voi
       routeProvider = firstPart;
       routeModel = ctx.readValueText('model name');
     }
-    let priority = routes.length;
+    let priority = Math.min(routes.length, 100);
     let costTier: number | undefined;
     let speedTier: number | undefined;
+    let qualityTier: number | undefined;
     let tags: string[] | undefined;
 
     while (
@@ -95,6 +97,8 @@ export function parseRoute(ctx: ParseContext, kw: Token, state: AgentState): voi
         'speed',
         'speed_tier',
         'speedTier',
+        'quality',
+        'qualityTier',
         'tags',
       ].includes(ctx.peek().value) &&
       ctx.peek(1).type === 'EQ'
@@ -109,6 +113,7 @@ export function parseRoute(ctx: ParseContext, kw: Token, state: AgentState): voi
         costTier = Number(val);
       else if (attr === 'speed' || attr === 'speed_tier' || attr === 'speedTier')
         speedTier = Number(val);
+      else if (attr === 'quality' || attr === 'qualityTier') qualityTier = Number(val);
       else if (attr === 'tags' && Array.isArray(val)) tags = val.map(String);
     }
     if (
@@ -129,6 +134,7 @@ export function parseRoute(ctx: ParseContext, kw: Token, state: AgentState): voi
       ...(tags ? { tags } : {}),
       ...(costTier !== undefined ? { costTier } : {}),
       ...(speedTier !== undefined ? { speedTier } : {}),
+      ...(qualityTier !== undefined ? { qualityTier } : {}),
     };
     routes.push(route);
     if (routeProvider === undefined) state.pendingProvider.push(route);
@@ -151,6 +157,8 @@ export function parseRoute(ctx: ParseContext, kw: Token, state: AgentState): voi
         'speed',
         'speedTier',
         'speed_tier',
+        'quality',
+        'qualityTier',
       ],
       kw,
     );
@@ -158,7 +166,8 @@ export function parseRoute(ctx: ParseContext, kw: Token, state: AgentState): voi
       id: routeId,
       provider: block.provider !== undefined ? String(block.provider) : '',
       model: String(block.model ?? routeId),
-      priority: block.priority !== undefined ? Number(block.priority) : routes.length,
+      priority:
+        block.priority !== undefined ? Number(block.priority) : Math.min(routes.length, 100),
       ...(Array.isArray(block.tags) ? { tags: block.tags.map(String) } : {}),
       ...(block.cost !== undefined || block.costTier !== undefined || block.cost_tier !== undefined
         ? { costTier: Number(block.cost ?? block.costTier ?? block.cost_tier) }
@@ -167,6 +176,9 @@ export function parseRoute(ctx: ParseContext, kw: Token, state: AgentState): voi
       block.speedTier !== undefined ||
       block.speed_tier !== undefined
         ? { speedTier: Number(block.speed ?? block.speedTier ?? block.speed_tier) }
+        : {}),
+      ...(block.quality !== undefined || block.qualityTier !== undefined
+        ? { qualityTier: Number(block.quality ?? block.qualityTier) }
         : {}),
     };
     routes.push(route);

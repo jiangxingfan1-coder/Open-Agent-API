@@ -23,6 +23,18 @@ OAA 内核（准入、身份、持久化、审批、事件）
 
 ## 各种模式
 
+### 明确执行边界
+
+新发布可声明 `access.modes`、`defaultMode`、`approval` 与 `trust`。密钥里保存的接入默认值让普通客户端只填标准 `/v1` 地址即可使用，不需要额外请求头。`X-OAA-Tool-Boundary` 或 `metadata["oaa.tool_boundary"]` 可显式选择 `managed`（服务端工具）、`client`（仅客户端工具）、`hybrid`（两端工具）。执行前同时检查发布和密钥授权；不支持的边界明确失败，不静默回退。等待中的调用方工具必须先完成或取消，才能更换模型或执行位置。
+
+目前内核智能体能强制执行仅客户端工具模式；不能保证这一点的外部智能体会被拒绝。混合桥接**不代表外部智能体自己的工具被禁用**。Antigravity 可通过已验证的 `agy acp` 入口桥接；即使 ACP 同时提供模型族配置，CLI 的完整模型标识仍可选择。新的 Antigravity 审批策略走 ACP，存量发布保留原 headless 路径。
+
+审批策略为 `auto`、`caller`、`owner`。调用方审批需要 approve scope，不能扩大执行上限；只有 approve scope 的调用方不能解决发布者专属审批。`native` 表示适配器无法转交审批，遵循其原生规则，界面禁用不支持的审批控件。私有发布不能被开发者平台的外部调用者使用，委派也不能绕过。隔离原生执行需要经过验证的沙箱，任务目录不算沙箱。
+
+所有者管理员通过 `POST /v1/local/projects` 的 `{agent,path}` 绑定已存在的本机项目，`path:null` 解除绑定。该智能体有排队、运行或待审批任务时不能更改绑定。`access.workspace:"project"` 仅限本人可信使用：本机原生进程以绑定项目为工作目录，上传输入和可下载产物仍放在独立任务目录。同目录的原生执行串行化。调用方目录不暴露项目路径，目录绑定明确**不是 OS 沙箱**；远程 HTTP/A2A 适配器不能使用本机项目工作目录。
+
+发现、模型选择和多模型执行见 [models.md](models.md#智能体模型目录与编排)。下文旧工具模式请求头继续兼容现有接入。
+
 | 模式 | 含义 | 谁执行工具 | 适用场景 |
 | --- | --- | --- | --- |
 | `auto` 自动（默认） | 知道是哪个智能体之后由网关决定：智能体能接管调用方的工具就按 `bridge`，否则做该入口原来做的事（见「auto 怎么判定」） | 取决于它选的模式 | 几乎总是：调用方不用知道名字背后是哪一类智能体 |
@@ -39,7 +51,7 @@ OAA 内核（准入、身份、持久化、审批、事件）
 1. 智能体能接管工具（内核智能体，或有在线执行机器为它声明了 `client-tools-v1` 的 ACP 智能体），工具都是普通函数、名字与智能体自己的不重名，且没有强制工具选择：请求按 `bridge` 处理。响应带 `X-OAA-Client-Tools: bridge`；智能体的调用以 `tool_calls` / `function_call` / `tool_use` / `functionCall` 交回。
 2. 其它情况得到该入口原来的行为。OpenAI 默认端点（不带 `X-OAA-Compat` 的 `/v1/chat/completions`、`/v1/responses`）返回 400 `unsupported_parameter`（`error.param` 是 `tools`）：信息说明这个智能体接管不了你的工具、原因是什么（自己跑工具循环的原生引擎、没有为调用方工具声明支持的执行机器、名字重名、工具不是函数、强制了工具选择），并写明三条出路：Base URL 用 `<origin>/v1/compat`、`X-OAA-Compat: true`、`X-OAA-Client-Tools: managed`。兼容端点、Claude Messages 与 Gemini 照旧按 `managed`（智能体用自己的工具完成；`X-OAA-Client-Tools: ignored`）。
 
-所以变化的只有两种情况：对能桥接的智能体的请求现在会桥接（在 OpenAI 默认端点上以前是 400，其它入口以前是 `managed`）。不能桥接的智能体（Codex、Claude Code、Antigravity、A2A、HTTP 适配器）在每个入口上与以前完全一样。强制的工具选择网关和上游模型都没法保证做到，所以它从不桥接；默认端点拒绝强制的 `tool_choice`（`unsupported_parameter`，`error.param` 是 `tool_choice`），其余入口照旧忽略。桥接回合里外部智能体自己的权限请求怎么放行不变（见「外部智能体的桥接是怎么工作的」）：`auto` 不会放宽自动放行的范围。
+旧接入继续保留上述自动选择规则。Codex、Claude Code、A2A 和 HTTP 原生／适配器入口仍仅托管；Antigravity 另有按能力检查的 ACP 路径。外部智能体不能保证强制工具选择。选择 auto 不会增加审批权限，新发布与密钥策略按前文优先约束。
 
 只有请求里的 `tools` 是**非空数组**时才会按模式处理。没有 `tools`、或者 `tools: []`，行为与以前完全相同，模式请求头也不起作用。
 
@@ -106,7 +118,8 @@ Responses（`/v1/compat/responses`）与 Gemini（`tools[].functionDeclarations`
 | --- | --- | --- | --- |
 | 内置内核智能体（`engine: kernel`） | 支持 | 支持 | 支持 ✓（Chat、Responses、Claude Messages） |
 | ACP 外部智能体（`adapter/<name>`，`transport: "acp"`） | 支持 | 支持 | 支持 ✓（经 MCP 中继，见下文「外部智能体的桥接是怎么工作的」） |
-| Codex / Claude Code / Antigravity / DSH | 支持 | 支持 | 仅托管：报 `client_tools_bridge_unsupported` |
+| 已确认 `agy acp` 能力的 Antigravity | 支持 | 支持 | 经 ACP 混合桥接调用方工具 |
+| Codex / Claude Code / DSH 原生入口 | 支持 | 支持 | 仅托管：报 `client_tools_bridge_unsupported` |
 | A2A / oaa-1 HTTP 适配器 | 支持 | 支持 | 仅托管：报 `client_tools_bridge_unsupported` |
 
 桥接运行只会放到在握手里声明了 `client-tools-v1`、且对这个引擎声明了支持的执行机器上（内置执行机器总是声明 `kernel` 与已启用的 ACP 适配器）；没有这样的机器时，提交阶段就报 `client_tools_bridge_unsupported`（400），不会建运行。0.2.0 的旧版远程执行机器不声明这个特性，因此不会收到桥接任务（以前是到执行时才报 `manifest_mismatch`）。
@@ -248,7 +261,7 @@ ACP 外部智能体有自己的工具循环，OAA 插不进去。但 ACP 建会�
 - 智能体自己的 MCP 调用超时（例如 MCP SDK 默认 60 秒）可能比 `approvalTimeoutMs` 短：调用方回传太慢时，智能体可能先放弃这次调用。
   - **保活**：等待调用方期间，中继对请求里带了 `_meta.progressToken` 的 `tools/call` 每 15 秒发一次 `notifications/progress`（`progress` 递增，`message` 说明在等调用方；间隔可用 `oaa mcp-relay --progress-interval-ms` 或环境变量 `OAA_MCP_RELAY_PROGRESS_MS` 调整）。没带令牌时不发。这**不保证**能延长超时：要智能体的 MCP 客户端启用了「收到进度即重置超时」（MCP SDK 的 `resetTimeoutOnProgress`），而且它确实给了 progressToken。建议把网关的 `approvalTimeoutMs` 与智能体的 MCP 请求超时对齐（不长于后者），或把智能体的 MCP 超时调大。
   - **放弃后的收尾**：智能体放弃调用时如果关掉了中继（关闭 MCP 服务，或超时后重启服务），中继到执行机器的套接字会断开；仍在等待的调用随即以 `client_tool_abandoned` 结束：对应步骤失败、待办标为过期，运行不因此失败（智能体还在继续），没有其它待办时状态回到 `in_progress`。之后再回传这个 `call_id` 不会续接，按新请求处理。智能体只是让请求超时、却不关闭中继时，这次调用仍会挂到 `approvalTimeoutMs`，以 `client_tool_timeout` 结束运行。
-- 只支持 ACP 接入；Codex、Claude Code、Antigravity、DSH、A2A 与 oaa-1 适配器仍是仅托管。
+- 桥接使用 ACP，包括 Antigravity 原生入口中已验证的 ACP 路径。Codex、Claude Code、DSH、A2A 与 oaa-1 原生／适配器入口仍为托管；单独接入并支持的 ACP 适配器除外。
 
 ## 路线
 

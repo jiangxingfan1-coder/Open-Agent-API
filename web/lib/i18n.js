@@ -6,6 +6,10 @@ import { zh as platformZh } from './messages-platform-zh.js';
 import { en as platformEn } from './messages-platform-en.js';
 import { zh as dialogsZh } from './messages-dialogs-zh.js';
 import { en as dialogsEn } from './messages-dialogs-en.js';
+import { zh as modelsZh } from './messages-models-zh.js';
+import { en as modelsEn } from './messages-models-en.js';
+import { zh as connectionsZh } from './messages-connections-zh.js';
+import { en as connectionsEn } from './messages-connections-en.js';
 
 // Console i18n. Chinese is the default; a browser that does not prefer Chinese starts in
 // English. Switching the language saves the choice and reloads the page, so any module may call
@@ -18,8 +22,8 @@ import { en as dialogsEn } from './messages-dialogs-en.js';
 // platform, dialogs): the gateway serves only flat web/lib/<name>.js files, not a subdirectory.
 export const LANG_KEY = 'oaa.console.lang';
 const DICT = {
-  zh: { ...coreZh, ...viewsZh, ...platformZh, ...dialogsZh },
-  en: { ...coreEn, ...viewsEn, ...platformEn, ...dialogsEn },
+  zh: { ...coreZh, ...viewsZh, ...platformZh, ...dialogsZh, ...modelsZh, ...connectionsZh },
+  en: { ...coreEn, ...viewsEn, ...platformEn, ...dialogsEn, ...modelsEn, ...connectionsEn },
 };
 
 function initialLang() {

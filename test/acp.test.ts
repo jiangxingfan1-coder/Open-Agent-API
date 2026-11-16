@@ -631,6 +631,24 @@ test('discovery finds installed ACP executables by name only and init records th
   }
 });
 
+test('package-backed ACP presets discover real binary names without npx arguments', async () => {
+  const { root, bin } = await fakeBinaries(['pi-acp', 'deepagents-acp', 'mcode', 'glm-acp-agent']);
+  try {
+    const found = new Map((await discoverAcpAgents(bin)).map((item) => [item.preset.id, item]));
+    for (const [preset, binary, args] of [
+      ['pi-acp', 'pi-acp', []],
+      ['deepagents', 'deepagents-acp', []],
+      ['minimax-code', 'mcode', ['acp']],
+      ['glm', 'glm-acp-agent', []],
+    ] as const) {
+      assert.equal(found.get(preset)?.executable, path.join(bin, binary));
+      assert.deepEqual(found.get(preset)?.args, [...args]);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('oaa doctor --write appends discovered ACP agents disabled and is idempotent', async () => {
   const { root, bin } = await fakeBinaries(['kimi', 'goose']);
   const original = process.env.PATH;

@@ -393,7 +393,7 @@ extension AppDelegate {
             for (rel, agent) in examples {
                 let full = (self.appRootDir as NSString).appendingPathComponent(rel)
                 if fm.fileExists(atPath: full),
-                    self.runCliSync(["publish", full, "--url", url, "--token-file", tokenFile], env: env) == 0
+                    self.runCliSync(["publish", full, "--if-absent", "--url", url, "--token-file", tokenFile], env: env) == 0
                 {
                     published.append(agent)
                 }

@@ -21,7 +21,7 @@ const nativeFull = path.resolve('test/fixtures/native-full.mjs');
 const CODEX_FIXTURE = `
 import readline from 'node:readline';
 import { appendFileSync } from 'node:fs';
-const out = (v) => process.stdout.write(JSON.stringify(v) + '\\n');
+const out = (v) => { if (v.method) v.params = {threadId: 'th', turnId: 't', ...v.params}; process.stdout.write(JSON.stringify(v) + '\\n'); };
 const log = (l) => appendFileSync('.intake-codex.log', l + '\\n');
 let seq = 1000;
 const waiting = new Map();
@@ -32,7 +32,7 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
   const msg = JSON.parse(line);
   if (msg.method === undefined && waiting.has(msg.id)) { waiting.get(msg.id)(msg.result); waiting.delete(msg.id); return; }
   if (msg.method === 'initialize') return out({ id: msg.id, result: {} });
-  if (msg.method === 'thread/start') return out({ id: msg.id, result: { thread: { id: 'th' } } });
+  if (msg.method === 'thread/start') return out({ id: msg.id, result: { thread: { id: 'th' }, model: msg.params.model ?? 'default' } });
   if (msg.method !== 'turn/start') return;
   out({ id: msg.id, result: { turn: { id: 't', status: 'inProgress' } } });
   const text = msg.params.input.map((p) => p.text).join('');

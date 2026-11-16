@@ -11,6 +11,9 @@ export type Negotiated = {
   providerState?: boolean;
   clientTools?: boolean;
   imageInput?: boolean;
+  modelCatalogs?: boolean;
+  agentPolicy?: boolean;
+  toolFreeReasoning?: boolean;
 };
 export const NO_NEGOTIATION = {
   byok: false,
@@ -18,6 +21,9 @@ export const NO_NEGOTIATION = {
   providerState: false,
   clientTools: false,
   imageInput: false,
+  modelCatalogs: false,
+  agentPolicy: false,
+  toolFreeReasoning: false,
 };
 
 export function advertisedExecution(
@@ -25,8 +31,19 @@ export function advertisedExecution(
   negotiated: Negotiated,
 ): NodeAdvertisement['execution'] {
   if (!execution) return execution;
-  const { byokProviders, sandbox, providerStateProviders, clientTools, imageInput, ...legacy } =
-    execution;
+  const {
+    byokProviders,
+    sandbox,
+    providerStateProviders,
+    clientTools,
+    imageInput,
+    modelCatalogs,
+    agentPolicyVersion,
+    projectWorkspaces,
+    projectEngines,
+    toolFreeReasoning,
+    ...legacy
+  } = execution;
   return {
     ...legacy,
     ...(negotiated.clientTools && clientTools ? { clientTools } : {}),
@@ -34,5 +51,10 @@ export function advertisedExecution(
     ...(negotiated.sandbox && sandbox ? { sandbox } : {}),
     ...(negotiated.providerState && providerStateProviders ? { providerStateProviders } : {}),
     ...(negotiated.imageInput && imageInput ? { imageInput } : {}),
+    ...(negotiated.modelCatalogs && modelCatalogs ? { modelCatalogs } : {}),
+    ...(negotiated.agentPolicy && agentPolicyVersion ? { agentPolicyVersion } : {}),
+    ...(negotiated.agentPolicy && projectWorkspaces ? { projectWorkspaces } : {}),
+    ...(negotiated.agentPolicy && projectEngines ? { projectEngines } : {}),
+    ...(negotiated.toolFreeReasoning && toolFreeReasoning ? { toolFreeReasoning } : {}),
   };
 }

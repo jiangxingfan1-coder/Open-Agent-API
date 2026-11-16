@@ -2,6 +2,7 @@ import { state } from './state.js';
 import { t } from './i18n.js';
 import { LOCAL_ERROR_TEXT, errorText } from './api.js';
 import { buildTable } from '../shared/table.js';
+import { modelBrand } from './model-brand.js';
 import {
   AGENT_ICONS,
   AGENT_MONO_ICONS,
@@ -79,6 +80,25 @@ export function agentGlyph(engine, size = '', preset) {
     if (AGENT_MONO_ICONS.has(key)) box.classList.add('mono');
     box.append(img);
   } else box.append(initials(engine));
+  return box;
+}
+export function modelGlyph(model, displayName = model) {
+  const key = modelBrand(model) ?? modelBrand(displayName);
+  const box = el('span', undefined, 'model-glyph');
+  box.setAttribute('aria-hidden', 'true');
+  if (!key) box.append(icon('cpu'));
+  else {
+    const img = new Image();
+    img.alt = '';
+    img.decoding = 'async';
+    img.src = `/agents/model-${key}.svg`;
+    if (['openai', 'grok', 'zai'].includes(key)) box.classList.add('mono');
+    img.onerror = () => {
+      box.replaceChildren(icon('cpu'));
+      icons();
+    };
+    box.append(img);
+  }
   return box;
 }
 export function toast(message) {

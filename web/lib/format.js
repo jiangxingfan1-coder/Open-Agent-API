@@ -41,6 +41,11 @@ export const VIEWS = {
     group: t('view.group.connect'),
     desc: t('view.access.desc'),
   },
+  connections: {
+    title: t('view.connections.title'),
+    group: t('view.group.connect'),
+    desc: t('view.connections.desc'),
+  },
   keys: {
     title: t('view.keys.title'),
     group: t('view.group.connect'),
@@ -63,6 +68,7 @@ export const VIEW_ICONS = {
   requests: 'activity',
   nodes: 'server',
   access: 'plug',
+  connections: 'cable',
   keys: 'key-round',
   platform: 'store',
   settings: 'settings',
@@ -95,7 +101,27 @@ export const AGENT_ICONS = new Set(
   ),
 );
 // Marks drawn in near-black only: inverted on the dark themes so they stay visible.
-export const AGENT_MONO_ICONS = new Set(['cursor', 'opencode']);
+export const AGENT_MONO_ICONS = new Set([
+  'auggie',
+  'factory-droid',
+  'deepagents',
+  'cursor',
+  'opencode',
+  'opencode-acp',
+  'codex',
+  'codex-acp',
+  'copilot',
+  'cline',
+  'goose',
+  'grok',
+  'grok-build',
+  'grok-build-acp',
+  'glm',
+  'kilo',
+  'pi',
+  'pi-acp',
+  'hermes',
+]);
 export const ENGINE_ALIASES = { dsh: 'deepseek-harness' };
 export const AGENT_NAMES = {
   kernel: t('agent.kernel'),
@@ -198,6 +224,10 @@ export const STRATEGY_PROFILES = { auto: 'auto', speed: '@fast', quality: '@best
 // Names for capabilities a gateway advertises in GET /health `features` (src/gateway/server.ts
 // GATEWAY_FEATURES, plus platform-v1 when the developer platform is on).
 const FEATURE_LABELS = {
+  'local-connections-v1': t('feature.local-connections-v1'),
+  'agent-orchestration-v1': t('feature.agent-orchestration-v1'),
+  'agent-policy-v1': t('feature.agent-policy-v1'),
+  'model-catalog-v1': t('feature.model-catalog-v1'),
   'a2a-adapters-v1': t('feature.a2a-adapters-v1'),
   'acp-adapters-v1': t('feature.acp-adapters-v1'),
   'adapter-stream-v1': t('feature.adapter-stream-v1'),

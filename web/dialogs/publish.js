@@ -3,6 +3,7 @@ import { NATIVE_RUNTIMES, engineKey, engineName } from '../lib/format.js';
 import {
   $,
   agentGlyph,
+  modelGlyph,
   confirmAction,
   el,
   icon,
@@ -15,15 +16,17 @@ import { api } from '../lib/api.js';
 import { load } from '../lib/live.js';
 import { openKeyDialog } from './key.js';
 import { t } from '../lib/i18n.js';
+import {
+  catalogFor,
+  refreshModels,
+  renderCatalogStatus,
+  bindModelRefresh,
+} from './model-discovery.js';
+import { renderPublishToolModes } from './access-options.js';
+import { openProjectOptions, projectWorkspaceSelection } from './project-workspace.js';
 
 /* ── Publish ─────────────────────────────────────────── */
 $('primary-action').onclick = () => (state.view === 'keys' ? openKeyDialog() : openPublish());
-// Starting points for the model picker. They are hints only: any model name can be added, and
-// models already published for the same runtime (or a node's declared overrides) are merged in.
-export const MODEL_SUGGESTIONS = {
-  codex: ['gpt-5-codex', 'gpt-5'],
-  claude: ['sonnet', 'opus', 'haiku'],
-};
 export const publishDraft = { models: ['default'], custom: [] };
 export function runtimeChoices() {
   const listed = (state.backends ?? []).filter((b) => b.engine);
@@ -41,8 +44,10 @@ export function runtimeChoices() {
   return [...choices.filter((c) => c.publishable), ...choices.filter((c) => !c.publishable)];
 }
 export function markRuntime(engine) {
-  for (const option of $('runtime-picker').querySelectorAll('.runtime-option'))
+  for (const option of $('runtime-picker').querySelectorAll('.runtime-option')) {
     option.classList.toggle('selected', option.dataset.engine === engine);
+    option.querySelector('input').checked = option.dataset.engine === engine;
+  }
 }
 export function selectRuntime(engine) {
   const changed = $('native-engine').value !== engine;
@@ -53,6 +58,7 @@ export function selectRuntime(engine) {
   markRuntime(engine);
   renderModelPicker();
   updateIdHint();
+  if (isNodeAdmin()) void refreshModels(engine, renderModelPicker);
 }
 export function renderRuntimePicker() {
   const picker = $('runtime-picker');
@@ -93,6 +99,7 @@ export function renderRuntimePicker() {
   if (valid) {
     markRuntime(current);
     renderModelPicker();
+    if (isNodeAdmin()) void refreshModels(current, renderModelPicker);
   } else selectRuntime('codex');
 }
 export function publishModelChoices(engine) {
@@ -103,8 +110,7 @@ export function publishModelChoices(engine) {
   };
   const backend = (state.backends ?? []).find((b) => b.engine === engine);
   if (Array.isArray(backend?.model_overrides)) backend.model_overrides.forEach(add);
-  // DeepSeek Harness only accepts models it maps itself, so it gets no generic hints.
-  if (engine !== 'dsh') (MODEL_SUGGESTIONS[engine] ?? []).forEach(add);
+  for (const model of catalogFor(engine)?.models ?? []) add(model.id);
   for (const a of state.data?.agents ?? [])
     if (a.engine === engine) for (const r of a.routes ?? []) add(r.model);
   publishDraft.custom.forEach(add);
@@ -121,14 +127,18 @@ export function renderModelPicker() {
   const picker = $('model-picker');
   picker.replaceChildren();
   const engine = $('native-engine').value;
+  renderCatalogStatus(engine);
+  renderPublishToolModes(engine);
   for (const m of publishModelChoices(engine)) {
     const index = publishDraft.models.indexOf(m);
     const chip = el('span', undefined, `model-chip${index >= 0 ? ' selected' : ''}`);
     const main = el('button', undefined, 'chip-main');
     main.type = 'button';
     main.setAttribute('aria-pressed', String(index >= 0));
-    const label = el('span', m === 'default' ? t('dlg.publish.model.default') : m);
+    const displayName = catalogFor(engine)?.models?.find((model) => model.id === m)?.name ?? m;
+    const label = el('span', m === 'default' ? t('dlg.publish.model.default') : displayName);
     label.translate = false;
+    if (m !== 'default') main.append(modelGlyph(m, displayName));
     main.append(label);
     if (index === 0) {
       main.prepend(icon('star'));
@@ -144,6 +154,13 @@ export function renderModelPicker() {
       else if (index < 0) pickPublishModel(m);
       renderModelPicker();
     };
+    if (
+      m !== 'default' &&
+      !catalogFor(engine)?.models?.some(
+        (model) => model.id === m && model.verification === 'discovered',
+      )
+    )
+      main.title += ` · ${t('models.configured')}`;
     chip.append(main);
     if (index >= 0 && publishDraft.models.length > 1) {
       const remove = el('button', undefined, 'chip-remove');
@@ -178,6 +195,7 @@ export function addCustomModel() {
   input.value = '';
   renderModelPicker();
 }
+bindModelRefresh(renderModelPicker);
 $('model-add').onclick = addCustomModel;
 $('model-custom').onkeydown = (e) => {
   if (e.key === 'Enter') {
@@ -194,8 +212,21 @@ export function updateIdHint() {
 }
 $('native-id').oninput = updateIdHint;
 export async function openPublish() {
+  openProjectOptions();
   $('publish-error').textContent = '';
   $('model-custom').value = '';
+  $('model-follow').checked = true;
+  $('publish-tool-boundary').value = 'managed';
+  $('publish-approver').value = 'owner';
+  $('publish-orchestrate').checked = true;
+  $('publish-helpers').replaceChildren(
+    ...(state.data?.agents ?? []).map((a) => {
+      const option = el('option', a.id);
+      option.value = a.id;
+      return option;
+    }),
+  );
+  $('model-restrict').checked = false;
   $('publish-auto-approve').checked = false;
   $('publish-auto-approve-note').hidden = true;
   Object.assign(publishDraft, { models: ['default'], custom: [] });
@@ -467,10 +498,30 @@ $('publish-form').onsubmit = async (e) => {
         const id = $('native-id').value.trim();
         if (!id) throw Error(t('dlg.publish.err.no_id'));
         models = publishDraft.models.length ? [...publishDraft.models] : ['default'];
+        const limited = $('model-restrict').checked;
+        if (limited) models = models.filter((m) => m !== 'default');
+        if (!models.length) throw Error(t('models.pick_required'));
         published = await api('POST', '/v1/agents/publish-native', {
           id,
           engine: $('native-engine').value,
           models,
+          model_policy: {
+            mode: $('model-follow').checked ? 'discover' : 'declared',
+            ...(limited ? { allow: models } : {}),
+          },
+          access: {
+            modes: renderPublishToolModes($('native-engine').value),
+            defaultMode: $('publish-tool-boundary').value,
+            approval: $('publish-auto-approve').checked ? 'auto' : $('publish-approver').value,
+            trust: 'private',
+            workspace: projectWorkspaceSelection(id),
+          },
+          orchestration: {
+            enabled: $('publish-orchestrate').checked,
+            helpers: [...$('publish-helpers').selectedOptions]
+              .map((o) => o.value)
+              .filter((helper) => helper !== id),
+          },
           ...($('publish-auto-approve').checked ? { approvals: 'auto' } : {}),
         });
       } else if (state.publishMode === 'oaa') {
@@ -500,7 +551,11 @@ $('publish-form').onsubmit = async (e) => {
       if ($('publish-then-key').checked && published?.id && isAdmin())
         openKeyDialog({
           agents: [published.id],
-          model: models.length > 1 ? models[0] : 'auto',
+          model: models.length
+            ? (state.data?.agents
+                ?.find((a) => a.id === published.id)
+                ?.routes?.find((r) => r.model === models[0])?.id ?? models[0])
+            : 'auto',
         });
     } catch (err) {
       $('publish-error').textContent = err.message;

@@ -3,13 +3,20 @@
  *
  * 数值与引入前各文件里的写法完全一致；改动任何一项都会改变线上行为，需要单独评审。
  */
-import type { WorkEvent } from '../core/contracts.js';
+import type { WorkEvent, Usage, ArtifactPayload } from '../core/contracts.js';
 import { AGENT_LIMITS } from '../core/limits.js';
 import { bi } from '../core/locale.js';
 import { Fault, redact } from '../core/util.js';
 
 /** 接入层向内核（经由执行节点）报告文本、进度与审批的回调；审批时返回 owner 的决定。 */
 export type Emit = (event: WorkEvent) => Promise<Record<string, unknown> | void>;
+
+export type NativeResult = {
+  text: string;
+  nativeState: Record<string, unknown>;
+  usage: Usage | null;
+  artifacts?: ArtifactPayload[];
+};
 
 export const AGENT_IO_LIMITS = {
   /** 一轮输出文本的字符数（超出报 output_too_large）；与内核输出写入器是同一个上限。 */

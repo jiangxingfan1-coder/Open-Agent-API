@@ -6,8 +6,8 @@
  * Source: OpenDesign b40f25a1c89552725f1fc31f8c2fad172f92acfe for the Vibe command shape, current
  * vendor ACP documentation for Kimi Code, and the public Agent Client Protocol Registry for the
  * pinned npx and binary distributions below.
- * Modified for Open Agent API: presentation and discovery metadata only. OAA omits model probing,
- * MCP injection, credentials, package installation, automatic enabling and automatic execution;
+ * Modified for Open Agent API: presentation and discovery metadata only. This catalog performs no
+ * model probing, MCP injection, credential handling, package installation or automatic enabling;
  * registry `npx` launchers are never discovered or run. Notes were rewritten for OAA behaviour.
  * See licenses/OpenDesign-APACHE-2.0.txt and THIRD_PARTY_NOTICES.md.
  *
@@ -179,7 +179,8 @@ export const acpPresets: readonly AcpPreset[] = [
     source_url: REGISTRY,
     notes: `ACP Registry 的固定版本 pi ACP 启动器。${NPX_NOTE}`,
     launcher: 'npx',
-    verified: '2026-11-10',
+    discover: { names: ['pi-acp'], args: [] },
+    verified: '2026-11-15',
   },
   {
     id: 'deepagents',
@@ -191,7 +192,8 @@ export const acpPresets: readonly AcpPreset[] = [
     source_url: REGISTRY,
     notes: `LangChain DeepAgents 的 ACP Registry 启动器。${NPX_NOTE}`,
     launcher: 'npx',
-    verified: '2026-11-10',
+    discover: { names: ['deepagents-acp'], args: [] },
+    verified: '2026-11-15',
   },
   {
     id: 'junie',
@@ -407,39 +409,39 @@ export const acpPresets: readonly AcpPreset[] = [
     id: 'claude-acp',
     name: 'Claude Agent ACP',
     executable: 'npx',
-    args: ['-y', '@agentclientprotocol/claude-agent-acp@0.85.1'],
+    args: ['-y', '@agentclientprotocol/claude-agent-acp@0.107.0'],
     maturity: 'community',
     docs_url: 'https://github.com/agentclientprotocol/claude-agent-acp',
     source_url: REGISTRY,
     notes: `非厂商：ACP 组织维护的 Claude 适配器（旧名 claude-code-acp），Anthropic 没有原生 ACP 入口；厂商支持的接入方式是内置 claude 原生引擎（Agent SDK）。${NPX_NOTE} 全局安装后 OAA 会在 PATH 中查找 claude-agent-acp 或 claude-code-acp（按包名推断的可执行文件名）。`,
     launcher: 'npx',
     discover: { names: ['claude-agent-acp', 'claude-code-acp'], args: [] },
-    verified: '2026-11-08',
+    verified: '2026-11-15',
   },
   {
     id: 'codex-acp',
     name: 'Codex ACP',
     executable: 'npx',
-    args: ['-y', '@agentclientprotocol/codex-acp@2.1.1'],
+    args: ['-y', '@agentclientprotocol/codex-acp@2.6.0'],
     maturity: 'community',
     docs_url: 'https://github.com/agentclientprotocol/codex-acp',
     source_url: REGISTRY,
     notes: `非厂商：ACP 组织维护的 Codex 适配器，OpenAI 没有原生 ACP 入口；厂商支持的接入方式是内置 codex 原生引擎（app-server，官方标注 Experimental）。${NPX_NOTE} 安装后 OAA 会在 PATH 中查找 codex-acp。`,
     launcher: 'npx',
     discover: { names: ['codex-acp'], args: [] },
-    verified: '2026-11-08',
+    verified: '2026-11-15',
   },
   {
     id: 'codebuddy',
     name: 'CodeBuddy Code',
     executable: 'npx',
-    args: ['-y', '@tencent-ai/codebuddy-code@2.161.1', '--acp'],
+    args: ['-y', '@tencent-ai/codebuddy-code@2.184.0', '--acp'],
     maturity: 'documented',
     docs_url: 'https://www.codebuddy.cn/cli/',
     source_url: REGISTRY,
     notes: `腾讯云 CodeBuddy Code 原生支持 ACP（codebuddy --acp；另有 --acp-transport streamable-http，OAA 只使用 stdio）。已全局安装时 OAA 会在 PATH 中查找 codebuddy；登录、模型和额度由 CodeBuddy 管理。${NPX_NOTE}`,
     launcher: 'npx',
-    verified: '2026-11-08',
+    verified: '2026-11-15',
     discover: { names: ['codebuddy'], args: ['--acp'] },
   },
   {
@@ -452,31 +454,33 @@ export const acpPresets: readonly AcpPreset[] = [
     source_url: REGISTRY,
     notes: `MiniMax Code 的 ACP Registry 启动器；账户、模型和额度由 MiniMax 管理。${NPX_NOTE}`,
     launcher: 'npx',
-    verified: '2026-11-10',
+    discover: { names: ['mcode'], args: ['acp'] },
+    verified: '2026-11-15',
   },
   {
     id: 'glm',
     name: 'GLM Agent',
     executable: 'npx',
-    args: ['-y', 'glm-acp-agent@1.17.0'],
+    args: ['-y', 'glm-acp-agent@1.17.1'],
     maturity: 'documented',
     docs_url: REGISTRY,
     source_url: REGISTRY,
     notes: `GLM Agent 的 ACP Registry 启动器；认证、模型和额度由 GLM CLI 管理。${NPX_NOTE}`,
     launcher: 'npx',
-    verified: '2026-11-10',
+    discover: { names: ['glm-acp-agent'], args: [] },
+    verified: '2026-11-15',
   },
   {
     id: 'grok',
     name: 'Grok Build Agent',
     executable: 'npx',
-    args: ['-y', '@xai-official/grok@1.0.79', 'agent', 'stdio'],
+    args: ['-y', '@xai-official/grok@1.0.87', 'agent', 'stdio'],
     maturity: 'documented',
     docs_url: REGISTRY,
     source_url: REGISTRY,
     notes: `xAI Grok Build 的 ACP Registry 启动器；已安装 grok 时请使用 grok-build-acp 预设。${NPX_NOTE}`,
     launcher: 'npx',
-    verified: '2026-11-10',
+    verified: '2026-11-15',
   },
 ];
 

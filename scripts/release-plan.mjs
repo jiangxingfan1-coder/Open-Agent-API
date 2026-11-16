@@ -20,6 +20,7 @@ export const PROPRIETARY_PACKAGES = [/^@anthropic-ai\/claude-agent-sdk(-.+)?$/];
 const USAGE = `用法：node scripts/package-all.mjs <mac|win|linux|all> [选项]（all = mac + win）
   --release            发布模式：不安装到任何应用目录、不链接 CLI、不写用户主目录；产物只写到 release/ 下
   --dry-run            只打印将要写的路径与将要执行的外部命令，什么都不做
+  --no-install         本机开发打包但不替换已安装应用、不修改 CLI 链接
   --arch <arm64|x64>   目标架构（mac 与 linux：arm64 或 x64；win：x64）
   --node-dir <目录>    已解压的官方 Node 发行目录，拷进安装包（发布模式必填）
   --node-version <v>   --node-dir 里 Node 的版本号（无法在本机执行该 Node 时用于校验，如在 macOS 上打 Windows 或 Linux 包）`;
@@ -30,6 +31,7 @@ export function parseOptions(argv, hostArch = process.arch) {
     target: 'all',
     release: false,
     dryRun: false,
+    noInstall: false,
     arch: undefined,
     nodeDir: undefined,
     nodeVersion: undefined,
@@ -45,6 +47,7 @@ export function parseOptions(argv, hostArch = process.arch) {
     };
     if (flag === '--release') opts.release = true;
     else if (flag === '--dry-run') opts.dryRun = true;
+    else if (flag === '--no-install') opts.noInstall = true;
     else if (flag === '--arch') opts.arch = value();
     else if (flag === '--node-dir') opts.nodeDir = path.resolve(value());
     else if (flag === '--node-version') opts.nodeVersion = value().replace(/^v/, '');
@@ -74,7 +77,7 @@ export function parseOptions(argv, hostArch = process.arch) {
 
 /** 是否把应用安装到本机（~/Applications、/Applications）并链接 CLI：只有本机开发打包才做。 */
 export function shouldInstallLocally(opts) {
-  return !opts.release;
+  return !opts.release && !opts.noInstall;
 }
 
 /** 产物文件名：Open-Agent-API-<版本>-macOS-<arch>.dmg / -win-x64.zip / -linux-<arch>.tar.gz */

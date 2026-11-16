@@ -1,4 +1,3 @@
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AgentDefinition, WorkEvent, Usage, ArtifactPayload } from '../core/contracts.js';
 import type { WorkerConfig } from '../config/config.js';
 import { directExecutable } from './win-spawn.js';
@@ -11,23 +10,19 @@ import {
   spawnSandboxed,
   terminateOwned,
 } from './process.js';
-import type { SandboxLauncher, SandboxNativeEngine } from './sandbox.js';
+import type { SandboxNativeEngine } from './sandbox.js';
 import { claudePrompt, codexInput, imageDeliveryHint, type EngineImages } from './image-blocks.js';
 import { Fault, id, redact } from '../core/util.js';
-import { agentFailure, safeEmit, type Emit } from './shared.js';
+import { agentFailure, safeEmit, type Emit, type NativeResult } from './shared.js';
 import { loadClaudeSdk } from './claude-sdk.js';
-import { CODEX_TOOL_ITEMS, DENIAL, errorText } from './native-signals.js';
-import { PRODUCT_VERSION } from '../core/version.js';
+import { DENIAL, errorText } from './native-signals.js';
+import { codex } from './codex.js';
+import { antigravityReasoningArgs } from './reasoning-policy.js';
 
 import { sandboxPlan, type NativeSandbox } from './native-sandbox.js';
 export type { NativeSandbox } from './native-sandbox.js';
 
-export type NativeResult = {
-  text: string;
-  nativeState: Record<string, unknown>;
-  usage: Usage | null;
-  artifacts?: ArtifactPayload[];
-};
+export type { NativeResult } from './shared.js';
 export async function runNative(
   agent: AgentDefinition,
   config: WorkerConfig,
@@ -38,8 +33,16 @@ export async function runNative(
   state?: Record<string, unknown>,
   sandbox?: NativeSandbox,
   images?: EngineImages,
+  assetRoot = cwd,
+  toolsDisabled = false,
 ): Promise<NativeResult> {
   const kind = agent.engine;
+  if (toolsDisabled && kind !== 'antigravity' && kind !== 'claude')
+    throw new Fault(
+      'capability_unavailable',
+      'This engine has no enforced tool-free execution path.',
+      503,
+    );
   if (kind !== 'codex' && kind !== 'claude' && kind !== 'antigravity' && kind !== 'dsh')
     throw new Fault('invalid_engine', 'This is not a built-in native backend.');
   const settings = config.native[kind];
@@ -60,7 +63,7 @@ export async function runNative(
     let usage: Usage | null = null;
     let completed = false;
     const q = query({
-      prompt: await claudePrompt(input, cwd, images),
+      prompt: await claudePrompt(input, assetRoot, images),
       options: {
         pathToClaudeCodeExecutable: plan
           ? settings.executable
@@ -70,7 +73,8 @@ export async function runNative(
         resume: typeof state?.sessionId === 'string' ? state.sessionId : undefined,
         // Sandboxed: no owner settings, `--bare` (API-key auth only, no OAuth or keychain), and the
         // CLI started through the sandbox instead of the SDK's local spawn.
-        settingSources: plan ? [] : ['user', 'project', 'local'],
+        settingSources: plan || toolsDisabled ? [] : ['user', 'project', 'local'],
+        ...(toolsDisabled ? { tools: [], mcpServers: {}, strictMcpConfig: true } : {}),
         systemPrompt: { type: 'preset', preset: 'claude_code', append: agent.instructions },
         abortController: controller,
         maxTurns: agent.limits.maxTurns,
@@ -104,6 +108,8 @@ export async function runNative(
             }
           : {}),
         canUseTool: async (tool, args) => {
+          if (toolsDisabled)
+            return { behavior: 'deny', message: 'Tools are disabled for internal reasoning.' };
           const answer = await emit({
             type: 'approval',
             data: { native: 'claude', tool, arguments: args },
@@ -201,6 +207,7 @@ export async function runNative(
       '--output-format',
       'stream-json',
     ];
+    if (toolsDisabled) args.push(...antigravityReasoningArgs(settings.args));
     if (agent.model !== 'default') args.push('--model', agent.model);
     if (typeof state?.conversationId === 'string')
       args.push('--conversation', state.conversationId);
@@ -242,6 +249,16 @@ export async function runNative(
               return;
             }
             const init = msg.init as Record<string, unknown> | undefined;
+            if (toolsDisabled && init?.permission_mode !== 'strict') {
+              fail(
+                new Fault(
+                  'capability_unavailable',
+                  'Antigravity did not confirm strict permissions for tool-free reasoning; no prompt was sent.',
+                  503,
+                ),
+              );
+              return;
+            }
             observedModel = typeof init?.model === 'string' ? init.model : undefined;
             if (agent.model !== 'default' && observedModel !== agent.model) {
               fail(
@@ -380,7 +397,7 @@ export async function runNative(
     settings.args,
     agent,
     cwd,
-    codexInput(input, cwd, images),
+    codexInput(input, assetRoot, images),
     signal,
     emit,
     state,
@@ -408,204 +425,4 @@ function pickDefined(
         (keep.has(entry[0]) || /^CLAUDE_(CODE|AGENT_SDK)_[A-Z0-9_]+$/.test(entry[0])),
     ),
   );
-}
-
-async function codex(
-  command: string,
-  args: string[],
-  agent: AgentDefinition,
-  cwd: string,
-  input: ReturnType<typeof codexInput>,
-  signal: AbortSignal,
-  emit: Emit,
-  state: Record<string, unknown> | undefined,
-  env: NodeJS.ProcessEnv,
-  sandboxed?: {
-    launcher: SandboxLauncher;
-    plan: Awaited<ReturnType<typeof sandboxPlan>>;
-  },
-): Promise<NativeResult> {
-  const serverArgs = [...args, 'app-server', '--listen', 'stdio://'];
-  const child = sandboxed
-    ? await spawnSandboxed(
-        sandboxed.plan.launch.command,
-        // Engine flags go after the configured args (which may hold a script path) and before
-        // the subcommand, so `node <script> -c …` never reads them as node's own flags.
-        [
-          ...sandboxed.plan.launch.prefix,
-          ...args,
-          ...sandboxed.plan.profile.args,
-          'app-server',
-          '--listen',
-          'stdio://',
-        ],
-        cwd,
-        signal,
-        env,
-        { launcher: sandboxed.launcher, policy: sandboxed.plan.policy },
-      )
-    : ownedProcess(command, serverArgs, cwd, signal, env);
-  let seq = 0;
-  let text = '';
-  let threadId = '';
-  let terminalResult = false;
-  let denied = false;
-  const pending = new Map<
-    number,
-    { resolve: (v: Record<string, unknown>) => void; reject: (e: Error) => void }
-  >();
-  const send = (value: unknown) => child.stdin.write(JSON.stringify(value) + '\n');
-  const request = (method: string, params: unknown) =>
-    new Promise<Record<string, unknown>>((resolve, reject) => {
-      const n = ++seq;
-      pending.set(n, { resolve, reject });
-      send({ id: n, method, params });
-    });
-  return await new Promise<NativeResult>((resolve, reject) => {
-    let failure: Error | undefined;
-    let stderr = '';
-    const fail = (e: Error) => {
-      failure = e;
-      child.stdin.end();
-      terminateOwned(child);
-    };
-    // A delta or progress event the gateway cannot accept ends the turn, as on every other engine.
-    const report = (event: WorkEvent) =>
-      safeEmit(emit, event, (error) =>
-        fail(error instanceof Error ? error : new Fault('event_failed', String(error), 500)),
-      );
-    jsonLines(
-      child,
-      (msg) => {
-        if (typeof msg.id === 'number' && !msg.method) {
-          const p = pending.get(msg.id);
-          pending.delete(msg.id);
-          if (p) {
-            if (msg.error)
-              p.reject(new Fault('native_protocol_error', 'Codex RPC rejected a request.', 502));
-            else p.resolve((msg.result ?? {}) as Record<string, unknown>);
-          }
-          return;
-        }
-        const params = (msg.params ?? {}) as Record<string, unknown>;
-        if (msg.method && msg.id !== undefined) {
-          void (async () => {
-            const method = String(msg.method);
-            if (
-              ![
-                'item/commandExecution/requestApproval',
-                'item/fileChange/requestApproval',
-                'item/permissions/requestApproval',
-                'item/tool/requestUserInput',
-                'tool/requestUserInput',
-                'mcpServer/elicitation/request',
-              ].includes(method)
-            ) {
-              send({
-                id: msg.id,
-                error: {
-                  code: -32601,
-                  message: 'Host operation is not supported by this adapter.',
-                },
-              });
-              return;
-            }
-            const answer = await emit({
-              type: 'approval',
-              data: { native: 'codex', method, params },
-            });
-            let result: unknown = {
-              decision: answer?.decision === 'approve' ? 'accept' : 'decline',
-            };
-            if (method.includes('requestUserInput'))
-              result = answer?.answers ? { answers: answer.answers } : { answers: {} };
-            if (method.includes('elicitation'))
-              result = {
-                action: answer?.decision === 'approve' ? 'accept' : 'decline',
-                content: answer?.content ?? null,
-              };
-            if (method === 'item/permissions/requestApproval')
-              result = {
-                permissions: answer?.decision === 'approve' ? (params.permissions ?? {}) : {},
-                scope: 'turn',
-              };
-            send({ id: msg.id, result });
-          })().catch(fail);
-        }
-        if (msg.method === 'item/agentMessage/delta' && typeof params.delta === 'string') {
-          text += params.delta;
-          report({ type: 'text', data: { delta: params.delta } });
-        }
-        if (msg.method === 'item/completed') {
-          const item = params.item as Record<string, unknown> | undefined;
-          if (item?.status === 'declined') denied = true;
-          if (item && item.type !== 'agentMessage')
-            report({
-              type: 'progress',
-              data: {
-                native: 'codex',
-                event: 'item',
-                itemType: item.type,
-                kind: CODEX_TOOL_ITEMS.has(String(item.type)) ? 'tool' : 'status',
-                status: item.status,
-              },
-            });
-        }
-        if (msg.method === 'turn/completed') {
-          const turn = params.turn as Record<string, unknown>;
-          // Same rule as every other engine: an operation the owner declined fails the run.
-          if (denied) {
-            fail(new Fault('permission_denied', 'Codex reported a declined operation.', 403));
-            return;
-          }
-          if (turn?.status !== 'completed') {
-            fail(new Fault('native_incomplete', 'Codex turn did not complete.', 502));
-            return;
-          }
-          terminalResult = true;
-          child.stdin.end();
-        }
-      },
-      fail,
-    );
-    child.stderr.on('data', (c: Buffer) => {
-      stderr = (stderr + c.toString('utf8')).slice(-8192);
-    });
-    child.stdin.on('error', () => {});
-    child.once('error', reject);
-    child.once('close', (code) => {
-      for (const p of pending.values())
-        p.reject(new Fault('native_closed', 'Codex process closed.', 502));
-      pending.clear();
-      if (signal.aborted) reject(new Fault('cancelled', 'Codex cancelled.', 409));
-      else if (failure) reject(failure);
-      else if (code !== 0 || !terminalResult)
-        reject(
-          new Fault(
-            'native_incomplete',
-            `Codex exited without a completed turn: ${redact(stderr).slice(0, 1000)}`,
-            502,
-          ),
-        );
-      else resolve({ text, nativeState: { threadId }, usage: null });
-    });
-    void (async () => {
-      await request('initialize', {
-        clientInfo: { name: 'open-agent-api', title: 'Open Agent API', version: PRODUCT_VERSION },
-        capabilities: {},
-      });
-      send({ method: 'initialized', params: {} });
-      const params = {
-        cwd,
-        ...(agent.model !== 'default' ? { model: agent.model } : {}),
-        ...(agent.instructions ? { developerInstructions: agent.instructions } : {}),
-      };
-      const start =
-        typeof state?.threadId === 'string'
-          ? await request('thread/resume', { ...params, threadId: state.threadId })
-          : await request('thread/start', params);
-      threadId = String((start.thread as Record<string, unknown>).id);
-      await request('turn/start', { threadId, input });
-    })().catch(fail);
-  });
 }

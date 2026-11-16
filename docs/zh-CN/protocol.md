@@ -968,6 +968,11 @@ HTTP 错误响应默认使用形状 `{"error":{"code":"…","message":"…","typ
 | `worker_required` | 409/400 | 一键启用时，配置文件里没有本机执行机器（`localWorker`）；该码也由命令行在本地产生 |
 | `check_unsupported` | 400 | 握手检查只适用于 ACP 与 A2A 适配器 |
 | `local_node_policy` | 409 | 远程凭据控制不能改变本地 worker |
+| `local_connection_unavailable` | 409 | 本地客户端、发布策略或配置路径不支持自动连接 |
+| `local_connection_conflict` | 409 | 客户端配置已变化、正在写入或预览过期 |
+| `local_connection_invalid` | 400 | 本地客户端配置格式、权限或文件类型不安全，不覆盖 |
+| `local_connection_not_found` | 404 | 本地连接记录不存在 |
+| `local_connection_failed` | 500 | 本地连接写入失败，新建密钥已撤销 |
 | `node_not_found` | 404 | 节点注册不存在 |
 | `node_exists` | 409 | 该节点 ID 已注册 |
 | `node_owner_conflict` | 409 | 节点身份被其他 owner 占用 |

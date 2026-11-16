@@ -70,6 +70,10 @@ function rpcFault(error: AcpRpcError): Fault {
   );
 }
 
+export function normalizeAcpError(error: unknown): unknown {
+  return error instanceof AcpRpcError ? rpcFault(error) : error;
+}
+
 const settlesWithin = (promise: Promise<unknown>, ms: number) =>
   new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => resolve(false), ms);
@@ -99,7 +103,7 @@ function deadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T>
   });
 }
 
-function initializeParams() {
+export function initializeParams() {
   return {
     protocolVersion: ACP_PROTOCOL_VERSION,
     clientCapabilities: {
@@ -116,7 +120,7 @@ type PeerHandlers = {
 };
 
 /** JSON-RPC 2.0 peer over NDJSON stdio. Owns protocol framing and the child's lifetime. */
-class AcpPeer {
+export class AcpPeer {
   private seq = 0;
   private readonly pending = new Map<
     number,
@@ -135,6 +139,7 @@ class AcpPeer {
   constructor(
     readonly child: ChildProcessWithoutNullStreams,
     private readonly handlers: PeerHandlers,
+    private readonly jsonrpcRequired = true,
   ) {
     this.failed = new Promise<never>((_resolve, reject) => {
       this.rejectFailed = reject;
@@ -217,7 +222,7 @@ class AcpPeer {
       return;
     }
     const message = record(parsed);
-    if (message.jsonrpc !== '2.0') {
+    if (this.jsonrpcRequired && message.jsonrpc !== '2.0') {
       this.fail(protocolFault(ACP_TEXT.notJsonRpc));
       return;
     }
@@ -365,6 +370,7 @@ export async function runAcp(
   timings: AcpTimings = {},
   clientTools?: ClientTool[],
   images?: EngineImages,
+  assetRoot = workspace,
 ): Promise<NativeResult> {
   const name = agent.engine.startsWith('adapter/') ? agent.engine.slice('adapter/'.length) : '';
   const adapter = config.adapters[name];
@@ -563,7 +569,7 @@ export async function runAcp(
   try {
     if (signal.aborted) onAbort();
     // Bridged caller tools: one stdio MCP server per turn. Without them the wire stays `[]`.
-    if (clientTools?.length) relay = await openCallerRelay(cwd, clientTools, emit);
+    if (clientTools?.length) relay = await openCallerRelay(assetRoot, clientTools, emit);
     const mcpServers = relay ? [relay.server] : [];
     const init = record(await step(peer.call('initialize', initializeParams()), 'initialize'));
     if (init.protocolVersion !== ACP_PROTOCOL_VERSION)
@@ -630,7 +636,7 @@ export async function runAcp(
           if (confirmed?.currentValue !== requested)
             throw new Fault('native_model_mismatch', ACP_TEXT.modelUnconfirmed, 409);
         }
-      } else if (!option && legacyModels.includes(requested)) {
+      } else if (legacyModels.includes(requested)) {
         if (legacy.currentModelId !== requested)
           await step(
             peer.call('session/set_model', { sessionId, modelId: requested }),
@@ -646,7 +652,7 @@ export async function runAcp(
         );
     }
     checkAbort(signal);
-    const imageBlocks = await acpImageBlocks(capabilities, adapter.imageFiles, cwd, images);
+    const imageBlocks = await acpImageBlocks(capabilities, adapter.imageFiles, assetRoot, images);
     phase = 'prompting';
     const promptRequest = peer.call('session/prompt', {
       sessionId,
@@ -704,17 +710,27 @@ export async function probeAcp(
   args: string[],
   timeoutMs = 20_000,
   env?: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
 ): Promise<AcpProbe> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'oaa-acp-check-'));
   const life = new AbortController();
   let peer: AcpPeer | undefined;
   try {
-    peer = new AcpPeer(ownedProcess(command, args, dir, life.signal, env), {
-      request: async (method) => {
-        throw new AcpRpcError(method, -32601, 'Not available during a handshake check.');
+    peer = new AcpPeer(
+      ownedProcess(
+        command,
+        args,
+        dir,
+        signal ? AbortSignal.any([life.signal, signal]) : life.signal,
+        env,
+      ),
+      {
+        request: async (method) => {
+          throw new AcpRpcError(method, -32601, 'Not available during a handshake check.');
+        },
+        notification: () => {},
       },
-      notification: () => {},
-    });
+    );
     const init = record(
       await deadline(peer.call('initialize', initializeParams()), timeoutMs, 'initialize'),
     );

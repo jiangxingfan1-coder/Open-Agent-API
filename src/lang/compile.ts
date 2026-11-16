@@ -74,6 +74,7 @@ export function compileOaaLang(source: string): CompiledOaaSource {
   let allowGraph: boolean | undefined;
   let approvals: 'auto' | undefined;
   let allowedNodes: string[] | undefined;
+  const runtimePolicy: Record<string, unknown> = {};
   let outputSchema: Record<string, unknown> | undefined;
   let limits: Record<string, unknown> | undefined;
   let files: string[] = [];
@@ -195,6 +196,15 @@ export function compileOaaLang(source: string): CompiledOaaSource {
         sites.props.set('model', kw);
         model = text('model');
         break;
+      case 'model_policy':
+      case 'access':
+      case 'orchestration': {
+        const field = kw.value === 'model_policy' ? 'modelPolicy' : kw.value;
+        once(kw, field);
+        sites.props.set(field, kw);
+        runtimePolicy[field] = val;
+        break;
+      }
       case 'allow_graph':
       case 'allowGraph':
         once(kw, 'allow_graph');
@@ -261,6 +271,7 @@ export function compileOaaLang(source: string): CompiledOaaSource {
         id: agentId,
         description,
         instructions,
+        ...runtimePolicy,
         ...(engine ? { engine } : {}),
         provider: resolvedProvider,
         model: resolvedModel,

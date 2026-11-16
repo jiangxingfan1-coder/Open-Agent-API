@@ -134,4 +134,17 @@ export class RunTextSink {
   close(): void {
     this.sink = undefined;
   }
+
+  /** A resumed orchestration may already have committed its final delta before termination. */
+  publishFinalOnce(text: string): EventInput[] {
+    const index = this.run.output.length - 1;
+    const previous = this.run.output[index];
+    if (previous?.text === text)
+      return previous.status === 'completed' ? [] : finishOutput(previous, index, 'completed');
+    if (previous && !previous.text && previous.status !== 'completed')
+      this.sink = { id: previous.id, index };
+    this.hold(false);
+    this.emit(text);
+    return this.finish('completed');
+  }
 }

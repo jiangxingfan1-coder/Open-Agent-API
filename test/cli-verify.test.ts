@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { gatewaySchema } from '../src/config/config.js';
 import { Fault } from '../src/core/util.js';
 import { bi } from '../src/core/locale.js';
+import { PRODUCT_VERSION } from '../src/core/version.js';
 import { chooseScenarios, planLines, runVerifyCommand } from '../src/client/verify.js';
 import { SCENARIOS, deriveUsage } from '../src/client/verify-catalog.js';
 import { finalizeReport, type ReportMeta } from '../src/client/verify-report.js';
@@ -193,7 +194,7 @@ test('verify: a full run on the ACP stand-in passes, writes both reports and lea
   assert.match(text, /Total: 12 pass, 0 failed, 0 unsupported, 0 skipped; 14 agent calls/);
   const report = await readJson(path.join(outDir, 'report.json'));
   assert.equal(report.schema, 'oaa-verify-report/1');
-  assert.equal(report.gateway.version, '0.0.65');
+  assert.equal(report.gateway.version, PRODUCT_VERSION);
   assert.equal(report.agent.reported_name, 'oaa-live-fixture');
   assert.equal(report.agent.identity_source, 'acp-handshake');
   assert.match(report.platform.os, /^(darwin|linux|win32|freebsd|openbsd|aix|sunos)$/);
@@ -222,7 +223,7 @@ test('verify: a full run on the ACP stand-in passes, writes both reports and lea
   assert.equal(report.scenarios[0]?.title.en, 'OpenAI Chat, non-streaming');
   const md = await readFile(path.join(outDir, 'report.md'), 'utf8');
   assert.match(md, /^# Open Agent API agent verification report: adapter\/live/);
-  assert.match(md, /\| Gateway \| Open Agent API 0\.0\.65 \|/);
+  assert.ok(md.includes(`| Gateway | Open Agent API ${PRODUCT_VERSION} |`));
   assert.match(md, /oaa-live-fixture 1\.0\.0/);
   assert.match(md, /\| `approvals` Approvals: approve and deny \| pass \|/);
   assert.match(md, /## Differences from the docs\n\n- No observation differs/);

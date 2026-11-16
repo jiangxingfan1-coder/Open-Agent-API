@@ -15,6 +15,8 @@ Find documents by "I want to…". Every document is available in English (this f
 
 ## I want to call an agent
 
+- Configure a published agent into local DSH without copying a key, with preview and rollback: [Local Connections](local-connections.md)
+
 - Call with the OpenAI SDK or `oaa/1`: [operations.md, "Publish and invoke"](operations.md#publish-and-invoke)
 - Supported protocols and fields, file upload, streaming, approvals, resume, cancellation: [protocol.md, "Compatibility"](protocol.md#compatibility) and ["Execution and actions"](protocol.md#execution-and-actions)
 - Parameters of the compatibility entries, error shapes, why 422 is not retried, and finish reasons (`finish_reason`, `stop_reason` and so on): [protocol.md, "Compatibility-endpoint parameters, errors and finish reasons"](protocol.md#compatibility-endpoint-parameters-errors-and-finish-reasons-060)

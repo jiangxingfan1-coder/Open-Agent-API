@@ -1,5 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="GLM Agent">
-  <rect width="64" height="64" rx="14" fill="#0F3B67"/>
-  <path fill="#E94B5F" d="M16 18h13v7h-6v14h6v7H16V18Zm32 0v28H35v-7h6V25h-6v-7h13Z"/>
-  <circle cx="32" cy="32" r="4" fill="#fff"/>
-</svg>
+<svg fill="currentColor" fill-rule="evenodd" height="1em" style="flex:none;line-height:1" viewBox="0 0 24 24" width="1em" xmlns="http://www.w3.org/2000/svg"><title>Z.ai</title><path d="M12.105 2L9.927 4.953H.653L2.83 2h9.276zM23.254 19.048L21.078 22h-9.242l2.174-2.952h9.244zM24 2L9.264 22H0L14.736 2H24z"></path></svg>

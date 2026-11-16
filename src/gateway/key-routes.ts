@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { connectionSchema } from '../core/agent-access.js';
 import type { Auth } from './auth.js';
 import type { AuditLog } from '../store/audit.js';
 import type { GatewayConfig } from '../config/config.js';
@@ -42,6 +43,7 @@ export function registerKeyRoutes(
         quota: keyQuotaSchema.optional(),
         data_scope: z.enum(['own', 'owner']).default('own'),
         execution: z.enum(executionLevels).optional(),
+        connection: connectionSchema.optional(),
       })
       .strict()
       .parse(req.body);
@@ -53,7 +55,9 @@ export function registerKeyRoutes(
       b.scopes,
       b.quota,
       b.data_scope,
-      b.execution ?? config.defaultKeyExecution,
+      b.execution ??
+        (b.connection?.audience === 'external' ? 'workspace' : config.defaultKeyExecution),
+      b.connection,
     );
   });
   app.post('/v1/keys/:id/quota', async (req) => {

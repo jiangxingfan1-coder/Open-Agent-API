@@ -2,7 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { processLocale } from '../core/locale.js';
 import { Fault } from '../core/util.js';
 import { validateEndpoint } from '../config/config.js';
-export type RequestOptions = { signal?: AbortSignal; timeoutMs?: number; idempotencyKey?: string };
+export type RequestOptions = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  idempotencyKey?: string;
+  ifAbsent?: boolean;
+};
 export class GatewayClient {
   constructor(
     readonly url: string,
@@ -99,6 +104,7 @@ export class GatewayClient {
           'Accept-Language': processLocale(),
           ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
+          ...(options.ifAbsent ? { 'If-None-Match': '*' } : {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       });

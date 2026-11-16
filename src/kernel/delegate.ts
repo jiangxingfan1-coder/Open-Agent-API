@@ -17,6 +17,7 @@ import type {
   Principal,
   Run,
   ToolCall,
+  OutputContract,
 } from '../core/contracts.js';
 import { LEGACY_SUBJECT, sandboxable } from '../core/contracts.js';
 import { Fault, checkAbort, faultOf } from '../core/util.js';
@@ -25,6 +26,7 @@ import { permits } from '../fabric/network.js';
 import type { Store } from '../store/store.js';
 import type { Invocation } from './invocation.js';
 import { addUsage, stepIdFor } from './run-state.js';
+import { contractInstruction } from './output-contract.js';
 
 /** 委托需要的内核能力。由 Kernel 显式提供，不暴露它的私有字段。 */
 export interface DelegateRuntime {
@@ -88,6 +90,11 @@ export async function callDelegate(
   call: ToolCall,
   signal: AbortSignal,
   slice: DelegateSlice,
+  options: {
+    metadata?: Record<string, string>;
+    outputContract?: OutputContract;
+    fileIds?: string[];
+  } = {},
 ): Promise<unknown> {
   const store = rt.store;
   checkAbort(signal);
@@ -143,6 +150,10 @@ export async function callDelegate(
     subject: run.subject ?? LEGACY_SUBJECT,
     // ...and can never exceed the execution level of the key that started the parent.
     execution: run.checkpoint.execution ?? 'host',
+    ...(run.checkpoint.externalCaller ? { externalCaller: true } : {}),
+    ...(run.checkpoint.toolGrants
+      ? { connection: { allowedModes: [...run.checkpoint.toolGrants] } }
+      : {}),
     ...(run.checkpoint.hostAgents ? { hostAgents: run.checkpoint.hostAgents } : {}),
   };
   const fail = (status: 'failed' | 'uncertain', code: string, childRunId?: string): void => {
@@ -214,12 +225,16 @@ export async function callDelegate(
         {
           protocol: 'oaa/1',
           agent: delegate.agent,
-          input: taskInput,
+          input: options.outputContract
+            ? `${taskInput}\n\n${contractInstruction(options.outputContract)}`
+            : taskInput,
           model: modelOverride,
           stream: false,
           background: true,
-          file_ids: delegate.forwardFiles ? [...run.fileIds] : [],
+          file_ids: options.fileIds ?? (delegate.forwardFiles ? [...run.fileIds] : []),
+          ...(options.outputContract ? { output_contract: options.outputContract } : {}),
           metadata: {
+            ...options.metadata,
             'oaa.parent_run_id': run.id,
             'oaa.delegate_name': delegate.name,
           },

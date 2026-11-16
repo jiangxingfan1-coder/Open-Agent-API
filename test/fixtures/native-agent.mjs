@@ -3,13 +3,26 @@ const args = process.argv.slice(2);
 const mode = args[0];
 const output = (value) => process.stdout.write(JSON.stringify(value) + '\n');
 const input = readline.createInterface({ input: process.stdin });
+if (mode === 'agy-tool-free') {
+  const at = args.indexOf('--settings');
+  const settings = at >= 0 ? JSON.parse(args[at + 1]) : {};
+  if (
+    settings.toolPermission !== 'strict' ||
+    !['read_file(*)', 'write_file(*)', 'command(*)', 'mcp(*)'].every((rule) =>
+      settings.permissions?.deny?.includes(rule),
+    )
+  ) {
+    process.stderr.write('Missing tool-free permission policy');
+    process.exit(1);
+  }
+}
 if (mode?.startsWith('agy')) {
   const index = args.indexOf('--model');
   output({
     event: 'init',
     init: {
       tools: [],
-      permission_mode: 'request-review',
+      permission_mode: mode === 'agy-tool-free' ? 'strict' : 'request-review',
       ...(mode === 'agy-no-model'
         ? {}
         : {
@@ -33,13 +46,24 @@ if (mode === 'dsh') {
       if (message.method === 'initialize')
         output({ id: message.id, result: { userAgent: 'fixture' } });
       if (message.method === 'thread/start' || message.method === 'thread/resume')
-        output({ id: message.id, result: { thread: { id: 'fixture-thread' } } });
+        output({
+          id: message.id,
+          result: { thread: { id: 'fixture-thread' }, model: message.params.model ?? 'default' },
+        });
       if (message.method === 'turn/start') {
         output({ id: message.id, result: { turn: { id: 'fixture-turn', status: 'inProgress' } } });
-        output({ method: 'item/agentMessage/delta', params: { delta: 'Codex fixture output' } });
+        output({
+          method: 'item/agentMessage/delta',
+          params: {
+            threadId: 'fixture-thread',
+            turnId: 'fixture-turn',
+            itemId: 'message',
+            delta: 'Codex fixture output',
+          },
+        });
         output({
           method: 'turn/completed',
-          params: { turn: { id: 'fixture-turn', status: 'completed' } },
+          params: { threadId: 'fixture-thread', turn: { id: 'fixture-turn', status: 'completed' } },
         });
       }
     } else if (message.event === 'user' && typeof message.message?.content === 'string') {

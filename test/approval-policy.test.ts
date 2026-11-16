@@ -180,7 +180,7 @@ test('approvals: auto is refused for kernel agents and omitted when not set', ()
 /** 只发一个 300 KiB 审批请求的最小 Codex app-server 假智能体（同 agent-intake 测试的 MODE:big）。 */
 const BIG_CODEX = `
 import readline from 'node:readline';
-const out = (v) => process.stdout.write(JSON.stringify(v) + '\\n');
+const out = (v) => { if (v.method) v.params = {threadId: 'th', turnId: 't', ...v.params}; process.stdout.write(JSON.stringify(v) + '\\n'); };
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const msg = JSON.parse(line);
   if (msg.method === undefined && msg.id === 9) {
@@ -189,7 +189,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     return out({ method: 'turn/completed', params: { turn: { id: 't', status: 'completed' } } });
   }
   if (msg.method === 'initialize') return out({ id: msg.id, result: {} });
-  if (msg.method === 'thread/start') return out({ id: msg.id, result: { thread: { id: 'th' } } });
+  if (msg.method === 'thread/start') return out({ id: msg.id, result: { thread: { id: 'th' }, model: msg.params.model ?? 'default' } });
   if (msg.method !== 'turn/start') return;
   out({ id: msg.id, result: { turn: { id: 't', status: 'inProgress' } } });
   out({ id: 9, method: 'item/commandExecution/requestApproval', params: { command: 'x'.repeat(300 * 1024) } });

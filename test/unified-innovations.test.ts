@@ -71,9 +71,23 @@ test('model router balances strategies dynamically across speed, cost and qualit
   const router = new ModelRouter();
   const def = agent({
     routes: [
-      { id: 'standard', provider: 'p1', model: 'gpt-4o', priority: 1 },
-      { id: 'fast-node', provider: 'p2', model: 'gemini-flash', priority: 2 },
-      { id: 'deep-node', provider: 'p3', model: 'claude-3-7-sonnet-reasoning', priority: 3 },
+      { id: 'standard', provider: 'p1', model: 'gpt-4o', priority: 1, costTier: 3, qualityTier: 4 },
+      {
+        id: 'fast-node',
+        provider: 'p2',
+        model: 'gemini-flash',
+        priority: 2,
+        costTier: 1,
+        qualityTier: 2,
+      },
+      {
+        id: 'deep-node',
+        provider: 'p3',
+        model: 'claude-3-7-sonnet-reasoning',
+        priority: 3,
+        costTier: 4,
+        qualityTier: 4,
+      },
     ],
   });
 

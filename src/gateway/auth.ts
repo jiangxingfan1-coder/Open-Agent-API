@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import type { ConnectionDefaults } from '../core/agent-access.js';
 import type { GatewayConfig } from '../config/config.js';
 import type {
   KeyQuota,
@@ -22,45 +23,8 @@ import { permits } from '../fabric/network.js';
 import { KeyUsage, type KeyUsageView } from './key-usage.js';
 import { generateApiKey, invalidKey, missingKey } from './api-key.js';
 
-type StoredKey = {
-  id: string;
-  name: string;
-  owner: string;
-  hash: string;
-  agents: string[];
-  scopes: string[];
-  revoked: boolean;
-  createdAt: number;
-  quota?: KeyQuota;
-  dataScope?: 'own' | 'owner';
-  execution?: ExecutionLevel;
-  /** Developer-platform account that owns this key (account keys only). */
-  accountId?: string;
-};
-export type AccountKeyView = {
-  id: string;
-  name: string;
-  createdAt: number;
-  revoked: boolean;
-  usage: KeyUsageView;
-};
-/** What the developer platform supplies for account keys (see gateway/platform.ts). */
-export interface AccountKeyPolicy {
-  /** Listed (enabled) agents right now; `hostAgents` those opted into host execution. */
-  agents(): string[];
-  hostAgents(): string[];
-  readonly execution: 'workspace' | 'sandbox';
-  readonly quota: KeyQuota;
-  /** Throws `account_disabled` / `unauthorized` when the account may not call. */
-  assertActive(accountId: string): void;
-  /** Before a run is created: throws `insufficient_balance`. */
-  checkRun(accountId: string, agent: string): void;
-  beginRun(accountId: string, runId: string, agent: string): void;
-  /** Idempotent: settles (or re-settles) the run's single ledger row. */
-  settleRun(runId: string, status: RunStatus, tokens: number): void;
-  /** A settled-as-interrupted run row is running again (resumed): mark it `in_progress`. */
-  reopenRun(runId: string): void;
-}
+import type { StoredKey, AccountKeyView, AccountKeyPolicy } from './key-types.js';
+export type { AccountKeyView, AccountKeyPolicy } from './key-types.js';
 export class Auth {
   private platform?: AccountKeyPolicy;
   /** keyId -> accountId (revoked keys included: their runs still settle); accountId -> keys. */
@@ -172,6 +136,8 @@ export class Auth {
           ...(managed.quota ? { quota: managed.quota } : {}),
           ...(managed.dataScope ? { dataScope: managed.dataScope } : {}),
           ...(managed.execution ? { execution: managed.execution } : {}),
+          ...(managed.connection ? { connection: managed.connection } : {}),
+          ...(managed.connection?.audience === 'external' ? { externalCaller: true } : {}),
         },
         hash,
       };
@@ -333,10 +299,29 @@ export class Auth {
     quota?: KeyQuota,
     dataScope?: 'own' | 'owner',
     execution: ExecutionLevel = 'host',
+    connection?: ConnectionDefaults,
+    localConnectionId?: string,
   ): Record<string, unknown> {
     this.require(p, 'admin');
+    if (
+      connection?.audience === 'external' &&
+      (execution === 'host' ||
+        dataScope === 'owner' ||
+        scopes.some((scope) => scope === 'admin' || scope === 'billing'))
+    )
+      throw new Fault(
+        'scope_denied',
+        'External keys cannot grant unrestricted host execution, owner-wide data, or administration.',
+        403,
+      );
     if (agents.some((a) => !permits(p.agents, a)))
       throw new Fault('scope_denied', 'Cannot grant agents outside the current key scope.', 403);
+    if (Object.keys(connection?.models ?? {}).some((agent) => !permits(agents, agent)))
+      throw new Fault(
+        'scope_denied',
+        'Connection defaults must refer only to agents granted by this key.',
+        403,
+      );
     if (!executionPermits(allowedExecution(p), execution))
       throw new Fault('scope_denied', 'Cannot grant an execution level above your own.', 403);
     const token = generateApiKey();
@@ -349,6 +334,8 @@ export class Auth {
       hash: sha(token),
       revoked: false,
       createdAt: Date.now(),
+      ...(connection ? { connection } : {}),
+      ...(localConnectionId ? { localConnectionId } : {}),
       ...(quota ? { quota } : {}),
       ...(dataScope === 'owner' ? { dataScope } : {}),
       execution,

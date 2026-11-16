@@ -139,6 +139,38 @@ Errors name the provider, its endpoint and what to change:
 The upstream response body is only inspected to classify the failure; it is never copied into the
 message a caller sees.
 
+## Agent Model Catalogs and Orchestration
+
+`GET /v1/agents/models?agent=<id>` and MCP `oaa_list_models` provide a bounded runtime catalog. Keep `revision` for subsequent `offset` pages. This is separate from the immutable, version-pinned declared routes. A key's optional `connection.audience:"external"` marks an untrusted caller: it cannot grant host execution, owner-wide data, administration, or private-agent execution. The console distinguishes it from trusted personal keys.
+
+External agents do not need another model-provider key. OAA queries their own programmatic interfaces: Antigravity `models`, Codex app-server `model/list`, Claude Agent SDK `supportedModels()`, and ACP session model configuration. It neither intercepts upstream traffic nor extracts the agent's credentials. DSH's explicit mappings are **configured**, not account discovery; unsupported adapters return an explicit unsupported state.
+
+Owner administrators use `GET /v1/local/backends/{engine}/models` (`adapter/name` must be URL-encoded); `?refresh=true` refreshes it. Catalogs are cached for five minutes with a 15-second discovery deadline. A private on-disk cache survives restarts as stale evidence. Failed refreshes retain the last actual list, never substitute built-in model names. `ready` means discovery succeeded, **not** that each model's quota or a real task was verified.
+
+`POST /v1/agents/publish-native` accepts these optional fields (bundle definitions use `modelPolicy` instead of `model_policy`):
+
+```json
+{
+  "id": "agent/my-native",
+  "engine": "antigravity",
+  "models": ["default"],
+  "model_policy": {"mode": "discover"},
+  "access": {"modes": ["managed", "hybrid"], "defaultMode": "managed", "approval": "owner", "trust": "private"},
+  "orchestration": {"enabled": true, "helpers": []}
+}
+```
+
+- Discovery follows the agent's catalog; optional `allow` restricts it. Declared defaults/routes must also be inside that allowlist. Existing publications without these fields keep their previous behavior.
+- Standard model lists expose `agent/name`, `agent/name@<route-id>`, and `@fast`, `@best`, `@eco`. Use returned identifiers rather than guessing account model names. Selecting an explicit model does not start orchestration or silently substitute another model.
+- Key creation accepts `connection: {toolMode, allowedModes, models}`. `models` maps agent IDs to default selectors; it is a preference, not a model permission restriction. Explicit client selections override it. Tool grants remain a ceiling; a `hybrid` grant also permits either narrower execution location.
+- Orchestration uses the already connected agents for planning and review. It snapshots the admitted model pool, validates the plan's agent/model grants, runs at most two independent analyses concurrently, serializes main execution, and performs bounded review/correction. Helpers require both publication opt-in and caller authorization. No combination-publication product is required.
+- Planning, analysis and review use a tool-restricted reasoning path with the full output schema in the request. Evidence is supplied as bounded text excerpts, not by granting these stages arbitrary filesystem access. This currently supports kernel agents, Antigravity's per-session deny policy and Claude's empty-tool SDK mode; other native/adapter entries do not offer multi-model planning until an enforceable restriction is implemented. This does not turn an external process into an OS sandbox.
+- Default limits are smart: 8 stages/15 minutes; speed: 3/5; quality: 12/30; economy: 4/10. Publication `maxStages` and `timeoutMs` can override them. Simple tasks can use one model. Limits are outer execution limits, not enforceable upstream token or currency guarantees.
+- Routing uses observations and explicitly declared `costTier`, `speedTier`, `qualityTier`; it no longer guesses price or quality from model-name fragments. Unknown evidence remains unknown. `oaa.review_source: "agent"` distinguishes an agent's review from independent verification.
+- Plans, child references, confirmed results and usage are checkpointed. Unknown external writes are not automatically replayed. Disconnecting does not cancel an accepted task. Model changes on new publications carry portable history and files, not incompatible native hidden state; clients without session identifiers use their supplied history, not guessed session matching.
+
+OAA-Lang preserves these settings as `model_policy = {...}`, `access = {...}`, `orchestration = {...}` and route `quality=...`. Worker additions are feature-negotiated (`model-catalog-v1`, `agent-policy-v1`); old workers are not selected for policies they cannot enforce.
+
 ## Console
 
 In **Publish agent → OAA-Lang 2.0** a "Model provider" list shows the configured providers; picking

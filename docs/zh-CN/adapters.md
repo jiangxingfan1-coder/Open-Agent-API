@@ -6,6 +6,8 @@
 
 ## AgentAPI 转换契约（2026-11-08）
 
+当前 Codex 适配器只接受自身会话和轮次的事件及审批，保留脱敏后的上游错误，兼容完整消息快照且不重复流式文本，并限制初始化和退出等待时间。模型目录可能包含模型与思考强度的组合；统一的资源安全上限为 1,024 个模型/路由。超限目录会明确携带 `truncated: true`，界面也会标记列表不完整。模型发现或握手通过**不等于**真实生成或禁止工具验证通过。Codex、Qoder 和通用 ACP 后端仍不能用于强制禁用工具的规划阶段。下表 Antigravity 一行描述旧 stream-json 路径；新策略或混合工具发布使用 ACP，见 [Harness](harness.md)。
+
 > 本节为新增内容。回答两个问题：一个智能体经由哪条链路变成 AgentAPI；每条链路在流式、运行中审批、取消、续接、工具可见性上**实际**能保证什么。表中结论由 `test/conformance.test.ts` 用协议级假智能体逐类验证（不调用任何真实模型或智能体，不监听端口）；未经测试的条目明确标注。
 
 ### 转换链路
@@ -27,7 +29,7 @@
 | 接入方式 | 流式文本 | 运行中审批 | 取消 | 续接 | 工具可见 | 用量 | 产物 | 模型选择 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 内核 `kernel` | ✅ token | ✅ 工具 `requiresApproval` 停车等待 | ✅ 协作式（中止模型调用） | ✅ 回放会话历史 | ✅ 步骤与 `tool.*` | ✅ 每轮 | ✅ `write_file` | 路由（多路由、故障转移） |
-| 原生 `codex`（app-server JSON-RPC） | ✅ token | ✅ 命令/文件/权限/提问/MCP elicitation 全部桥接 | ⚠️ 终止进程组（未发送协议级中断） | ✅ `thread/resume` | ✅ item 进度 | ❌ 未上报 | ✅ `outputs/` | 声明式（转发 `model`） |
+| 原生 `codex`（app-server JSON-RPC） | ✅ token | ✅ 命令/文件/权限/提问/MCP elicitation 全部桥接 | ⚠️ 终止进程组（未发送协议级中断） | ✅ `thread/resume` | ✅ item 进度 | ⚠️ 累计用量增量；旧会话无基线时为未知 | ✅ `outputs/` | 发出提示前确认模型，拒绝静默回退 |
 | 原生 `claude`（Agent SDK） | ⚠️ 按消息，不是 token | ✅ `canUseTool` 桥接 | ⚠️ abort 后终止 | ✅ `--resume` | ✅ 工具名（不含参数） | ✅ | ✅ | 声明式 |
 | 原生 `antigravity`（stream-json） | ✅ token | ⚠️ 不桥接：智能体自身拒绝时以 `permission_denied` 失败 | ⚠️ 终止 | ✅ `--conversation` | ✅ step 工具 | ⚠️ 仅首轮（会话累计值不当作每轮用量） | ✅ | 智能体确认（init 回报的模型不符即失败，不发送任务） |
 | 原生 `dsh`（headless） | ❌ 仅最终结果 | ❌ | ⚠️ 终止 | ❌ `native_resume_unsupported` | ❌ | ❌ | ✅ | 白名单（owner 模型映射） |

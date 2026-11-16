@@ -190,6 +190,18 @@
   gap: var(--s-2);
   margin-top: var(--s-3);
 }
+.model-options .chip-choice {
+  max-width: 100%;
+  height: auto;
+  min-height: 28px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.model-options .chip-choice > span:not(.model-glyph) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
 .scope-row {
   display: flex;
   align-items: center;
@@ -201,6 +213,11 @@
 }
 .scope-row .checkboxes input {
   accent-color: var(--tide-deep);
+}
+.scope-row .checkboxes legend.sr-only {
+  width: 1px;
+  max-width: 1px;
+  margin: -1px;
 }
 .scope-hint {
   margin-top: var(--s-2);

@@ -10,6 +10,8 @@ import {
   visibleSubject,
 } from '../core/contracts.js';
 import { permits } from '../fabric/network.js';
+import { discoveredAgent } from '../fabric/model-pool.js';
+import { checkAccessPolicy } from './access-policy.js';
 import { localWorkerConfig, unavailableReason } from '../fabric/runnability.js';
 import type { Invocation, PreviewRequest } from './invocation.js';
 import { responseObject } from './response-object.js';
@@ -79,15 +81,38 @@ export function prepare(
       'A continuing session keeps its original agent version.',
       409,
     );
-  const handoff = !!previous && handoffRequested;
+  let handoff = !!previous && handoffRequested;
   // 交接后的新一轮不再受上一轮的模型线路、原生会话句柄和 provider 轮次状态约束；
   // 会话 ID、输入文件和生成的文件照常继承。
-  const pinned = handoff ? undefined : previous;
-  const bundle = rt.store.bundle(
+  let pinned = handoff ? undefined : previous;
+  const storedBundle = rt.store.bundle(
     principal.owner,
     invocation.agent,
     crossAgent ? invocation.agent_version : (previous?.digest ?? invocation.agent_version),
   );
+  const bundle = {
+    ...storedBundle,
+    agent: discoveredAgent(rt.hub, principal.owner, storedBundle.agent),
+  };
+  if (
+    previous &&
+    !handoff &&
+    (bundle.agent.modelPolicy || bundle.agent.access || bundle.agent.orchestration)
+  ) {
+    const metadata = (invocation as { metadata?: Record<string, string> }).metadata ?? {};
+    const changesSelection =
+      invocation.model === 'auto'
+        ? previous.route.mode === 'explicit'
+        : previous.route.mode !== 'explicit' ||
+          (invocation.model !== previous.route.id && invocation.model !== previous.route.model);
+    const changesBoundary =
+      metadata['oaa.tool_boundary'] !== undefined &&
+      metadata['oaa.tool_boundary'] !== previous.metadata['oaa.tool_boundary'];
+    if (changesSelection || changesBoundary) {
+      handoff = true;
+      pinned = undefined;
+    }
+  }
   checkExecution(rt, principal, bundle.agent);
   // Native agents take a caller key only when they will run sandboxed (the key goes into the
   // sandbox's environment); on the host they keep using their own configuration.
@@ -148,6 +173,12 @@ export function checkExecution(
   if (allowed === 'host') return;
   const seen = new Set<string>();
   const visit = (def: AgentDefinition, depth: number): void => {
+    if (def.access?.trust === 'private' && (principal.accountId || principal.externalCaller))
+      throw new Fault(
+        'isolation_required',
+        'A public caller cannot reach a private agent through delegation.',
+        403,
+      );
     if (seen.has(def.id) || depth > LIMITS.delegationCheckDepth) return;
     seen.add(def.id);
     const required = requiredExecution(def);
@@ -281,6 +312,7 @@ export function submit(
     images,
   );
   const bridge = clientTools.prepareBridge(bundle.agent, invocation);
+  checkAccessPolicy(bundle.agent, principal, invocation.metadata);
   const topology = (p: string, m: string) => toTopologyHint(inspect(p, m));
   const select = () =>
     rt.router.select(
@@ -343,6 +375,17 @@ export function submit(
     (newFiles.length ? `\n\nAdditional input files:\n${newFiles.join('\n')}` : '');
   // 交接：内核智能体拿到整理过的对话历史；外部智能体自己管理会话，改用一段交接说明。
   const conversation = handoff && previous ? conversationOf(previous) : undefined;
+  const continuationBrief =
+    previous &&
+    bundle.agent.engine !== 'kernel' &&
+    (bundle.agent.modelPolicy || bundle.agent.access || bundle.agent.orchestration)
+      ? buildHandoffBrief({
+          fromAgent: previous.agentId,
+          conversation: conversationOf(previous),
+          inputFiles: previous.fileIds.map((f) => rt.store.file(f, principal.owner).name),
+          artifacts: previous.artifactIds.map((f) => rt.store.file(f, principal.owner).name),
+        })
+      : undefined;
   const handoffBrief =
     conversation && previous && bundle.agent.engine !== 'kernel'
       ? buildHandoffBrief({
@@ -396,7 +439,29 @@ export function submit(
       turn: 0,
       phase: 'model',
       nativeState: pinned?.checkpoint.nativeState,
+      ...(bundle.agent.orchestration?.enabled
+        ? {
+            modelPool: rt.router
+              .candidates(principal.owner, bundle.digest, bundle.agent, topology)
+              .filter((candidate) => candidate.automatic_eligible)
+              .map(({ id, model, provider, priority, qualityTier, costTier, speedTier }) => ({
+                id,
+                model,
+                provider,
+                priority,
+                qualityTier,
+                costTier,
+                speedTier,
+              })),
+          }
+        : {}),
+      ...(bundle.agent.access ? { approvalAuthority: bundle.agent.access.approval } : {}),
+      ...(principal.connection?.allowedModes
+        ? { toolGrants: [...principal.connection.allowedModes] }
+        : {}),
+      ...(principal.accountId || principal.externalCaller ? { externalCaller: true } : {}),
       ...(handoffBrief ? { handoffBrief } : {}),
+      ...(continuationBrief ? { continuationBrief } : {}),
       grantedAgents: [...principal.agents],
       ...(principal.keyId ? { keyId: principal.keyId } : {}),
       execution: allowedExecution(principal),

@@ -319,6 +319,8 @@ async function loadWorkspace() {
   );
   if (token !== state.token) return;
   state.data = data;
+  if (view === 'connections' && nodeAdmin) await hooks.refreshConnections?.();
+  document.dispatchEvent(new CustomEvent('oaa:catalog-updated'));
   notifyApprovals(data.runs ?? []);
   if (keys) state.keys = keys;
   if (local?.providers) state.providers = local.providers;

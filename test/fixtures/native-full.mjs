@@ -48,11 +48,15 @@ if (kind === 'dsh') {
       waiting.set(id, resolve);
       output({ id, method, params });
     });
-  const delta = (text) => output({ method: 'item/agentMessage/delta', params: { delta: text } });
+  const delta = (text) =>
+    output({
+      method: 'item/agentMessage/delta',
+      params: { threadId, turnId: 'turn-1', itemId: 'message', delta: text },
+    });
   const item = (method, id, type, status) =>
-    output({ method, params: { item: { id, type, status } } });
+    output({ method, params: { threadId, turnId: 'turn-1', item: { id, type, status } } });
   const done = (status = 'completed') =>
-    output({ method: 'turn/completed', params: { turn: { id: 'turn-1', status } } });
+    output({ method: 'turn/completed', params: { threadId, turn: { id: 'turn-1', status } } });
   const turn = async (params) => {
     const text = (params.input ?? []).map((part) => part.text ?? '').join('');
     if (text.includes('MODE:fail')) return done('failed');
@@ -79,6 +83,14 @@ if (kind === 'dsh') {
     if (text.includes('MODE:artifact')) writeOutput('codex.txt', 'artifact');
     item('item/completed', 'cmd1', 'commandExecution', 'completed');
     const n = nextTurn(threadId);
+    output({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId,
+        turnId: 'turn-1',
+        tokenUsage: { total: { inputTokens: 7 * n, outputTokens: 3 * n, totalTokens: 10 * n } },
+      },
+    });
     delta(`Codex fixture turn ${n}`);
     delta(`: ${markerOf(text)}`);
     done();
@@ -95,12 +107,18 @@ if (kind === 'dsh') {
     if (msg.method === 'initialized') return;
     if (msg.method === 'thread/start') {
       threadId = `codex-thread-${process.pid}-${Date.now()}`;
-      return output({ id: msg.id, result: { thread: { id: threadId } } });
+      return output({
+        id: msg.id,
+        result: { thread: { id: threadId }, model: msg.params.model ?? 'default' },
+      });
     }
     if (msg.method === 'thread/resume') {
       threadId = msg.params.threadId;
       log(`resume:${threadId}`);
-      return output({ id: msg.id, result: { thread: { id: threadId } } });
+      return output({
+        id: msg.id,
+        result: { thread: { id: threadId }, model: msg.params.model ?? 'default' },
+      });
     }
     if (msg.method === 'turn/start') {
       output({ id: msg.id, result: { turn: { id: 'turn-1', status: 'inProgress' } } });

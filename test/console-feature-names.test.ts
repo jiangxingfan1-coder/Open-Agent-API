@@ -11,9 +11,9 @@ const read = (relative: string) =>
 const quoted = (text: string) => [...text.matchAll(/'([a-z0-9-]+-v\d+)'/g)].map((m) => m[1]!);
 
 test('every capability the gateway can advertise has a name in the console', () => {
-  const server = read('src/gateway/server.ts');
+  const server = read('src/gateway/endpoints.ts');
   const from = server.indexOf('export const GATEWAY_FEATURES = [');
-  assert.ok(from >= 0, 'GATEWAY_FEATURES is declared in server.ts');
+  assert.ok(from >= 0, 'GATEWAY_FEATURES is declared in endpoints.ts');
   const advertised = [
     ...quoted(server.slice(from, server.indexOf('].sort()', from))),
     'platform-v1',

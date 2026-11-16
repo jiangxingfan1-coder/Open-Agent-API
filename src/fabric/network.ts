@@ -553,6 +553,9 @@ export class NodeHub {
               'provider-turn-v1',
               'client-tools-v1',
               'image-input-v1',
+              'model-catalog-v1',
+              'agent-policy-v1',
+              'tool-free-reasoning-v1',
             ],
           });
           ws.once('close', () => {
@@ -1135,6 +1138,10 @@ async function workerConnection(
             negotiated.providerState = metadataUpdates && features.includes('provider-turn-v1');
             negotiated.clientTools = metadataUpdates && features.includes('client-tools-v1');
             negotiated.imageInput = metadataUpdates && features.includes('image-input-v1');
+            negotiated.modelCatalogs = metadataUpdates && features.includes('model-catalog-v1');
+            negotiated.agentPolicy = metadataUpdates && features.includes('agent-policy-v1');
+            negotiated.toolFreeReasoning =
+              metadataUpdates && features.includes('tool-free-reasoning-v1');
             // The hello omitted newer metadata (an older gateway would reject it); report it now.
             if (Object.values(negotiated).some(Boolean)) advertise('advertisement');
             heartbeat = setInterval(

@@ -47,6 +47,9 @@ test('参数：发布模式必须带 --node-dir、一次一个平台；本机开
   const dev = plan.parseOptions(['mac'], 'arm64');
   assert.equal(dev.arch, 'arm64');
   assert.equal(plan.shouldInstallLocally(dev), true);
+  const staged = plan.parseOptions(['mac', '--no-install']);
+  assert.equal(staged.release, false);
+  assert.equal(plan.shouldInstallLocally(staged), false);
   assert.equal(plan.parseOptions([], 'arm64').target, 'all');
   assert.equal(
     plan.parseOptions(['win', '--release', '--node-dir', 'n', '--node-version', 'v24.18.0'])

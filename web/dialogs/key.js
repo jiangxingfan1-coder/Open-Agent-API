@@ -1,8 +1,10 @@
 import { hasFeature, hooks, sdkBaseUrl, state } from '../lib/state.js';
 import { STATUS, engineName } from '../lib/format.js';
+import { catalogFor } from './model-discovery.js';
 import {
   $,
   agentGlyph,
+  modelGlyph,
   button,
   copyText,
   el,
@@ -24,6 +26,10 @@ import { t } from '../lib/i18n.js';
 // Pick agents → pick a default model per agent → name & scopes. The default model is not stored
 // on the key: it is expressed through the gateway's `agent@model` selector in the `model` field.
 export const SCOPE_PRESETS = { invoke: ['read', 'invoke', 'files'], read: ['read'] };
+import { renderKeyToolModes } from './access-options.js';
+document.addEventListener('oaa:catalog-updated', () => {
+  if ($('key-dialog').open && !keyDraft.result) renderKeyModels();
+});
 export const keyDraft = {
   mode: 'pick',
   agents: [],
@@ -35,6 +41,7 @@ export const keyDraft = {
 };
 export const shortAgent = (id) => String(id).split('/').pop() || String(id);
 export function agentModelChoices(agent) {
+  const modelNames = new Map((catalogFor(agent?.engine)?.models ?? []).map((m) => [m.id, m.name]));
   const list = [
     { value: 'auto', label: t('dlg.key.auto'), hint: t('dlg.key.auto_hint') },
     { value: '@fast', label: t('dlg.key.fast'), hint: t('dlg.key.fast_hint') },
@@ -45,11 +52,14 @@ export function agentModelChoices(agent) {
     list.push({
       value: r.id,
       label:
-        r.id === r.model
+        modelNames.get(r.model) ??
+        (r.id === r.model
           ? r.model === 'default'
             ? t('dlg.key.default_model')
             : r.model
-          : `${r.id}`,
+          : r.discovered
+            ? r.model
+            : `${r.id}`),
       hint:
         r.available === false
           ? t('dlg.key.route_not_ready')
@@ -57,6 +67,7 @@ export function agentModelChoices(agent) {
             ? t('dlg.key.route_fixed')
             : t('dlg.key.route_fixed_model', { model: r.model }),
       route: true,
+      model: r.model,
       unavailable: r.available === false,
     });
   return list;
@@ -67,6 +78,7 @@ export function agentModelName(id, model) {
   return `${id}@${String(model).replace(/^@/, '')}`;
 }
 export function openKeyDialog(preset) {
+  $('key-audience').value = 'private';
   const opts = preset && !(preset instanceof Event) ? preset : {};
   const agents = state.data?.agents ?? [];
   const known = (id) => agents.some((a) => a.id === id);
@@ -186,6 +198,7 @@ export function renderKeyAgentList() {
   }
 }
 export function renderKeyModels() {
+  renderKeyToolModes(keyDraft.agents);
   const box = $('key-model-list');
   box.replaceChildren();
   $('key-model-section').hidden = keyDraft.mode === 'all';
@@ -216,8 +229,10 @@ export function renderKeyModels() {
       ),
     );
     const chips = el('div', undefined, 'model-options');
-    chips.setAttribute('role', 'radiogroup');
-    chips.setAttribute('aria-label', t('dlg.key.default_model_of', { id }));
+    const routes = el('div', undefined, 'model-options');
+    const selection = el('div');
+    selection.setAttribute('role', 'radiogroup');
+    selection.setAttribute('aria-label', t('dlg.key.default_model_of', { id }));
     for (const c of choices) {
       const chip = el('button', undefined, `chip-choice${c.route ? ' route' : ''}`);
       chip.type = 'button';
@@ -228,15 +243,18 @@ export function renderKeyModels() {
       chip.title = c.hint;
       const label = el('span', c.label);
       label.translate = false;
+      if (c.route) chip.append(modelGlyph(c.model, c.label));
       chip.append(label);
       chip.onclick = () => {
         keyDraft.models.set(id, c.value);
         renderKeyModels();
         icons();
       };
-      chips.append(chip);
+      (c.route ? routes : chips).append(chip);
     }
-    row.append(head, chips);
+    selection.append(el('small', t('models.modes')), chips);
+    if (routes.childElementCount) selection.append(el('small', t('models.specific')), routes);
+    row.append(head, selection);
     box.append(row);
   }
 }
@@ -439,7 +457,28 @@ $('key-form').onsubmit = async (e) => {
   if (!agents.length) return fail(t('dlg.key.err.no_agent'));
   if (!scopes.length) return fail(t('dlg.key.err.no_scope'));
   if (!name) return fail(t('dlg.key.err.no_name'));
-  const body = { name: name.slice(0, 100), agents, scopes };
+  if (
+    $('key-audience').value === 'external' &&
+    (state.data?.agents ?? []).some((a) => agents.includes(a.id) && a.access?.trust === 'private')
+  )
+    return fail(t('access.external_unavailable'));
+  const body = {
+    name: name.slice(0, 100),
+    agents,
+    scopes,
+    connection: {
+      audience: $('key-audience').value,
+      ...(keyDraft.mode !== 'all'
+        ? {
+            toolMode: $('key-tool-boundary').value || 'managed',
+            allowedModes: [$('key-tool-boundary').value || 'managed'],
+          }
+        : {}),
+      models: Object.fromEntries(
+        [...keyDraft.models].filter(([id]) => agents.includes('*') || agents.includes(id)),
+      ),
+    },
+  };
   const days = Number($('key-expiry').value);
   if (days > 0) body.quota = { expiresAt: Date.now() + days * 86_400_000 };
   const submit = $('key-submit');

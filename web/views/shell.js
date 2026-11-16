@@ -10,6 +10,7 @@ import { heroCard, renderOverview } from './overview.js';
 import { renderAccess, renderKeys } from './access.js';
 import { renderAgents } from './agents.js';
 import { renderPlatform } from './platform.js';
+import { connections, renderConnections } from './connections.js';
 import { platform } from '../dialogs/platform-data.js';
 
 /* ── Chrome ──────────────────────────────────────────── */
@@ -130,6 +131,7 @@ export function viewSignature() {
       [...state.nodeCommands],
     ],
     access: () => [d?.endpoints, d?.public_base_url, d?.agents?.map((a) => a.id)],
+    connections: () => [connections.rev, isNodeAdmin(), state.token],
     keys: () => [state.keys, isAdmin()],
     platform: () => [platform.rev, isAdmin(), hasFeature('platform-v1')],
     settings: () => [prefs, d?.principal, state.health, live.connected, live.supported],
@@ -165,6 +167,13 @@ export function renderView(force = false) {
   // No redraw while a menu is open on the page: it would close the menu. Redraw on the next
   // refresh after it closes.
   if (!force && content.querySelector('[aria-haspopup][aria-expanded="true"]')) return;
+  if (
+    !force &&
+    state.view === 'connections' &&
+    content.contains(document.activeElement) &&
+    document.activeElement?.matches('input, select')
+  )
+    return;
   lastViewSignature = signature;
   const focus = focusKey(content);
   // A redraw keeps what the reader had open and where they were: open <details> are matched
@@ -186,6 +195,7 @@ export function renderView(force = false) {
       requests: renderRequests,
       nodes: renderNodes,
       access: renderAccess,
+      connections: renderConnections,
       keys: renderKeys,
       platform: renderPlatform,
     })[state.view](content);
