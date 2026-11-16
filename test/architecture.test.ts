@@ -23,7 +23,7 @@ const LAYERS: Record<string, number> = {
 /** 行数预算（棘轮）：只登记超过 600 行的文件，上限 = 登记时行数向上取整到 50。以后只许调低。 */
 const DEFAULT_LINE_LIMIT = 600;
 const LINE_BUDGETS: Record<string, number> = {
-  'gateway/server.ts': 1550,
+  'gateway/server.ts': 700,
   'store/store.ts': 1550,
   'lang/graph.ts': 1350,
   'fabric/network.ts': 1350,

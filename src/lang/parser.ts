@@ -14,8 +14,29 @@ export class ParseContext {
   readonly typeAliases = new Map<string, Record<string, unknown>>();
   /** flow 里 `$NAME` 简写生成的引用对象 → 它的 token；flow 解析完后据此把常量名换成值。 */
   readonly shorthandRefs = new WeakMap<object, Token>();
+  private expandedNodes = 0;
+  private expandedBytes = 0;
 
   constructor(readonly tokens: Token[]) {}
+
+  /** Bound expanded aliases/constants, not just the much smaller source spelling. */
+  expand<T>(value: T, tok: Token): T {
+    const pending: { value: unknown; depth: number }[] = [{ value, depth: 0 }];
+    while (pending.length) {
+      const item = pending.pop()!;
+      if (++this.expandedNodes > 100_000 || item.depth > 32)
+        this.fail(tok, 'Expanded value exceeds compiler complexity limit.');
+      if (typeof item.value === 'string') this.expandedBytes += Buffer.byteLength(item.value);
+      else if (item.value && typeof item.value === 'object')
+        for (const [key, child] of Object.entries(item.value)) {
+          this.expandedBytes += Buffer.byteLength(key);
+          pending.push({ value: child, depth: item.depth + 1 });
+        }
+      if (this.expandedBytes > 8 * 1024 * 1024)
+        this.fail(tok, 'Expanded value exceeds compiler size limit.');
+    }
+    return structuredClone(value);
+  }
 
   peek(offset = 0): Token {
     return this.tokens[Math.min(this.pos + offset, this.tokens.length - 1)]!;
@@ -153,10 +174,10 @@ export function parseValue(ctx: ParseContext, depth = 0): unknown {
     if (tok.value === 'false') return false;
     if (tok.value === 'null') return null;
     if (ctx.constants.has(tok.value)) {
-      return structuredClone(ctx.constants.get(tok.value));
+      return ctx.expand(ctx.constants.get(tok.value), tok);
     }
     if (tok.value.startsWith('$') && ctx.constants.has(tok.value.slice(1))) {
-      return structuredClone(ctx.constants.get(tok.value.slice(1)));
+      return ctx.expand(ctx.constants.get(tok.value.slice(1)), tok);
     }
     return tok.value;
   }

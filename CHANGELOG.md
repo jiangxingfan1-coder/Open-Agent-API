@@ -4,6 +4,17 @@ English · [简体中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+## 0.0.66 (2026-11-16)
+
+- Discover native/ACP model catalogs instead of fixed model lists, with explicit discovery errors, bounded catalogs and stable route identities.
+- Add publication access policies, per-key connection defaults, durable bounded orchestration and private project-workspace bindings. Unsupported tool-isolation modes are refused rather than silently downgraded.
+- Add Local Connections for DSH: detected-client and connection cards, scoped keys, model synchronization, metadata-only checks, conflict-aware removal and crash recovery. Existing providers and the separate API-key workflow remain unchanged.
+- Harden Codex/Antigravity protocol handling and update agent/model brand assets.
+- Fix type-alias default semantics, bound compiler expansions, handle prototype-named orchestration stages, and preserve client-configuration annotations. Special configuration files cannot block file inspection.
+- Refresh vulnerable dependency resolutions while preserving the sandbox runtime's supported Zod v3 API. Add `--no-install` for staging local desktop packages before installation.
+
+Native client-only isolation and enforced tool-free planning are not available for every external engine. Catalog discovery and connection checks do not prove generation entitlement. See the capability documentation for each engine's limits.
+
 ## 0.0.65 (2026-11-14)
 
 This version makes the gateway installable in more places and checks it against more clients, and it lets a request carry more than text. It installs on Linux (a tar.gz with its own Node.js, and `install.sh`), in Docker and from an npm tarball, runs on Node 24 and 26, and its full test suite passes on Windows in CI. A compatibility lab runs the official Python and Node SDKs and several frameworks against the gateway and replays the requests of a dozen chat clients, and the gateway was changed wherever that found an incompatibility. Callers can send images and ask for JSON that is guaranteed to fit a schema, run events can be pushed to your own endpoint, and approvals can be handled from the command line. A security review led to a set of fixes. One command (`oaa connect <preset>`) now gives the built-in agent a model from a local service or a hosted provider, and a long soak run found and fixed memory and database growth, with a way to prune old data. Several defaults changed on purpose; they are listed under "Behavior changes", with how to get the old behavior back where there is a way. What has not been verified is listed under "Not yet verified".

@@ -23,6 +23,18 @@ Each layer has its own set of tools. If the outer `tools` were silently dropped,
 
 ## The modes
 
+### Explicit execution boundaries
+
+New publications can declare `access.modes`, `defaultMode`, `approval`, and `trust`. Connection defaults saved with a key let an ordinary client use the standard `/v1` URL without special headers. `X-OAA-Tool-Boundary` or `metadata["oaa.tool_boundary"]` explicitly selects `managed` (server tools), `client` (client tools only), or `hybrid` (both sides). Publication and key grants are checked before execution; unsupported boundaries fail, never silently fall back. A pending caller tool must be completed or cancelled before changing its model or boundary.
+
+Client-only is currently enforced for kernel agents; external agents that cannot guarantee it are refused. Hybrid bridging does **not** mean the external agent's own tools are disabled. Antigravity can bridge through its verified `agy acp` entry; its CLI concrete model IDs remain selectable when ACP also reports model-family configuration. New Antigravity approval policies use ACP; legacy publications retain their headless path.
+
+Approval policy is `auto`, `caller`, or `owner`. Caller approval requires the approve scope and never expands the execution ceiling. Owner-only approvals cannot be resolved by a caller merely holding approve scope. `native` records that the adapter cannot forward approvals; its native rules apply and the UI disables unsupported approval controls. A private publication is not available to public-platform callers, including through delegation. A verified sandbox is required for isolated native execution; a task directory is not one.
+
+Owner administrators may `POST /v1/local/projects` with `{agent,path}` to bind an existing local project (`path:null` unbinds it). Binding changes are refused while that agent has queued, active, or approval-pending tasks. `access.workspace:"project"` is trusted-private only; local native processes then use the selected project as cwd, while uploaded inputs and downloadable outputs stay in their separate task directory. Native executions sharing a directory are serialized. Paths are not exposed in caller catalogs, and a binding is explicitly **not an OS sandbox**. Remote HTTP/A2A adapters cannot use a local project cwd.
+
+For discovery, model selection and multi-model execution see [models.md](models.md#agent-model-catalogs-and-orchestration). The older tool-mode header below remains compatible for existing integrations.
+
 | Mode | Meaning | Who runs the tools | When to use |
 | --- | --- | --- | --- |
 | `auto` (default) | The gateway decides when the agent is known: when the agent can take the caller's tools over it behaves as `bridge`, otherwise it does what the entry did before (see "What auto does") | As in the mode it picks | Almost always: callers do not have to know which kind of agent is behind the name |
@@ -39,7 +51,7 @@ A request that declares tools and chooses no mode gets `auto` (the gateway confi
 1. The agent can take the tools over (kernel agent, or an ACP agent with an online execution machine that declared `client-tools-v1` for it), the tools are plain functions with names that do not collide with the agent's own, and no tool choice is forced: the request is handled as `bridge`. The response carries `X-OAA-Client-Tools: bridge`; the agent's calls come back as `tool_calls` / `function_call` / `tool_use` / `functionCall`.
 2. Anything else gets what the entry did before. OpenAI's default endpoints (`/v1/chat/completions`, `/v1/responses` without `X-OAA-Compat`) refuse with 400 `unsupported_parameter` (`error.param` `tools`): the message says this agent cannot take the tools over, gives the reason (a native engine that runs its own tool loop, no execution machine for client tools, a name collision, tools that are not functions, a forced tool choice), and names the three ways out: the Base URL `<origin>/v1/compat`, `X-OAA-Compat: true`, `X-OAA-Client-Tools: managed`. The compatibility endpoints, Claude Messages and Gemini continue as `managed` (the agent finishes with its own tools; `X-OAA-Client-Tools: ignored`).
 
-So only two situations changed: a request to an agent that can bridge now bridges (on the default OpenAI endpoints it used to be a 400; elsewhere it used to be `managed`). Agents that cannot bridge (Codex, Claude Code, Antigravity, A2A, HTTP adapters) behave on every entry exactly as before. Forced tool choices cannot be honoured by the gateway or the upstream model, so they never bridge; on the default endpoints a forced `tool_choice` is refused (`unsupported_parameter`, `error.param` `tool_choice`) and elsewhere it is ignored as before. The permission of an external agent's own approval requests in a bridged turn is unchanged (see "How bridging works for external agents"): `auto` does not widen what is auto-approved.
+Legacy integrations retain this auto-selection rule. Codex, Claude Code, A2A and HTTP native/adapter entries remain managed-only; Antigravity additionally supports its capability-checked ACP path. Forced tool choices are not guaranteed by external agents. Selecting auto never grants additional approval authority. New publication and key policies take precedence as described above.
 
 Modes apply only when `tools` in the request is a **non-empty array**. With no `tools`, or with `tools: []`, behavior is exactly as before and the mode header has no effect.
 
@@ -106,7 +118,8 @@ Agent connection type × mode (the agent profile's `conversion.client_tools` giv
 | --- | --- | --- | --- |
 | Built-in kernel agent (`engine: kernel`) | Supported | Supported | Supported ✓ (Chat, Responses, Claude Messages) |
 | ACP external agent (`adapter/<name>`, `transport: "acp"`) | Supported | Supported | Supported ✓ (through an MCP relay; see "How bridging works for external agents" below) |
-| Codex / Claude Code / Antigravity / DSH | Supported | Supported | Managed only: returns `client_tools_bridge_unsupported` |
+| Antigravity with confirmed `agy acp` support | Supported | Supported | Hybrid caller-tool bridge through ACP |
+| Codex / Claude Code / DSH native entries | Supported | Supported | Managed only: returns `client_tools_bridge_unsupported` |
 | A2A / oaa-1 HTTP adapters | Supported | Supported | Managed only: returns `client_tools_bridge_unsupported` |
 
 A bridged run is placed only on an execution machine that declared `client-tools-v1` in the handshake and declared support for this engine (the built-in execution machine always declares `kernel` and the enabled ACP adapters). When there is no such machine, submission returns `client_tools_bridge_unsupported` (400) and no run is created. Legacy 0.2.0 remote execution machines do not declare this feature, so they never receive bridged tasks (previously this surfaced only at execution time as `manifest_mismatch`).
@@ -250,7 +263,7 @@ What users need to know:
 - The agent's own MCP call timeout (for example the MCP SDK's default of 60 seconds) may be shorter than `approvalTimeoutMs`: if the caller returns results too slowly, the agent may give up on the call first.
   - **Keep-alive**: while waiting for the caller, the relay sends a `notifications/progress` every 15 seconds for a `tools/call` whose request carries `_meta.progressToken` (`progress` increases, and `message` says it is waiting for the caller; the interval can be changed with `oaa mcp-relay --progress-interval-ms` or the environment variable `OAA_MCP_RELAY_PROGRESS_MS`). Without a token, nothing is sent. This does **not** guarantee a longer timeout: the agent's MCP client must have enabled "reset the timeout on progress" (the MCP SDK's `resetTimeoutOnProgress`), and it must actually have provided a progressToken. We recommend aligning the gateway's `approvalTimeoutMs` with the agent's MCP request timeout (not longer than the latter), or raising the agent's MCP timeout.
   - **Cleanup after abandonment**: if the agent closes the relay when it gives up on the call (shuts down the MCP server, or restarts it after a timeout), the socket from the relay to the execution machine disconnects, and the call still waiting ends with `client_tool_abandoned`: the corresponding step fails, the pending item is marked expired, and the run does not fail because of it (the agent is still going); when there are no other pending items, the status goes back to `in_progress`. Returning that `call_id` afterwards does not continue anything and is treated as a new request. If the agent merely lets the request time out without closing the relay, the call still hangs until `approvalTimeoutMs` and the run ends with `client_tool_timeout`.
-- Only ACP connections are supported; Codex, Claude Code, Antigravity, DSH, A2A, and oaa-1 adapters remain managed only.
+- Bridging uses ACP, including the verified ACP path of the Antigravity native entry. Codex, Claude Code, DSH, A2A, and oaa-1 native/adapter entries remain managed only unless a separately supported ACP adapter is used.
 
 ## Roadmap
 

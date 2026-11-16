@@ -60,6 +60,10 @@ OAA_DESKTOP_HOME="$(mktemp -d)" OAA_DESKTOP_PORT=18787 "release/macos/Open Agent
 
 ## 本机开发打包与发布打包
 
+使用 `npm run package:mac -- --no-install` 可先构建本机开发安装包，不替换已安装应用或 CLI 链接，验证后再安装。这不会把开发载荷转换为可公开再分发的发布包。
+
+升级已有适配器引用包内 Node 的安装时，还需传入 `--node-dir <已验证的运行时目录>`。本机打包也会验证、复制并签名这个运行时，保留原路径，不改写用户配置。
+
 | | 本机开发打包 | 发布打包 |
 | --- | --- | --- |
 | 命令 | `npm run package:mac` / `package:win` / `package:all`（`all` = mac + win；Linux 包只有发布模式） | `npm run package:release:mac -- --arch <arm64\|x64> --node-dir <目录> [--node-version <v>]`、`npm run package:release:win -- --node-dir <目录> --node-version <v>`、`npm run package:release:linux -- --arch <x64\|arm64> --node-dir <目录> [--node-version <v>]` |

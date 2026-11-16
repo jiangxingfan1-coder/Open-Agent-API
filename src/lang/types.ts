@@ -41,7 +41,7 @@ export function parseTypeSpec(
     else if (typeIdent === 'object' || typeIdent === 'json') baseSchema = { type: 'object' };
     else if (typeIdent === 'any') baseSchema = {};
     else if (ctx.typeAliases.has(first.value))
-      baseSchema = structuredClone(ctx.typeAliases.get(first.value)!);
+      baseSchema = ctx.expand(ctx.typeAliases.get(first.value)!, first);
     else
       ctx.fail(
         first,
@@ -75,11 +75,13 @@ export function parseTypeSpec(
 
   // Check optional array suffix []
   while (ctx.peek().type === 'LBRACKET' && ctx.peek(1).type === 'RBRACKET') {
+    if (++depth > 16) ctx.fail(ctx.peek(), 'Type specification nesting exceeds compiler limit.');
     ctx.next();
     ctx.next();
     baseSchema = { type: 'array', items: baseSchema };
   }
 
+  hasDefault = Object.hasOwn(baseSchema, 'default');
   return { schema: baseSchema, hasDefault };
 }
 

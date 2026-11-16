@@ -40,6 +40,12 @@ export function settleStructuredOutput(
   if (!contract) return { again: false };
   const verdict = checkAnswer(contract, answer, rt.outputSchemas);
   if (verdict.ok) {
+    if (run.checkpoint.orchestration) {
+      run.checkpoint.orchestration.finalText = verdict.text;
+      rt.store.checkpoint(run, writer.publishFinalOnce(verdict.text));
+      writer.close();
+      return { again: false };
+    }
     const last = run.checkpoint.messages.findLast((m) => m.role === 'assistant');
     if (last) last.content = verdict.text;
     writer.hold(false);

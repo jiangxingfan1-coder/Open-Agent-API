@@ -136,7 +136,11 @@ export function researchBundle() {
     ],
   );
 }
-export async function setup(driver = new FixtureModel(), extra: Record<string, unknown> = {}) {
+export async function setup(
+  driver = new FixtureModel(),
+  extra: Record<string, unknown> = {},
+  options: Parameters<typeof createGateway>[2] = {},
+) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'oaa-test-'));
   const workerConfig = workerSchema.parse({ nodeId: 'local', dataDir: path.join(dir, 'worker') });
   const runtime = new WorkerRuntime(workerConfig, new Map(), new Map([['fixture', driver]]));
@@ -153,7 +157,7 @@ export async function setup(driver = new FixtureModel(), extra: Record<string, u
   });
   process.env.OAA_TEST_TOKEN = token;
   process.env.OAA_SECOND_TOKEN = secondToken;
-  const gateway = await createGateway(config, runtime);
+  const gateway = await createGateway(config, runtime, options);
   await gateway.app.ready();
   const request = (
     method: 'GET' | 'POST' | 'DELETE',

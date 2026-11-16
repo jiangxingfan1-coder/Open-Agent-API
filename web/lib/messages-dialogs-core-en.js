@@ -145,13 +145,13 @@ export const enCore = {
   'dlg.agent.continue.other':
     'Previously handled by {agent}. {current} will see the earlier conversation and files before it starts.',
   'dlg.agent.continue.original': '{id} (original)',
-  'dlg.key.auto': 'Auto',
+  'dlg.key.auto': 'Smart',
   'dlg.key.auto_hint': 'Chosen automatically by speed, quality and health',
-  'dlg.key.fast': 'Fastest (@fast)',
+  'dlg.key.fast': 'Speed (@fast)',
   'dlg.key.fast_hint': 'Prefers low-latency responses',
-  'dlg.key.best': 'Best (@best)',
+  'dlg.key.best': 'Quality (@best)',
   'dlg.key.best_hint': 'Prefers high-quality answers',
-  'dlg.key.eco': 'Cheapest (@eco)',
+  'dlg.key.eco': 'Economy (@eco)',
   'dlg.key.eco_hint': 'Prefers low-cost models',
   'dlg.key.default_model': 'Default model',
   'dlg.key.route_not_ready':

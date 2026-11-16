@@ -3,6 +3,7 @@
 //
 //   本机开发：node scripts/package-all.mjs mac|win|all
 //     会先 npm run build，并把 .app 安装到 ~/Applications 与 /Applications、把 CLI 链接到 ~/.local/bin/oaa。
+//     加 --no-install 只构建本机产物，验证后再单独安装。
 //   发布构建：node scripts/package-all.mjs mac|win|linux --release --arch <arch> --node-dir <官方 Node 目录>
 //     不安装、不链接、不写用户主目录、不 build（要求 dist/ 已由 npm run build 生成）；只写 release/ 之内，
 //     越界的写操作由 package-actions.mjs 直接拒绝。加 --dry-run 只打印每一步要写的路径与要执行的命令。
@@ -262,14 +263,14 @@ exec /usr/bin/env node "$DIR/dist/src/cli.js" "$@"
   // 4. 运行时载荷与（发布模式）自带的 Node
   log('macOS', '拷贝编译后的内核、控制台、示例与依赖');
   copyRuntimePayload(appPayloadDir, 'mac', arch);
-  if (opts.release) copyNodeRuntime('mac', path.join(resourcesDir, 'node'));
+  if (opts.nodeDir) copyNodeRuntime('mac', path.join(resourcesDir, 'node'));
 
   // 5. 签名：有 OAA_MACOS_SIGN_IDENTITY 时用开发者证书（hardened runtime），否则临时签名（ad-hoc）
   signMacApp(appBundleDir, resourcesDir);
 
   // 6. 只在本机开发模式安装到应用目录并链接 CLI
   if (shouldInstallLocally(opts)) installLocally(appBundleDir);
-  else log('macOS', '发布模式：不安装到任何应用目录、不链接 CLI');
+  else log('macOS', '不安装到任何应用目录、不链接 CLI');
 
   // 7. .dmg（带指向 /Applications 的快捷方式）
   const dmgPath = path.join(macReleaseDir, artifactName(version, 'mac', arch, 'dmg'));
@@ -387,7 +388,7 @@ function signMacApp(appBundleDir, resourcesDir) {
       ]
     : ['--force', '--sign', '-'];
   log('macOS', identity ? `用开发者证书签名：${identity}` : '临时签名（ad-hoc），未公证');
-  if (opts.release) {
+  if (opts.nodeDir) {
     // 包内的 Mach-O（Node、原生 .node 扩展、.dylib）不在 --deep 覆盖的标准位置，逐个先签。
     const inner = opts.dryRun ? [] : machOFiles(resourcesDir);
     if (opts.dryRun)
@@ -469,7 +470,7 @@ function buildWindowsBundle(arch) {
   act.mkdir(winScriptsDir);
 
   copyRuntimePayload(winAppDir, 'win', arch);
-  if (opts.release) copyNodeRuntime('win', path.join(winBundleDir, 'runtime'));
+  if (opts.nodeDir) copyNodeRuntime('win', path.join(winBundleDir, 'runtime'));
   act.write(path.join(winBundleDir, 'OpenAgentAPI.png'), opts.dryRun ? '' : brandIconPng(256));
 
   const crlf = (s) => s.replace(/\r?\n/g, '\r\n');
@@ -505,7 +506,7 @@ function buildLinuxBundle(arch) {
   act.rm(bundleDir);
   act.mkdir(path.join(bundleDir, 'app'));
   copyRuntimePayload(path.join(bundleDir, 'app'), 'linux', arch);
-  if (opts.release) copyNodeRuntime('linux', path.join(bundleDir, 'runtime'));
+  if (opts.nodeDir) copyNodeRuntime('linux', path.join(bundleDir, 'runtime'));
   act.write(path.join(bundleDir, 'oaa'), linux.launcher(req), 0o755);
   act.write(path.join(bundleDir, 'README-LINUX.txt'), linux.readme(version, arch, req));
   const installSh = stampInstallScript(
@@ -528,10 +529,13 @@ function main() {
     log('Plan', '--dry-run：以下每一步只打印，不写任何文件、不执行任何外部命令（query 除外）');
   log(
     'Plan',
-    `目标 ${opts.target}${opts.arch ? `/${opts.arch}` : ''}，${opts.release ? '发布模式（只写 release/）' : '本机开发模式（会安装到本机）'}`,
+    `目标 ${opts.target}${opts.arch ? `/${opts.arch}` : ''}，${opts.release ? '发布模式（只写 release/）' : opts.noInstall ? '本机开发模式（不安装）' : '本机开发模式（会安装到本机）'}`,
   );
+  if (opts.nodeDir) {
+    for (const target of opts.target === 'all' ? ['mac', 'win'] : [opts.target])
+      checkNodeRuntime(target);
+  }
   if (opts.release) {
-    checkNodeRuntime(opts.target);
     if (!fs.existsSync(path.join(rootDir, 'dist', 'src', 'cli.js')))
       throw new Error(
         '发布模式不自动编译：请先运行 npm run build（CI 里由 npm run verify 完成）。',

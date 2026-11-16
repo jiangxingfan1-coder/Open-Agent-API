@@ -113,7 +113,13 @@ export function prepareBridge(
       'client_tools_too_many',
       `Published tools plus caller tools exceed ${MAX_TOOLS} (${published} + ${tools.length}).`,
     );
-  return { tools: tools.map((t) => ({ ...t })), delivered: 0 };
+  return {
+    tools: tools.map((t) => ({ ...t })),
+    delivered: 0,
+    ...(invocation.metadata['oaa.tool_boundary'] === 'client'
+      ? { boundary: 'client' as const }
+      : {}),
+  };
 }
 
 function bindingFor(tool: ClientTool): ToolBinding {
@@ -142,7 +148,7 @@ export function withClientBindings(
   const bindings = bridge.tools.map(bindingFor);
   return {
     agent: { ...agent, tools: [...agent.tools, ...bindings] },
-    toolNames: [...toolNames, ...bindings.map((b) => b.name)],
+    toolNames: [...(bridge.boundary === 'client' ? [] : toolNames), ...bindings.map((b) => b.name)],
   };
 }
 

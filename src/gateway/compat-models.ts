@@ -11,6 +11,21 @@ export const openaiModel = (a: { id: string }) => ({
   owned_by: 'open-agent-api',
 });
 
+export function modelAliases<
+  T extends { id: string; model_policy?: unknown; routes?: readonly { id: string }[] },
+>(agents: readonly T[]): T[] {
+  return agents.flatMap((agent) =>
+    !agent.model_policy
+      ? [agent]
+      : [
+          agent,
+          ...new Set(['fast', 'best', 'eco', ...(agent.routes ?? []).map((route) => route.id)]),
+        ].map((item) =>
+          typeof item === 'string' ? { ...agent, id: `${agent.id}@${item}` } : item,
+        ),
+  );
+}
+
 /** Anthropic ModelInfo: no release date, so `created_at` is the epoch (the field description allows it). */
 export const claudeModelInfo = (a: { id: string }): Record<string, unknown> => ({
   type: 'model',

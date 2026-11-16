@@ -63,6 +63,7 @@ export async function runNativeAgent(
     .execute(
       {
         kind: 'native',
+        ...(run.metadata['oaa.tools_disabled'] === 'true' ? { toolsDisabled: true } : {}),
         agent,
         input:
           session.input ??
@@ -131,6 +132,7 @@ export async function runNativeAgent(
   );
   checkAbort(signal);
   nativeStep.status = 'completed';
+  if (run.checkpoint.orchestration) nativeStep.result = { value: { text: native.text } };
   rt.store.checkpointNativeStep(run, nativeStep, session.writer.finish('completed'), artifactIds);
   session.writer.close();
   return native.text;
@@ -138,4 +140,4 @@ export async function runNativeAgent(
 
 /** The step of the external agent's turn: the first round `native_<run>`, each correction round its own. */
 export const nativeStepId = (run: Run): string =>
-  `native_${run.id}${run.checkpoint.outputContract?.used ? `_r${run.checkpoint.outputContract.used}` : ''}`;
+  `native_${run.id}${run.checkpoint.orchestration?.activeStage ? `_o${run.checkpoint.orchestration.activeStage}` : ''}${run.checkpoint.outputContract?.used ? `_r${run.checkpoint.outputContract.used}` : ''}`;

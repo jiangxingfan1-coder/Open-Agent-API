@@ -204,6 +204,35 @@ test('acp bridge: a single call becomes tool_calls; the reply reaches the agent 
   }
 });
 
+test('orchestrated ACP execution exposes caller actions on its stage-specific native step and resumes once', async () => {
+  const s = await acpSetup();
+  try {
+    const prior = s.store.bundle('owner', 'agent/caller').agent;
+    s.store.publish(
+      'owner',
+      makeBundle({ ...prior, orchestration: { enabled: true, helpers: [] } }),
+    );
+    const messages = [user(script([[edit()]]))];
+    const first = await chat(s, { messages });
+    assert.equal(first.statusCode, 200, first.body);
+    const choice = first.json().choices[0];
+    assert.equal(choice.finish_reason, 'tool_calls');
+    const call = choice.message.tool_calls[0];
+    const second = await chat(s, {
+      messages: [...messages, choice.message, toolMessage(call.id, 'stage-tool-result')],
+    });
+    assert.equal(second.statusCode, 200, second.body);
+    assert.equal(second.headers['x-run-id'], first.headers['x-run-id']);
+    assert.equal(second.json().choices[0].finish_reason, 'stop');
+    assert.match(second.body, /stage-tool-result/);
+    const run = s.store.run(String(first.headers['x-run-id']));
+    assert.equal(run.checkpoint.orchestration?.used, 1);
+    await assertClean(s, run.id);
+  } finally {
+    await s.cleanup();
+  }
+});
+
 test('acp bridge: parallel calls are announced once; sequential calls come one reply at a time', async () => {
   const s = await acpSetup();
   try {

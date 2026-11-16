@@ -163,6 +163,33 @@ export function createMcpBridge(client: GatewayClient): McpServer {
         ],
       ),
   );
+  server.registerTool(
+    'oaa_list_models',
+    {
+      title: 'List callable agent models and modes',
+      description:
+        'Read the current agent-reported model pool and routing modes. Keep revision for subsequent pages. Discovery does not verify quota or generate a response; unsupported tool boundaries are not offered.',
+      inputSchema: {
+        agent: z.string(),
+        limit: z.number().int().min(1).max(50).default(20),
+        offset: z.number().int().min(0).default(0),
+        revision: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional(),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    ({ agent, limit, offset, revision }, extra) =>
+      wrap(() =>
+        client.request(
+          'GET',
+          `/v1/agents/models?${new URLSearchParams({ agent, limit: String(limit), offset: String(offset), ...(revision ? { revision } : {}) })}`,
+          undefined,
+          { signal: extra.signal },
+        ),
+      ),
+  );
   server.registerResource(
     'agent-metadata',
     new ResourceTemplate('oaa://agents/{agent_id}/versions/{version}', { list: undefined }),

@@ -6,6 +6,8 @@ Built-in adapters are not the boundary of the platform. An owner can install a s
 
 ## AgentAPI conversion contract (2026-11-08)
 
+The current Codex adapter scopes events and approvals to its own thread and turn, preserves redacted upstream errors, accepts completed-message snapshots without duplicating streamed text, and bounds initialization and shutdown. Model catalogs may expose model/effort combinations: the shared resource-safety cap is 1,024 models/routes. Oversized catalogs explicitly carry `truncated: true` and the console labels them incomplete. Discovery and a successful handshake are **not** proof of generation or tool-free execution. Codex, Qoder and generic ACP engines still cannot act as enforced tool-free planning stages. The Antigravity row below describes legacy stream-json; policy-aware/hybrid publications use ACP as described in [Harness](harness.md).
+
 > New section. It answers two questions: through which path an agent becomes an AgentAPI, and what each path can **actually** guarantee for streaming, mid-run approval, cancellation, resume, and tool visibility. The conclusions in the tables are verified class by class in `test/conformance.test.ts` with protocol-level fake agents (no real model or agent is called, and no ports are opened); entries that are untested are marked as such.
 
 ### Conversion path
@@ -27,7 +29,7 @@ Every connection type is ultimately normalized into the same kind of run: text d
 | Connection type | Streaming text | Mid-run approval | Cancel | Resume | Tool visibility | Usage | Artifacts | Model selection |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Kernel `kernel` | ✅ token | ✅ a tool with `requiresApproval` parks and waits | ✅ cooperative (aborts the model call) | ✅ replays session history | ✅ steps and `tool.*` | ✅ every round | ✅ `write_file` | Routes (multiple routes, failover) |
-| Native `codex` (app-server JSON-RPC) | ✅ token | ✅ commands / files / permissions / questions / MCP elicitation are all bridged | ⚠️ terminates the process group (no protocol-level interrupt is sent) | ✅ `thread/resume` | ✅ item progress | ❌ not reported | ✅ `outputs/` | Declarative (forwards `model`) |
+| Native `codex` (app-server JSON-RPC) | ✅ token | ✅ commands / files / permissions / questions / MCP elicitation are all bridged | ⚠️ terminates the process group (no protocol-level interrupt is sent) | ✅ `thread/resume` | ✅ item progress | ⚠️ cumulative deltas; unknown for legacy resumes without a baseline | ✅ `outputs/` | Confirmed before prompting; silent fallback rejected |
 | Native `claude` (Agent SDK) | ⚠️ per message, not per token | ✅ `canUseTool` bridge | ⚠️ terminated after abort | ✅ `--resume` | ✅ tool names (without arguments) | ✅ | ✅ | Declarative |
 | Native `antigravity` (stream-json) | ✅ token | ⚠️ not bridged: when the agent itself denies, the run fails with `permission_denied` | ⚠️ terminated | ✅ `--conversation` | ✅ step tools | ⚠️ first round only (a session-cumulative value is not treated as per-round usage) | ✅ | Agent-confirmed (the run fails and the task is not sent if the model reported by init does not match) |
 | Native `dsh` (headless) | ❌ final result only | ❌ | ⚠️ terminated | ❌ `native_resume_unsupported` | ❌ | ❌ | ✅ | Allowlist (owner model mapping) |

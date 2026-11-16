@@ -1,8 +1,15 @@
 // 网关的 OpenAPI 描述（静态文档，由 /openapi.json 提供）。
 import { GATEWAY_VERSION } from './endpoints.js';
 import { WEBHOOK_OPERATIONS } from './webhook-core.js';
+import { LOCAL_MANAGEMENT_OPERATIONS } from './local-management-api.js';
 
 const inspectionQueries: Record<string, Record<string, Record<string, unknown>>> = {
+  '/v1/agents/models': {
+    agent: { type: 'string' },
+    offset: { type: 'integer', minimum: 0, default: 0 },
+    limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+    revision: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+  },
   '/v1/catalog/agents': {
     offset: { type: 'integer', minimum: 0, default: 0 },
     limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
@@ -70,6 +77,16 @@ export const openapi = {
   paths: Object.fromEntries(
     [
       ['/v1/agents', 'get', 'List published agents and model routes'],
+      [
+        '/v1/agents/models',
+        'get',
+        'Scoped, revision-guarded runtime model catalog and permitted tool boundaries; no generation',
+      ],
+      [
+        '/v1/agents/publish-native',
+        'post',
+        'Publish an external agent with optional model_policy, access policy and orchestration',
+      ],
       [
         '/v1/platform/setup',
         'get',
@@ -242,16 +259,15 @@ export const openapi = {
         'Activity pulse over UTC-aligned buckets (window=24h|7d; ETag/304)',
       ],
       ['/v1/overview/events', 'get', 'SSE overview change feed: ready, changed, ping'],
-      ['/v1/local/backends', 'get', 'Local native engines, owner adapters and the preset catalog'],
-      ['/v1/local/backends/{engine}', 'post', 'Enable or disable a local backend on this gateway'],
-      [
-        '/v1/local/backends/{engine}/check',
-        'post',
-        'ACP initialize-only handshake check; no session, prompt or model call',
-      ],
+      ...LOCAL_MANAGEMENT_OPERATIONS,
       ['/health', 'get', 'Public liveness and sorted optional feature list'],
       ...WEBHOOK_OPERATIONS,
       ['/v1/keys', 'get', 'List API keys (deleted keys are not listed)'],
+      [
+        '/v1/keys',
+        'post',
+        'Create an API key with optional connection defaults (toolMode, allowedModes, per-agent models)',
+      ],
       [
         '/v1/audit',
         'get',
@@ -303,7 +319,7 @@ export const openapi = {
             name,
             in: 'query',
             required:
-              (url === '/v1/catalog/agent' && name === 'agent') ||
+              ((url === '/v1/catalog/agent' || url === '/v1/agents/models') && name === 'agent') ||
               url === '/v1/catalog/agent/content',
             schema,
           })),

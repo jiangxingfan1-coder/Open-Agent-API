@@ -18,6 +18,7 @@ import {
   listLocalBackends,
   presetCatalog,
   setLocalBackend,
+  parseBackendEngine,
   type HandshakeRecord,
 } from '../fabric/local-backends.js';
 
@@ -41,6 +42,35 @@ export function registerLocalBackendRoutes(
 ): void {
   const { auth, config, store, hub, catalog, handshakes, localExecutor } = context;
   const options = { configFile: context.configFile };
+  if (localExecutor instanceof WorkerRuntime) {
+    let projectRevision = JSON.stringify(localExecutor.projects.advertised());
+    localExecutor.projects.onChange = () => {
+      const next = JSON.stringify(localExecutor.projects.advertised());
+      if (next === projectRevision) return;
+      projectRevision = next;
+      hub.notifyChange(config.localWorker!.owner);
+      catalog.invalidate();
+    };
+    void localExecutor.projects.ready.then(() => localExecutor.projects.onChange?.());
+  }
+  if (localExecutor instanceof WorkerRuntime)
+    localExecutor.modelCatalogs.onChange = () => {
+      hub.notifyChange(config.localWorker!.owner);
+      catalog.invalidate();
+    };
+  if (localExecutor instanceof WorkerRuntime && config.localWorker) {
+    const engines = new Set(
+      store
+        .agentDefinitions(config.localWorker.owner, ['*'])
+        .filter(
+          (b) =>
+            b.agent.modelPolicy?.mode === 'discover' ||
+            (b.agent.engine === 'antigravity' && b.agent.access),
+        )
+        .map((b) => b.agent.engine),
+    );
+    for (const engine of engines) void localExecutor.modelCatalogs.refresh(engine).catch(() => {});
+  }
   app.get('/v1/local/backends', async (req) => {
     auth.requireNodeAdmin(req.principal);
     // 预设说明按请求的语言（Accept-Language，缺省为进程默认语言）。
@@ -48,7 +78,12 @@ export function registerLocalBackendRoutes(
     if (!config.localWorker || config.localWorker.owner !== req.principal.owner)
       return { data: [], presets: await presetCatalog(undefined, locale) };
     return {
-      data: listLocalBackends(config.localWorker, handshakes),
+      data: listLocalBackends(config.localWorker, handshakes).map((backend) => ({
+        ...backend,
+        ...(localExecutor instanceof WorkerRuntime
+          ? { model_catalog: localExecutor.modelCatalogs.snapshot()[String(backend.engine)] }
+          : {}),
+      })),
       presets: await presetCatalog(config.localWorker, locale),
       // Model providers of the built-in kernel, as this gateway process sees them (no keys).
       providers: providerStatuses(config.localWorker),
@@ -79,6 +114,45 @@ export function registerLocalBackendRoutes(
     catalog.invalidate();
     return result;
   };
+  app.get('/v1/local/backends/:engine/models', async (req) => {
+    localBackendOwner(req.principal);
+    const engine = parseBackendEngine((req.params as { engine: string }).engine).engine;
+    if (!(localExecutor instanceof WorkerRuntime))
+      throw new Fault('worker_required', 'A local worker is required.', 409);
+    const force = (req.query as { refresh?: string }).refresh === 'true';
+    return localExecutor.modelCatalogs.refresh(engine, force);
+  });
+  app.get('/v1/local/projects', async (req) => {
+    localBackendOwner(req.principal);
+    if (!(localExecutor instanceof WorkerRuntime))
+      throw new Fault('worker_required', 'A local worker is required.', 409);
+    return { data: await localExecutor.projects.list() };
+  });
+  app.post('/v1/local/projects', async (req) => {
+    localBackendOwner(req.principal);
+    const body = z
+      .object({
+        agent: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,119}$/),
+        path: z.string().max(4096).nullable(),
+      })
+      .strict()
+      .parse(req.body);
+    if (!(localExecutor instanceof WorkerRuntime))
+      throw new Fault('worker_required', 'A local worker is required.', 409);
+    await localExecutor.projects.bind(
+      body.agent,
+      body.path,
+      () =>
+        Number(
+          store
+            .prepare(
+              "SELECT count(*) AS n FROM runs WHERE owner=? AND agent_id=? AND status IN ('queued','in_progress','requires_action')",
+            )
+            .get(req.principal.owner, body.agent)!.n,
+        ) === 0,
+    );
+    return { agent: body.agent, bound: body.path !== null };
+  });
   // `:engine` is a native name or a URL-encoded `adapter%2F<name>`; the unencoded form is also accepted.
   app.post('/v1/local/backends/:engine', async (req) =>
     toggleLocalBackend(req, (req.params as { engine: string }).engine),

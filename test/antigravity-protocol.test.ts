@@ -5,6 +5,56 @@ import { runNative } from '../src/engines/native.js';
 import { workerSchema } from '../src/config/config.js';
 import { setup, agent } from './helpers.js';
 
+test('internal Antigravity reasoning always installs a per-session deny policy', async () => {
+  const s = await setup();
+  try {
+    const config = workerSchema.parse({
+      nodeId: 'fixture',
+      dataDir: s.dir,
+      native: {
+        antigravity: {
+          enabled: true,
+          executable: process.execPath,
+          args: [path.resolve('test/fixtures/native-agent.mjs'), 'agy-tool-free'],
+        },
+      },
+    });
+    const result = await runNative(
+      agent({ engine: 'antigravity', model: 'test-model' }),
+      config,
+      s.dir,
+      'Only reason.',
+      AbortSignal.timeout(5000),
+      async () => {},
+      undefined,
+      undefined,
+      undefined,
+      s.dir,
+      true,
+    );
+    assert.match(result.text, /fixture output/);
+    config.native.antigravity!.args = [path.resolve('test/fixtures/native-agent.mjs'), 'agy'];
+    await assert.rejects(
+      runNative(
+        agent({ engine: 'antigravity', model: 'test-model' }),
+        config,
+        s.dir,
+        'Must not be sent.',
+        AbortSignal.timeout(5000),
+        async () => {},
+        undefined,
+        undefined,
+        undefined,
+        s.dir,
+        true,
+      ),
+      { code: 'capability_unavailable' },
+    );
+  } finally {
+    await s.cleanup();
+  }
+});
+
 test('Antigravity confirms the explicit model before accepting a correctly framed prompt and reports observed usage', async () => {
   const s = await setup();
   try {

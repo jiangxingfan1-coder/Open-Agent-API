@@ -21,7 +21,7 @@ import { runMemoryTool } from './memory-tools.js';
 import { callDelegate } from './delegate.js';
 import type { KernelRuntime } from './runtime.js';
 import type { ExecutionSlice } from './types.js';
-import { awaitApproval } from './approvals.js';
+import { awaitApproval, autoApprove } from './approvals.js';
 import * as clientTools from './client-tools.js';
 
 /**
@@ -138,6 +138,15 @@ export async function callStep(
 ): Promise<unknown> {
   const client = clientTools.clientToolCall(rt.store, run, call, rt.limits.approvalTimeoutMs);
   if (client) return client.value;
+  if (
+    run.metadata['oaa.tool_boundary'] === 'client' ||
+    run.metadata['oaa.tools_disabled'] === 'true'
+  )
+    throw new Fault(
+      'tool_denied',
+      'Client-only execution cannot invoke a server tool, workflow or delegate.',
+      403,
+    );
   if (call.name === 'execute_graph') {
     if (!bundle.agent.allowGraph)
       throw new Fault('tool_denied', 'Graph execution is disabled.', 403);
@@ -270,19 +279,32 @@ export async function callTool(
   };
   if (binding.capability.requiresApproval) {
     rt.store.step(step);
-    const decision = await awaitApproval(
-      rt,
-      run,
-      stepId,
-      'tool',
-      {
-        tool: call.name,
-        arguments: call.arguments,
-        capability: binding.capability.id,
-        version: binding.capability.version,
-      },
-      signal,
-    );
+    const decision =
+      bundle.agent.access?.approval === 'auto'
+        ? autoApprove(
+            rt,
+            run,
+            {
+              tool: call.name,
+              arguments: call.arguments,
+              capability: binding.capability.id,
+              version: binding.capability.version,
+            },
+            { stepId, kind: 'tool' },
+          )
+        : await awaitApproval(
+            rt,
+            run,
+            stepId,
+            'tool',
+            {
+              tool: call.name,
+              arguments: call.arguments,
+              capability: binding.capability.id,
+              version: binding.capability.version,
+            },
+            signal,
+          );
     if (decision.decision !== 'approve')
       throw new Fault('permission_denied', 'The API owner denied the tool call.', 403);
   }

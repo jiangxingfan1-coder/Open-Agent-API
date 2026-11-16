@@ -2,6 +2,7 @@ import type { AgentDefinition, Run } from '../core/contracts.js';
 import { Fault } from '../core/util.js';
 
 export type TaskIntent = 'coding' | 'reasoning' | 'fast' | 'tool_heavy' | 'general';
+import { isRoutingModeId } from '../core/model-catalog.js';
 export type RoutingStrategy = 'auto' | 'speed' | 'cost' | 'quality' | 'balanced';
 
 export interface SemanticProfile {
@@ -315,6 +316,8 @@ export type RouteChoice = {
   tags?: string[];
   costTier?: number;
   speedTier?: number;
+  qualityTier?: number;
+  discovered?: boolean;
 };
 
 export class ModelRouter {
@@ -338,7 +341,11 @@ export class ModelRouter {
     context?: RoutingContext,
   ): { route: RouteChoice; mode: 'auto' | 'explicit'; hint: RouteTopologyHint } | null {
     const exact = routes.find((r) => r.id === token);
-    const modelMatches = routes.filter((r) => r.model === token);
+    const policyAware = !!(agent.modelPolicy || agent.access || agent.orchestration);
+    const modelMatches =
+      policyAware && isRoutingModeId(token.replace(/^@/, ''))
+        ? []
+        : routes.filter((r) => r.model === token);
     if (!exact && modelMatches.length > 1) {
       throw new Fault(
         'ambiguous_model',
@@ -376,6 +383,7 @@ export class ModelRouter {
       };
     }
 
+    if (policyAware) return null;
     const clean = token.trim().replace(/^@/, '').toLowerCase();
     if (clean.length >= 3) {
       const tagMatches = routes.filter((r) => r.tags?.some((t) => t.toLowerCase() === clean));
@@ -576,16 +584,17 @@ export class ModelRouter {
           speedBonus +
           topologyPenalty;
       } else if (strategy === 'cost') {
-        const isLightweight = /(mini|flash|haiku|small|turbo|nano|lite)/i.test(r.model);
-        const tierPenalty =
-          r.costTier !== undefined ? (r.costTier - 1) * 15_000 : isLightweight ? 0 : 50_000;
+        const tierPenalty = ((r.costTier ?? 3) - 1) * 15_000;
         score = tierPenalty + r.priority * 1000 + avgMs + topologyPenalty;
       } else if (strategy === 'quality' || intent === 'coding' || intent === 'reasoning') {
-        const isHighCapacity = /(pro|sonnet|opus|gpt-4|max|reasoning|plus|large)/i.test(r.model);
         const tagBonus =
           intent !== 'general' && r.tags?.some((t) => t.toLowerCase() === intent) ? -2500 : 0;
         score =
-          (isHighCapacity ? 0 : 50_000) + r.priority * 1000 + avgMs + tagBonus + topologyPenalty;
+          (5 - (r.qualityTier ?? 3)) * 15_000 +
+          r.priority * 1000 +
+          avgMs +
+          tagBonus +
+          topologyPenalty;
       } else if (strategy === 'balanced') {
         score =
           r.priority * 5_000 +

@@ -1,5 +1,10 @@
 import path from 'node:path';
-import { mkdir, readdir } from 'node:fs/promises';
+import { AgentModelCatalogs } from './agent-models.js';
+import { validateModelWork } from '../core/work-manifest.js';
+import { executeNative, collectNativeArtifacts } from './native-executor.js';
+import { ProjectWorkspaces } from './project-workspaces.js';
+import { mkdir, readdir, mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
 import { existsSync } from 'node:fs';
 import { JsonSchemas } from '../core/schemas.js';
 import { McpConnections, mcpConfigured, descriptorDigest, findMcpTool } from './mcp-connections.js';
@@ -27,10 +32,8 @@ import {
   type SandboxLauncher,
   type SandboxNativeEngine,
 } from '../engines/sandbox.js';
-import { runNative, type NativeSandbox } from '../engines/native.js';
-import { runAdapter } from '../engines/adapter.js';
-import { runAcp, type AcpTimings } from '../engines/acp.js';
-import { runA2A } from '../engines/a2a.js';
+import type { NativeSandbox } from '../engines/native.js';
+import type { AcpTimings } from '../engines/acp.js';
 import * as img from './image-capabilities.js';
 import { safeEmit, type Emit } from '../engines/shared.js';
 import { adapterNamePattern } from '../config/agent-presets.js';
@@ -74,6 +77,9 @@ export function adapterReady(
   }
 }
 export class WorkerRuntime implements Executor {
+  readonly modelCatalogs: AgentModelCatalogs;
+  readonly projects: ProjectWorkspaces;
+  private reasoningRoots = new Map<string, string>();
   /** Protocol timing bounds for ACP agents; tests shorten them. */
   acpTimings: AcpTimings = {};
   private bundles = new Map<string, AgentBundle>();
@@ -95,6 +101,8 @@ export class WorkerRuntime implements Executor {
     drivers = new Map<string, ModelDriver>(),
     options: { sandbox?: SandboxLauncher } = {},
   ) {
+    this.modelCatalogs = new AgentModelCatalogs(config);
+    this.projects = new ProjectWorkspaces(config.dataDir, config.owner);
     this.drivers = drivers;
     this.providedDrivers = new Set(drivers.keys());
     this.mcpConnections = new McpConnections(config);
@@ -156,6 +164,21 @@ export class WorkerRuntime implements Executor {
       warm: [...this.bundles.keys()].slice(-500),
       concurrency: this.config.concurrency,
       execution: {
+        agentPolicyVersion: 1,
+        toolFreeReasoning: [
+          'kernel',
+          ...native
+            .filter(([name]) => name === 'antigravity' || name === 'claude')
+            .map(([name]) => name),
+        ],
+        projectWorkspaces: this.projects.advertised(),
+        projectEngines: [
+          ...native.map(([name]) => name),
+          ...adapters
+            .filter(([, adapter]) => adapter.transport === 'stdio' || adapter.transport === 'acp')
+            .map(([name]) => `adapter/${name}`),
+        ],
+        modelCatalogs: this.modelCatalogs.snapshot(),
         builtins: ['read_file', 'write_file', 'list_files', 'read_skill'],
         scripts: this.config.scripts.filter(
           (runtime) => runtime === 'node' || executableExists(runtime),
@@ -165,6 +188,9 @@ export class WorkerRuntime implements Executor {
         clientTools: {
           native: [
             'kernel',
+            ...native
+              .filter(([name]) => this.modelCatalogs.snapshot()[name]?.clientTools === 'hybrid')
+              .map(([name]) => name),
             ...adapters.filter(([, a]) => a.transport === 'acp').map(([n]) => `adapter/${n}`),
           ],
         },
@@ -199,22 +225,9 @@ export class WorkerRuntime implements Executor {
             ...[...this.providedDrivers].filter((name) => !!this.drivers.get(name)?.withApiKey),
           ]),
         ],
-        nativeModels: Object.fromEntries([
-          ...native.map(([name, n]) => [
-            name,
-            name === 'dsh'
-              ? {
-                  mode: 'allowlist',
-                  models: [
-                    'default',
-                    ...Object.entries(n?.models ?? {})
-                      .filter(([, args]) => args.length > 0)
-                      .map(([name]) => name),
-                  ],
-                }
-              : { mode: 'declared' },
-          ]),
-          ...adapters.map(([name]) => [`adapter/${name}`, { mode: 'declared' }]),
+        nativeModels: this.modelCatalogs.claims([
+          ...native.map(([name]) => name),
+          ...adapters.map(([name]) => `adapter/${name}`),
         ]),
       },
     };
@@ -367,101 +380,52 @@ export class WorkerRuntime implements Executor {
       throw new Fault('bundle_not_loaded', 'Required immutable bundle is not installed.', 409);
     const root = await this.workspace(work.context);
     if (work.kind === 'model' || work.kind === 'native') {
-      const agent = agentSchema.parse(work.agent);
-      const effectiveRoutes = [
-        { provider: bundle.agent.provider, model: bundle.agent.model },
-        ...bundle.agent.routes,
-      ];
-      const { provider, model, ...rest } = agent;
-      const { provider: _p, model: _m, ...original } = bundle.agent;
-      // Caller tools bridged by the kernel (docs/harness.md) ride as `node client/<alias>`
-      // bindings appended after the published ones; they are never executed on a node.
-      const extra = rest.tools.slice(original.tools.length);
-      if (
-        work.kind === 'model' &&
-        extra.length &&
-        extra.every((t) => t.handler.kind === 'node' && t.handler.reference.startsWith('client/'))
-      )
-        rest.tools = rest.tools.slice(0, original.tools.length);
-      if (
-        canonical(rest) !== canonical(original) ||
-        !effectiveRoutes.some((r) => r.provider === provider && r.model === model)
-      )
-        throw new Fault('manifest_mismatch', 'Execution differs from the published agent.', 403);
+      const agent = validateModelWork(bundle, work, this.modelCatalogs.snapshot());
       if (work.kind === 'native') {
+        let executionRoot = root;
+        if (work.toolsDisabled) {
+          executionRoot =
+            this.reasoningRoots.get(work.context.sessionId) ??
+            (await mkdtemp(path.join(os.tmpdir(), 'oaa-reasoning-')));
+          this.reasoningRoots.set(work.context.sessionId, executionRoot);
+        }
         const outputRoot = path.join(root, 'outputs');
         await mkdir(outputRoot, { recursive: true, mode: 0o700 });
-        const nativeInput = img.nativeInputText(work.input, work.context);
-        const adapterName = agent.engine.startsWith('adapter/')
-          ? agent.engine.slice('adapter/'.length)
-          : undefined;
-        const transport =
-          adapterName !== undefined ? this.config.adapters[adapterName]?.transport : undefined;
-        const result =
-          transport === 'a2a'
-            ? await runA2A(agent, this.config, work.input, signal, emit, work.nativeState)
-            : adapterName !== undefined && transport === 'acp'
-              ? await runAcp(
-                  agent,
-                  this.config,
-                  root,
-                  nativeInput,
-                  signal,
-                  emit,
-                  work.nativeState,
-                  this.acpTimings,
-                  work.clientTools,
-                  work.context.images,
-                )
-              : adapterName !== undefined
-                ? await runAdapter(
-                    agent,
-                    this.config,
-                    root,
-                    work.input + img.imageNote(work.context),
-                    work.context,
-                    signal,
-                    work.nativeState,
-                    emit,
-                  )
-                : await runNative(
-                    agent,
-                    this.config,
-                    root,
-                    nativeInput,
-                    signal,
-                    emit,
-                    work.nativeState,
-                    work.kind === 'native' ? this.nativeSandbox(work) : undefined,
-                    work.context.images,
-                  );
-        const artifacts: ArtifactPayload[] = [];
-        let total = 0;
-        const collect = async (rel: string): Promise<void> => {
-          for (const e of await readdir(path.join(outputRoot, rel), { withFileTypes: true })) {
-            const name = path.posix.join(rel, e.name);
-            if (e.isSymbolicLink())
-              throw new Fault(
-                'unsafe_artifact',
-                'Native output contains a symlink; automatic export refused.',
-                403,
-              );
-            if (e.isDirectory()) await collect(name);
-            else if (e.isFile()) {
-              const data = await readBounded(outputRoot, name);
-              total += data.length;
-              if (total > 8 * 1024 * 1024 || artifacts.length >= 100)
-                throw new Fault(
-                  'artifacts_too_large',
-                  'Native output export exceeds its limit.',
-                  413,
-                );
-              artifacts.push({ name, content: data.toString('base64'), sha256: sha(data) });
-            }
-          }
-        };
-        await collect('');
-        return { ...result, artifacts };
+        const project = !work.toolsDisabled && agent.access?.workspace === 'project';
+        const lease = await this.projects.acquire(agent.id, executionRoot, project, signal);
+        try {
+          const identity = sha(lease.root);
+          if (
+            work.nativeState?.workspaceIdentity &&
+            work.nativeState.workspaceIdentity !== identity
+          )
+            throw new Fault(
+              'native_resume_unsupported',
+              'The working directory changed. Use an explicit handoff instead of resuming the old native session.',
+              409,
+            );
+          const result = await executeNative(
+            work,
+            agent,
+            this.config,
+            executionRoot,
+            signal,
+            emit,
+            this.acpTimings,
+            this.nativeSandbox(work),
+            this.modelCatalogs.snapshot()[agent.engine]?.clientTools === 'hybrid',
+            project ? lease.root : undefined,
+          );
+          return {
+            ...result,
+            ...(agent.access
+              ? { nativeState: { ...result.nativeState, workspaceIdentity: identity } }
+              : {}),
+            artifacts: await collectNativeArtifacts(outputRoot),
+          };
+        } finally {
+          lease.release();
+        }
       }
       const callerKey = work.credential?.apiKey;
       let driver = callerKey === undefined ? this.drivers.get(agent.provider) : undefined;
@@ -495,6 +459,12 @@ export class WorkerRuntime implements Executor {
       const cap = Math.min(Number(work.maxOutputTokens ?? Infinity), agent.limits.maxOutputTokens);
       const maxOutputTokens = cap > 0 ? cap : agent.limits.maxOutputTokens;
       const effectiveAgent = { ...agent, limits: { ...agent.limits, maxOutputTokens } };
+      if (work.toolBoundary === 'client') {
+        effectiveAgent.allowGraph = false;
+        effectiveAgent.workflows = [];
+        effectiveAgent.delegates = [];
+        effectiveAgent.skills = [];
+      }
       if (work.toolNames)
         effectiveAgent.tools = agent.tools.filter((t) => work.toolNames!.includes(t.name));
       if (!driver)
@@ -744,6 +714,11 @@ export class WorkerRuntime implements Executor {
     return result;
   }
   async close(): Promise<void> {
+    await this.modelCatalogs.close();
+    await this.projects.ready;
+    for (const root of this.reasoningRoots.values())
+      await rm(root, { recursive: true, force: true });
+    this.reasoningRoots.clear();
     await this.mcpConnections.close();
     await this.sandbox?.close();
   }

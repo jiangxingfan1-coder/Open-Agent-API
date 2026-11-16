@@ -1,6 +1,6 @@
 {
   "name": "open-agent-api",
-  "version": "0.0.65",
+  "version": "0.0.66",
   "private": true,
   "type": "module",
   "description": "A capability-aware agent runtime with a portable API and distributed workers",
@@ -74,7 +74,12 @@
     "lucide": "1.71.0",
     "ws": "8.22.2",
     "yaml": "^2.8.1",
-    "zod": "^4.1.12"
+    "zod": "^4.6.7"
+  },
+  "overrides": {
+    "@anthropic-ai/sandbox-runtime": {
+      "zod": "$zod"
+    }
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.322",

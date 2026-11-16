@@ -58,7 +58,12 @@ export function assertClientToolsSupported(
   agent: Pick<AgentDefinition, 'engine'>,
   mode: string | undefined,
 ): void {
-  if (mode === 'bridge' && agent.engine !== 'kernel' && !agent.engine.startsWith('adapter/'))
+  if (
+    mode === 'bridge' &&
+    agent.engine !== 'kernel' &&
+    agent.engine !== 'antigravity' &&
+    !agent.engine.startsWith('adapter/')
+  )
     throw new Fault(
       'client_tools_bridge_unsupported',
       'This agent runs its own tool loop; in this version only kernel agents and ACP adapters can bridge caller tools. Use X-OAA-Client-Tools: managed instead.',

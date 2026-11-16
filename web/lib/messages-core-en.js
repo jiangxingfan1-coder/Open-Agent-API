@@ -203,7 +203,7 @@ export const en = {
   'html.publish.autoApproveNote':
     'When on, this agent no longer waits for your approval before running commands or changing files, and the caller gets the result of whatever it did. It can do everything you could do by using the software directly on this computer, so open it only to callers you trust.',
   'html.publish.externalNote':
-    'An agent that runs through an external agent (a third-party agent with its own tools and model, such as Codex or Claude Code) can do everything you could do by using that software directly on your computer. This console adds no extra limits and no security isolation.',
+    'External agents use local accounts and tools. Publication permissions control requests and approvals, but are not an operating-system sandbox. Grant access only to trusted callers.',
   'html.publish.oaaSource': 'Declarative <code>.oaa</code> source',
   'html.publish.oaaProvider': 'Model provider',
   'html.publish.oaaVerify': 'Format and check',

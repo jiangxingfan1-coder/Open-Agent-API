@@ -88,8 +88,22 @@ th.nowrap {
   height: 22px;
   object-fit: contain;
 }
-:root[data-theme='dark'] .agent-glyph.mono img {
+:root[data-theme='dark'] .agent-glyph.mono img,
+:root[data-theme='dark'] .model-glyph.mono img {
   filter: invert(1);
+}
+.model-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+.model-glyph img,
+.model-glyph svg {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
 }
 .agent-glyph .mark {
   width: 22px;

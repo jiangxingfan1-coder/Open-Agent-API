@@ -2,7 +2,9 @@
  * 桥接（docs/harness.md「bridge」）的网关侧：等待运行真正停车，把停车的 `client_tool` 待办
  * 渲染成 Chat Completions 的标准 `tool_calls`（非流式与流式）。
  */
-import { terminal, type Principal, type Run } from '../core/contracts.js';
+import { terminal, visibleSubject, type Principal, type Run } from '../core/contracts.js';
+import { Fault } from '../core/util.js';
+import { nativeStepId } from '../kernel/native-turn.js';
 import type { Invocation } from '../kernel/invocation.js';
 import type { Kernel } from '../kernel/kernel.js';
 import type { Store } from '../store/store.js';
@@ -11,7 +13,7 @@ import { claudeDelta, claudeDeltaUsage, claudeMessage } from './claude.js';
 import { geminiResponseObject } from './uap.js';
 
 /** 外部智能体的运行（有 `native_<runId>` 步骤）：桥接时在进程内等待调用方，不停车。 */
-const externalRun = (store: Store, run: Run) => !!store.getStep(`native_${run.id}`);
+const externalRun = (store: Store, run: Run) => !!store.getStep(nativeStepId(run));
 
 /** 外部智能体的桥接运行此刻只等调用方（进程内等待，`run.awaiting_caller`）。 */
 export const awaitingCallerInProcess = (store: Store, run: Run) =>
@@ -177,6 +179,33 @@ export function resumeBridged(
 ): { run: Run; cursor: number } | undefined {
   const results = invocation.client_results;
   if (!results?.length) return undefined;
+  let prior: Run | undefined;
+  try {
+    const action = store.getApproval(results[0]!.call_id, principal.owner);
+    prior = store.run(action.runId, principal.owner, visibleSubject(principal));
+    kernel.authorize(principal, prior.agentId, 'invoke');
+  } catch {
+    return undefined;
+  }
+  if (prior.metadata['oaa.tool_boundary']) {
+    const boundary = invocation.metadata['oaa.tool_boundary'];
+    if (boundary && boundary !== prior.metadata['oaa.tool_boundary'])
+      throw new Fault(
+        'invalid_continuation',
+        'Finish or cancel the pending caller tool before changing its execution location.',
+        409,
+      );
+    if (
+      invocation.model !== 'auto' &&
+      invocation.model !== prior.route.id &&
+      invocation.model !== prior.route.model
+    )
+      throw new Fault(
+        'invalid_continuation',
+        'Finish or cancel the pending caller tool before changing models.',
+        409,
+      );
+  }
   if (invocation.previous_response_id) {
     try {
       const runId = store.getApproval(results[0]!.call_id, principal.owner).runId;

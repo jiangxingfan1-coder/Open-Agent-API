@@ -85,9 +85,9 @@ const NATIVE: Record<NativeEngine, ConversionProfile> = {
     cancel: 'terminate',
     resume: 'native',
     tool_events: 'tool',
-    usage: 'none',
+    usage: 'agent-reported',
     artifacts: true,
-    model_selection: 'declared',
+    model_selection: 'agent-confirmed',
     image_input: 'native',
   }),
   claude: complete({
@@ -262,6 +262,16 @@ export function conversionProfile(
         model_selection: 'declared',
         image_input: files,
       });
+}
+
+/** New Antigravity policies deliberately use ACP; legacy publications retain their profile. */
+export function agentConversionProfile(
+  agent: { engine: string; access?: { approval: string } },
+  worker?: WorkerConfig,
+): ConversionProfile {
+  return agent.engine === 'antigravity' && agent.access && agent.access.approval !== 'native'
+    ? { ...ACP, transport: 'antigravity-acp' }
+    : conversionProfile(agent.engine, worker);
 }
 
 /** Static profile for a preset that is not configured yet (native engines and ACP presets). */

@@ -297,6 +297,9 @@ function renderOaaLang(agent: AgentDefinition, files: string[], options: RenderO
   lines.push(`  model       = ${str(agent.model)}`);
   if (!agent.allowGraph) lines.push(`  allow_graph = false`);
   if (agent.approvals === 'auto') lines.push(`  approvals = auto`);
+  if (agent.modelPolicy) lines.push(`  model_policy = ${JSON.stringify(agent.modelPolicy)}`);
+  if (agent.access) lines.push(`  access = ${JSON.stringify(agent.access)}`);
+  if (agent.orchestration) lines.push(`  orchestration = ${JSON.stringify(agent.orchestration)}`);
   if (agent.allowedNodes?.length) {
     lines.push(`  allowed_nodes = ${JSON.stringify(agent.allowedNodes)}`);
   }
@@ -311,6 +314,7 @@ function renderOaaLang(agent: AgentDefinition, files: string[], options: RenderO
       const extras: string[] = [`priority=${r.priority}`];
       if (r.costTier !== undefined) extras.push(`cost=${r.costTier}`);
       if (r.speedTier !== undefined) extras.push(`speed=${r.speedTier}`);
+      if (r.qualityTier !== undefined) extras.push(`quality=${r.qualityTier}`);
       if (r.tags !== undefined) extras.push(`tags=${JSON.stringify(r.tags)}`);
       lines.push(
         `  route ${JSON.stringify(r.id)} -> ${JSON.stringify(r.provider)}/${JSON.stringify(r.model)} ${extras.join(' ')}`,

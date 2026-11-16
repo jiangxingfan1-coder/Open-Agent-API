@@ -121,13 +121,14 @@ export function autoApprove(
   rt: KernelRuntime,
   run: Run,
   detail: Record<string, unknown>,
+  options?: { stepId: string; kind: 'tool' | 'native' },
 ): Record<string, unknown> {
   const a: Approval = {
     id: id('approval'),
     runId: run.id,
     owner: run.owner,
-    stepId: `native:${id('action')}`,
-    kind: 'native',
+    stepId: options?.stepId ?? `native:${id('action')}`,
+    kind: options?.kind ?? 'native',
     detail,
     response: { auto: true },
     status: 'approved',
@@ -156,6 +157,15 @@ export function decide(
 ): void {
   const run = rt.store.run(runId, principal.owner, visibleSubject(principal));
   authorize(principal, run.agentId, 'approve');
+  if (
+    ['owner', 'native'].includes(run.checkpoint.approvalAuthority ?? '') &&
+    !principal.scopes.includes('admin')
+  )
+    throw new Fault(
+      'scope_denied',
+      'This publication requires publisher approval; a caller cannot grant it.',
+      403,
+    );
   const a = rt.store.getApproval(approvalId, principal.owner);
   // 调用方工具的待办只能由调用方经桥接续接回传结果（docs/harness.md），任何入口都不能人工批准。
   if (a.runId === runId && a.kind === 'client_tool')

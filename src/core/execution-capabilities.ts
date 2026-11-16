@@ -1,12 +1,18 @@
 /** What a worker declares about how it can execute work (sent in its node advertisement). */
 import { z } from 'zod';
 import { imageInputCapabilitySchema } from './images.js';
+import { modelCatalogSchema } from './model-catalog.js';
 
 export const executionCapabilitiesSchema = z
   .object({
     builtins: z.array(z.string()).max(100),
     scripts: z.array(z.enum(['node', 'python3'])).max(2),
     toolSelection: z.boolean(),
+    modelCatalogs: z.record(z.string().max(200), modelCatalogSchema).optional(),
+    agentPolicyVersion: z.literal(1).optional(),
+    toolFreeReasoning: z.array(z.string()).max(100).optional(),
+    projectWorkspaces: z.array(z.string().max(120)).max(1000).optional(),
+    projectEngines: z.array(z.string().max(200)).max(100).optional(),
     nativeModels: z.record(
       z.string(),
       z.discriminatedUnion('mode', [

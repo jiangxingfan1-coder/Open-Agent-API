@@ -120,6 +120,38 @@ oaa models [--dir .oaa] [--check] [--json]
 
 上游的响应内容只用来判断失败类型，从不复制进调用方看到的错误信息。
 
+## 智能体模型目录与编排
+
+`GET /v1/agents/models?agent=<id>` 与 MCP `oaa_list_models` 提供有大小上限的运行时目录。后续 `offset` 分页必须携带 `revision`。它与按版本固定的静态声明线路分开。密钥可用 `connection.audience:"external"` 标记不可信调用者，不能授予宿主执行、所有者全量数据、管理权限或私有智能体执行权限；控制台将它与本人可信密钥区分。
+
+外部智能体不需要再提供一把模型服务密钥。OAA 查询智能体自己的程序接口：Antigravity `models`、Codex app-server `model/list`、Claude Agent SDK `supportedModels()` 与 ACP 会话的模型配置。不拦截上游流量，也不提取智能体的登录凭据。DSH 的显式映射标为**已配置**，不是账号模型发现；不支持的适配器明确返回不支持。
+
+所有者管理员使用 `GET /v1/local/backends/{engine}/models`（`adapter/name` 需要 URL 编码），加 `?refresh=true` 主动刷新。目录默认缓存五分钟，单次发现限时十五秒；私有磁盘缓存重启后作为过期证据保留。刷新失败保留上次真实列表，不用内置模型名补齐。`ready` 只表示发现成功，**不代表每个模型的额度或真实任务都验证过**。
+
+`POST /v1/agents/publish-native` 接受下面的可选字段（智能体包定义里使用 `modelPolicy` 而非 `model_policy`）：
+
+```json
+{
+  "id": "agent/my-native",
+  "engine": "antigravity",
+  "models": ["default"],
+  "model_policy": {"mode": "discover"},
+  "access": {"modes": ["managed", "hybrid"], "defaultMode": "managed", "approval": "owner", "trust": "private"},
+  "orchestration": {"enabled": true, "helpers": []}
+}
+```
+
+- 自动跟随智能体目录，`allow` 可限制开放范围；声明的默认模型与线路也必须在该范围内。没有这些字段的存量发布保留原行为。
+- 标准模型列表提供 `agent/name`、`agent/name@<线路 ID>` 和 `@fast`、`@best`、`@eco`。使用列表返回的标识，不猜账号模型名称。明确选择具体模型时不启动编排，也不暗中替换模型。
+- 创建密钥支持 `connection: {toolMode, allowedModes, models}`。`models` 按智能体 ID 指定默认选择，是偏好而不是模型权限限制，客户端显式选择优先。工具权限仍是上限；`hybrid` 授权也允许任一更窄的执行位置。
+- 编排决策、分析与复核都通过已接入智能体完成。系统固定本次准入模型池、校验计划的智能体和模型授权，最多并行两个独立分析，主执行串行，并进行有上限的复核与修正。帮手必须同时得到发布者和调用密钥授权，不要求组合发布产品。
+- 规划、分析和复核使用限制工具的推理路径，请求中带上完整输出 schema，证据以有大小上限的文本片段传入，不授予这些阶段任意文件访问能力。目前支持内核智能体、Antigravity 的单次会话拒绝规则和 Claude SDK 的空工具模式；其他原生／适配器入口在实现可执行的限制前不提供多模型规划。这不等于给外部进程加上 OS 沙箱。
+- 默认上限：智能八阶段／十五分钟，速度三阶段／五分钟，质量十二阶段／三十分钟，经济四阶段／十分钟。发布的 `maxStages`、`timeoutMs` 可覆盖；简单任务可以只用一个模型。这是外层执行上限，不是上游 token 或金额的硬保证。
+- 选路使用观测数据和明确声明的 `costTier`、`speedTier`、`qualityTier`，不再用模型名字里的片段猜测价格与质量。没有证据就保持未知；`oaa.review_source: "agent"` 区分智能体复核与独立验证。
+- 计划、子运行引用、确认结果与用量进入检查点，结果未知的外部写入不自动重放。断线不取消已接受任务。新发布切换模型时传递可迁移历史和文件，不冒充共享原生隐藏状态；没有会话标识的客户端使用其提供的历史，不猜测合并会话。
+
+OAA-Lang 会保留 `model_policy = {...}`、`access = {...}`、`orchestration = {...}` 与线路 `quality=...`。节点新增字段按 `model-catalog-v1`、`agent-policy-v1` 协商；不能执行这些策略的旧节点不会被选中。
+
 ## 控制台
 
 **发布智能体 → OAA-Lang 2.0** 里有「模型提供方」下拉框，列出已配置的提供方；选中后会改写源码里每条 `route` 的提供方。

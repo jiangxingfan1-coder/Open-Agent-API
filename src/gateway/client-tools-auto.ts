@@ -76,7 +76,14 @@ export function submitClientTools(
   if (requested !== 'default' && requested !== 'auto') {
     return submit(plain);
   }
-  const effective: ClientToolsMode = requested === 'auto' ? 'auto' : configured;
+  const effective: ClientToolsMode =
+    requested === 'auto'
+      ? 'auto'
+      : meta['oaa.connection_tools'] === 'managed'
+        ? 'managed'
+        : meta['oaa.connection_tools'] === 'bridge'
+          ? 'bridge'
+          : configured;
   if (effective === 'managed') return submit(managed(plain));
   if (effective === 'reject')
     throw new Fault(

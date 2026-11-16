@@ -77,6 +77,11 @@ test('macOS shell: the Swift self-check passes', { skip }, async () => {
   assert.ok(Number(summary[1]) > 50, `expected a real set of checks, saw ${summary[1]}`);
 });
 
+test('first-run example publishing is create-only, not an overwrite of user agents', async () => {
+  const source = await readFile(path.join(MACOS_DIR, 'Gateway.swift'), 'utf8');
+  assert.ok(source.includes('"publish", full, "--if-absent"'));
+});
+
 test('macOS shell: no Chinese text outside the string table', async () => {
   // Every user-visible string goes through Strings.swift; comments are English.
   const cjk = /[　-〿一-鿿＀-￯]/;

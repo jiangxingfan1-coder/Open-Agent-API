@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import { modelPolicySchema, modelRouteSchema, isRoutingModeId } from './model-catalog.js';
+import { MAX_AGENT_MODELS } from './model-catalog.js';
+import { agentAccessSchema, type ConnectionDefaults, type ToolBoundary } from './agent-access.js';
+import { orchestrationSchema, type OrchestrationState, type ModelMark } from './orchestration.js';
+export type { ModelMark } from './orchestration.js';
 
 const key = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,119}$/);
 const jsonObject = z.record(z.string(), z.unknown());
@@ -107,6 +112,9 @@ export const agentSchema = z
       .default('kernel'),
     provider: key.default('default'),
     model: z.string().min(1).max(200),
+    modelPolicy: modelPolicySchema.optional(),
+    access: agentAccessSchema.optional(),
+    orchestration: orchestrationSchema.optional(),
     tools: z.array(bindingSchema).max(100).default([]),
     skills: z
       .array(z.object({ name: key, description: z.string().max(4000), path: z.string() }).strict())
@@ -134,25 +142,40 @@ export const agentSchema = z
     approvals: z.enum(['ask', 'auto']).optional(),
     workflows: z.array(workflowSchema).max(32).optional(),
     delegates: z.array(delegateSchema).max(32).optional(),
-    routes: z
-      .array(
-        z
-          .object({
-            id: key,
-            provider: key,
-            model: z.string().min(1).max(200),
-            priority: z.number().min(0).max(100).default(0),
-            tags: z.array(z.string().min(1).max(32)).max(16).optional(),
-            costTier: z.number().min(1).max(5).optional(),
-            speedTier: z.number().min(1).max(5).optional(),
-          })
-          .strict(),
-      )
-      .max(32)
-      .default([]),
+    routes: z.array(modelRouteSchema).max(MAX_AGENT_MODELS).default([]),
   })
   .strict()
   .superRefine((a, ctx) => {
+    if (
+      (a.modelPolicy || a.access || a.orchestration) &&
+      a.routes.some((route) => isRoutingModeId(route.id))
+    )
+      ctx.addIssue({
+        code: 'custom',
+        path: ['routes'],
+        message:
+          'Route IDs auto, fast, best and eco are reserved for modes in policy-aware publications. Give concrete models distinct route IDs.',
+      });
+    if (
+      a.access?.workspace === 'project' &&
+      (a.access.trust !== 'private' || a.engine === 'kernel')
+    )
+      ctx.addIssue({
+        code: 'custom',
+        path: ['access', 'workspace'],
+        message:
+          'Direct project working directories are supported only for trusted private external agents.',
+      });
+    if (
+      a.modelPolicy?.allow &&
+      (!a.modelPolicy.allow.includes(a.model) ||
+        a.routes.some((r) => !a.modelPolicy!.allow!.includes(r.model)))
+    )
+      ctx.addIssue({
+        code: 'custom',
+        path: ['modelPolicy', 'allow'],
+        message: 'The default and all declared routes must be included in the model allowlist.',
+      });
     const callableNames = [
       ...a.tools.map((t) => t.name),
       ...(a.workflows ?? []).map((w) => w.name),
@@ -263,18 +286,9 @@ export const terminal = (s: RunStatus) =>
  * Model-turn boundaries kept in the durable checkpoint (not in the event log), so timelines can be
  * derived without adding events to compatibility streams. Times are epoch milliseconds.
  */
-export type ModelMark = {
-  turn: number;
-  attempt: number;
-  route: string;
-  start: number;
-  /** When a node accepted the model work (after any queueing for capacity). */
-  dispatched?: number;
-  end?: number;
-  status?: 'completed' | 'failed' | 'cancelled';
-  calls?: number;
-};
 export type Checkpoint = {
+  orchestration?: OrchestrationState;
+  modelPool?: AgentDefinition['routes'];
   messages: ModelMessage[];
   /** Stable system prefix once a provider returns a bound native turn. */
   modelInstructions?: string;
@@ -283,8 +297,12 @@ export type Checkpoint = {
   phase: 'model' | 'tools' | 'done';
   pending?: ToolCall[];
   nativeState?: Record<string, unknown>;
+  approvalAuthority?: 'auto' | 'caller' | 'owner' | 'native';
+  toolGrants?: ToolBoundary[];
+  externalCaller?: boolean;
   /** 交接说明：本轮由另一个智能体交接而来、且本智能体是外部智能体时，放在输入前面。 */
   handoffBrief?: string;
+  continuationBrief?: string;
   offeredTools?: string[];
   deadlineAt?: number;
   suspension?: { kind: 'approval' | 'scheduling'; approvalIds: string[] };
@@ -305,7 +323,7 @@ export type Checkpoint = {
    * model next to the published tools, executed by the caller. `delivered` counts the output
    * messages already handed to the caller, so a continuation only returns what is new.
    */
-  bridge?: { tools: ClientTool[]; delivered: number };
+  bridge?: { tools: ClientTool[]; delivered: number; boundary?: 'client' | 'hybrid' };
   /** Structured output (docs/structured-output.md): `repairs` correction rounds allowed, `used` spent so far. */
   outputContract?: OutputContract & { repairs: number; used?: number };
 };
@@ -387,6 +405,8 @@ export const keyQuotaSchema = z
   .strict();
 export type KeyQuota = z.infer<typeof keyQuotaSchema>;
 export type Principal = {
+  externalCaller?: boolean;
+  connection?: ConnectionDefaults;
   owner: string;
   name: string;
   agents: string[];
@@ -500,6 +520,7 @@ export type Work =
       messages: ModelMessage[];
       context: WorkContext;
       toolNames?: string[];
+      toolBoundary?: 'client';
       /**
        * Output-length cap the caller asked for, below the published `limits.maxOutputTokens`
        * (compatibility `max_tokens` and friends). The worker applies the smaller of the two; it is
@@ -523,6 +544,7 @@ export type Work =
     }
   | {
       kind: 'native';
+      toolsDisabled?: boolean;
       agent: AgentDefinition;
       input: string;
       nativeState?: Record<string, unknown>;
