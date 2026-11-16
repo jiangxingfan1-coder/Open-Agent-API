@@ -2,7 +2,16 @@
 
 English · [简体中文](zh-CN/local-connections.md)
 
-Local Connections is separate from API key creation. Its first target is DeepSeek Harness (DSH): an owner selects an already published source agent, previews the changes, and confirms. OAA creates a dedicated key and adds a provider to DSH. It does not replace an existing provider, change the current conversation, publish an agent automatically, or alter the original API-key workflow.
+Local Connections lists local clients as searchable cards. Click a card to open its configuration dialog. The managed receiver is DeepSeek Harness (DSH): select an already published source agent, preview the changes, and confirm. OAA creates a dedicated key and adds a provider to DSH. It does not replace an existing provider, change the current conversation, publish an agent automatically, or alter the original API-key workflow.
+
+## Client Discovery
+
+- Discovery covers the native/ACP catalog, configured executable/script entries, fixed installation directories, known macOS application bundles and selected VS Code/Cursor/Windsurf extension directories. It reads installation metadata only: no agent process, package download, login, credential, private project, model prompt or quota query. Generic package managers and leftover settings directories are not installation evidence.
+- Native and ACP entries for the same product are deduplicated. Claude Desktop is separate from Claude Code. Presence of an executable, application or extension does not prove authentication, model entitlement, protocol compatibility or that the agent is currently running. Arbitrary custom installations outside these locations need an explicitly configured entry.
+- `Detected` and `All` filters, search, and rescan expose both found clients and the known catalog. The API keeps the existing `target`, `sources` and `data` fields, adds `clients`, and accepts `?refresh=1` to bypass the 30-second metadata cache. The same owner-admin, host authority, direct-loopback and origin guards apply.
+- DSH supports automatic configuration. Codex, Claude Code, OpenCode and Qoder Desktop offer manual setup with source/model selection, endpoint copying, official documentation and the existing key wizard. They do not have automatic configuration-file writers. Qoder CLI alone does not promise arbitrary custom endpoints. Other cards explicitly show that receiving-client setup is not implemented; source-agent setup remains under local backends. Manual setup does not inherit the managed DSH loop inspection and rollback guarantees.
+
+The manual setup references are the official [Codex configuration](https://developers.openai.com/codex/config-advanced/), [Claude gateway](https://code.claude.com/docs/en/llm-gateway), [OpenCode providers](https://opencode.ai/docs/providers/) and [Qoder custom models](https://docs.qoder.com/qoder/custom-models) documentation. Compatibility still depends on the installed client version and published source capabilities.
 
 ## Scope
 

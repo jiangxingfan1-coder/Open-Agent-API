@@ -1,0 +1,85 @@
+import { state } from '../lib/state.js';
+import { button, copyText, el, iconButton, icons } from '../lib/dom.js';
+import { t } from '../lib/i18n.js';
+import { agentModelChoices, agentModelName, openKeyDialog } from './key.js';
+
+/** Manual setup stays in the normal, explicitly confirmed API-key flow; no client files are edited. */
+export function manualConnection(body, actions, client, dlg, valid) {
+  const engines = new Set([client.id, ...(client.engines ?? [])]);
+  const agents = (state.data?.agents ?? []).filter((a) => !engines.has(a.engine));
+  let selected = agents[0];
+  let model = 'auto';
+  const fields = el('div', undefined, 'local-dialog-fields');
+  const source = el('select');
+  source.setAttribute('aria-label', t('connections.source'));
+  for (const agent of agents) {
+    const option = el('option', agent.id);
+    option.value = agent.id;
+    source.append(option);
+  }
+  const models = el('select');
+  models.setAttribute('aria-label', t('connections.model'));
+  for (const [label, input] of [
+    [t('connections.source'), source],
+    [t('connections.model'), models],
+  ]) {
+    const field = el('label');
+    field.append(el('span', label), input);
+    fields.append(field);
+  }
+  fields.classList.add('local-manual-fields');
+  const endpoint = client.protocol === 'messages' ? location.origin : `${location.origin}/v1`;
+  const values = el('dl', undefined, 'local-manual-values');
+  const modelValue = el('code');
+  for (const [label, value, text] of [
+    ['Base URL', el('code', endpoint), () => endpoint],
+    ['Model', modelValue, () => (selected ? agentModelName(selected.id, model) : '')],
+  ]) {
+    const row = el('div');
+    row.append(
+      el('dt', label),
+      value,
+      iconButton(t('common.copy'), 'copy', () =>
+        copyText(text(), t(label === 'Base URL' ? 'dlg.key.base_copied' : 'dlg.key.model_copied')),
+      ),
+    );
+    values.append(row);
+  }
+  const renderModels = () => {
+    models.replaceChildren();
+    for (const choice of agentModelChoices(selected)) {
+      const option = el('option', choice.label);
+      option.value = choice.value;
+      option.selected = choice.value === model;
+      option.disabled = choice.unavailable;
+      models.append(option);
+    }
+    modelValue.textContent = selected ? agentModelName(selected.id, model) : '';
+  };
+  source.onchange = () => {
+    selected = agents.find((a) => a.id === source.value);
+    model = 'auto';
+    renderModels();
+  };
+  models.onchange = () => {
+    model = models.value;
+    modelValue.textContent = agentModelName(selected.id, model);
+  };
+  if (agents.length) {
+    body.append(fields, values);
+    renderModels();
+  } else body.append(el('p', t('connections.manual_no_source'), 'local-notice'));
+  const create = button(
+    t('common.createKey'),
+    'key-round',
+    () => {
+      if (!valid() || !selected) return;
+      dlg.close();
+      openKeyDialog({ agents: [selected.id], model });
+    },
+    'primary',
+  );
+  create.disabled = !selected;
+  actions.append(create);
+  icons();
+}

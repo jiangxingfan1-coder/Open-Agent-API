@@ -2,7 +2,16 @@
 
 [English](../local-connections.md) · 简体中文
 
-本地互联是独立于 API 密钥生成的模块。首批接收端为 DeepSeek Harness（DSH）：所有者选择已经发布的源智能体，查看预览并确认，OAA 自动创建专用密钥并向 DSH 添加提供方。不替换原提供方，不改变当前会话，不自动发布智能体，也不改变原有 API 密钥流程。
+本地互联以可搜索的卡片列出本机客户端，点击卡片打开配置弹窗。自动配置接收端为 DeepSeek Harness（DSH）：选择已经发布的源智能体，查看预览并确认，OAA 自动创建专用密钥并向 DSH 添加提供方。不替换原提供方，不改变当前会话，不自动发布智能体，也不改变原有 API 密钥流程。
+
+## 客户端检测
+
+- 检测范围包括原生/ACP 目录、已配置的可执行文件或脚本入口、固定安装目录、已知 macOS 应用及常见 VS Code/Cursor/Windsurf 扩展目录。仅检查安装元数据，不启动智能体、不下载包、不登录、不读取凭据、私人项目或历史记录，不发模型提示或额度查询。通用包管理器和残留设置目录不能作为安装证据。
+- 同一产品的原生与 ACP 入口合并，Claude Desktop 与 Claude Code 分开。找到命令、应用或扩展不代表已登录、有模型额度、协议兼容或正在运行；任意自定义安装位置仍需显式配置入口。
+- 页面支持“已检测到 / 全部”、搜索及重新检测。API 保留原有 `target`、`sources`、`data` 字段并增加 `clients`；`?refresh=1` 绕过 30 秒元数据缓存。仍要求所有者管理员、宿主执行权限、直接回环连接和同源检查。
+- DSH 支持自动配置。Codex、Claude Code、OpenCode、Qoder 桌面端提供手动接入弹窗，可选择源智能体与模型、复制地址、查看官方文档并进入原有密钥向导，尚不自动写入它们的配置。仅安装 Qoder CLI 不承诺支持任意自定义端点。其他卡片明确显示接收端暂未适配，源智能体设置仍在本机后端。手动接入不享有 DSH 自动配置的循环检查和撤销保证。
+
+手动接入依据官方的 [Codex 配置](https://developers.openai.com/codex/config-advanced/)、[Claude 网关](https://code.claude.com/docs/en/llm-gateway)、[OpenCode 提供方](https://opencode.ai/docs/providers/) 和 [Qoder 自定义模型](https://docs.qoder.com/qoder/custom-models) 文档；实际兼容性仍取决于安装版本及源智能体能力。
 
 ## 范围
 

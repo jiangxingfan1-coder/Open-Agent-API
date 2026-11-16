@@ -20,7 +20,7 @@ export const LOCAL_MANAGEMENT_OPERATIONS = [
   [
     '/v1/local/connections',
     'get',
-    'Direct-loopback owner-admin only: inspect local DSH bindings; never returns credentials',
+    'Direct-loopback owner-admin only: discover local clients and inspect DSH bindings; refresh=1 rescans installation metadata; never returns credentials',
   ],
   [
     '/v1/local/connections/preview',

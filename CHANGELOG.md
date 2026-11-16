@@ -4,6 +4,12 @@ English · [简体中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+## 0.0.68 (2026-11-16)
+
+- Discover local native/ACP clients, configured entry points, macOS application bundles and selected editor extensions without executing agents or reading credentials. Separate installation evidence from receiver compatibility.
+- Replace the inline local-connection form with searchable client cards and a configuration dialog, including review-before-write, preserved drafts, scoped-key confirmation and keyboard focus restoration.
+- Expose manual API setup for supported custom-provider clients alongside the existing managed DSH adapter; do not imply that every detected client supports automatic configuration.
+
 ## 0.0.67 (2026-11-16)
 
 - Add Usage & Quotas using OAA's existing design system, separating gateway token accounting, local key allowances, upstream quota snapshots and local token history.
