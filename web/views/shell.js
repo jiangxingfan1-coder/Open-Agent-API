@@ -11,6 +11,7 @@ import { renderAccess, renderKeys } from './access.js';
 import { renderAgents } from './agents.js';
 import { renderPlatform } from './platform.js';
 import { connections, renderConnections } from './connections.js';
+import { usageView, renderUsage } from './usage.js';
 import { platform } from '../dialogs/platform-data.js';
 
 /* ── Chrome ──────────────────────────────────────────── */
@@ -132,6 +133,7 @@ export function viewSignature() {
     ],
     access: () => [d?.endpoints, d?.public_base_url, d?.agents?.map((a) => a.id)],
     connections: () => [connections.rev, isNodeAdmin(), state.token],
+    usage: () => [usageView.rev, usageView.days, usageView.tab, isNodeAdmin(), state.token],
     keys: () => [state.keys, isAdmin()],
     platform: () => [platform.rev, isAdmin(), hasFeature('platform-v1')],
     settings: () => [prefs, d?.principal, state.health, live.connected, live.supported],
@@ -169,7 +171,7 @@ export function renderView(force = false) {
   if (!force && content.querySelector('[aria-haspopup][aria-expanded="true"]')) return;
   if (
     !force &&
-    state.view === 'connections' &&
+    ['connections', 'usage'].includes(state.view) &&
     content.contains(document.activeElement) &&
     document.activeElement?.matches('input, select')
   )
@@ -196,6 +198,7 @@ export function renderView(force = false) {
       nodes: renderNodes,
       access: renderAccess,
       connections: renderConnections,
+      usage: renderUsage,
       keys: renderKeys,
       platform: renderPlatform,
     })[state.view](content);

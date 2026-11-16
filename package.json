@@ -1,6 +1,6 @@
 {
   "name": "open-agent-api",
-  "version": "0.0.66",
+  "version": "0.0.67",
   "private": true,
   "type": "module",
   "description": "A capability-aware agent runtime with a portable API and distributed workers",

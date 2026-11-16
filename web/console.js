@@ -10,6 +10,7 @@ import { showAgent } from './dialogs/agent.js';
 import { render, renderView } from './views/shell.js';
 import { openCommand, toggleSidebar } from './dialogs/commands.js';
 import { refreshConnections } from './views/connections.js';
+import { refreshUsage } from './views/usage.js';
 
 Object.assign(hooks, {
   icons,
@@ -21,6 +22,7 @@ Object.assign(hooks, {
   showAgent,
   syncBadge,
   refreshConnections,
+  refreshUsage,
 });
 /* ── Keyboard ────────────────────────────────────────── */
 export const isTyping = (t) =>

@@ -23,6 +23,7 @@ import { registerOverviewRoutes } from './overview-routes.js';
 import { registerProtocolRoutes } from './protocol-routes.js';
 import { registerLocalBackendRoutes } from './local-backend-routes.js';
 import { registerLocalConnectionRoutes } from './local-connection-routes.js';
+import { registerUsageRoutes } from './usage-routes.js';
 import { registerOwnerRoutes } from './shutdown-route.js';
 import { registerConsoleAssets } from './console-assets.js';
 import { geminiQueryKey, sendError, zodFault } from './compat-errors.js';
@@ -471,6 +472,7 @@ export async function createGateway(
       configFile: options.configFile,
     });
     registerNodeEnrollRoute(app, { auth, config, hub });
+    registerUsageRoutes(app, { auth, config, store, isLocalRequest: isLocalProbe });
     await registerLocalConnectionRoutes(app, {
       auth,
       config,

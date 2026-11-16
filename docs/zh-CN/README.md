@@ -16,6 +16,7 @@
 ## 我想调用智能体
 
 - 不手动复制密钥，把已发布智能体配入本机 DSH，并可预览和撤销：[本地互联](local-connections.md)
+- 查看已上报 Token、本地密钥预算及上游额度快照：[用量与额度](usage-monitor.md)
 
 - 用 OpenAI SDK 或 `oaa/1` 调用：[operations.md「发布与调用」](operations.md#发布与调用)
 - 支持的协议与字段、文件上传、流式、审批、恢复、取消：[protocol.md「Compatibility」](protocol.md#compatibility)、[「Execution and actions」](protocol.md#execution-and-actions)

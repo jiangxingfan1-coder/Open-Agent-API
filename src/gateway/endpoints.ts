@@ -19,6 +19,7 @@ export const GATEWAY_FEATURES = [
   'image-input-v1',
   'local-backends-v1',
   'local-connections-v1',
+  'local-usage-v1',
   'model-catalog-v1',
   'oaa-lang-roundtrip-v1',
   'overview-activity-v1',
