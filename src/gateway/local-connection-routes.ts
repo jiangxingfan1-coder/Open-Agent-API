@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { DshClient } from '../config/dsh-client.js';
+import { localClientInventory } from '../config/local-client-discovery.js';
 import type { GatewayConfig } from '../config/config.js';
 import { allowedExecution, type Principal } from '../core/contracts.js';
 import { Fault } from '../core/util.js';
@@ -44,6 +45,7 @@ export async function registerLocalConnectionRoutes(
       )
     : undefined;
   await manager?.ready.catch(() => {});
+  const inventory = localClientInventory(config.localWorker);
   const guard = (req: FastifyRequest) => {
     auth.requireNodeAdmin(req.principal);
     if (allowedExecution(req.principal) !== 'host')
@@ -82,7 +84,12 @@ export async function registerLocalConnectionRoutes(
   };
   app.get('/v1/local/connections', async (req) => {
     const { manager, base } = guard(req);
+    const query = z
+      .object({ refresh: z.enum(['0', '1']).optional() })
+      .strict()
+      .parse(req.query);
     const list = await manager.list(req.principal, base);
+    const clients = await inventory(query.refresh === '1');
     const sources = cachedAgents(req.principal).map((a) => {
       try {
         const selected = source(req.principal, a.id, 'auto', base);
@@ -108,7 +115,7 @@ export async function registerLocalConnectionRoutes(
         };
       }
     });
-    return { ...list, sources };
+    return { ...list, clients, sources };
   });
   app.post('/v1/local/connections/preview', async (req) => {
     const { manager, base } = guard(req);

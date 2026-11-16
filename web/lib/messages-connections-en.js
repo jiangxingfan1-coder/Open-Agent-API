@@ -9,23 +9,20 @@ export const en = {
   'connections.detected': 'Local installation detected',
   'connections.source': 'Published source agent',
   'connections.model': 'Preferred model',
-  'connections.add': 'Add connection',
   'connections.saved': 'Connections',
-  'connections.connection_count': '{count} connections',
   'connections.tool_boundary': 'Tool execution',
   'connections.auto': 'Automatic routing',
   'connections.connect': 'Connect to DSH',
-  'connections.previewing': 'Preparing preview',
   'connections.confirm_title': 'Confirm local connection',
-  'connections.sync_body':
-    'Sync {count} models from {agent} into this managed DSH connection. Reuse the existing scoped key and preserve other providers. Files: {files}',
-  'connections.repair_body':
-    'Repair the DSH connection for {agent} with {count} models. Revoke its old dedicated key and create a replacement with read, invoke and file scopes only. Older conversation resources may require the original key. Files: {files}',
+  'connections.plan_sync':
+    'Sync models with the existing dedicated key. Other providers and conversations stay unchanged.',
+  'connections.plan_repair':
+    'Revoke the old dedicated key and reconnect. Older conversation resources may require the original key. Other providers stay unchanged.',
+  'connections.plan_connect':
+    'Create a dedicated key for this source only, without administration. Add a DSH provider and preserve existing configuration and conversations.',
   'connections.host_hint':
     'The source uses its published host tools and approval policy; this connection is not a sandbox.',
   'connections.repair': 'Repair connection',
-  'connections.confirm_body':
-    'Add {count} models from {agent} to the shared settings of this local DSH installation. A dedicated key grants read, invoke and file access to this agent only, with no administration. Existing providers and conversations stay unchanged. Files: {files}',
   'connections.applied': 'DSH connection configured; generation has not been tested',
   'connections.publish_first':
     'No eligible published source agent is available. DSH cannot be connected back into itself.',
@@ -53,4 +50,32 @@ export const en = {
     "Revoke the dedicated key for {agent} and remove only this module's DSH entries. Externally modified values will be preserved. Already accepted tasks are not cancelled.",
   'connections.preserved': 'Key revoked; externally modified configuration was preserved',
   'connections.empty': 'No local connections',
+  'connections.mode_managed': 'Automatic configuration',
+  'connections.mode_manual': 'Manual API setup',
+  'connections.mode_unavailable': 'Receiver not yet supported',
+  'connections.evidence_cli': 'CLI',
+  'connections.evidence_application': 'Desktop app',
+  'connections.evidence_extension': 'Editor extension',
+  'connections.evidence_configured': 'Configured entry',
+  'connections.detected_paths': 'Installation locations',
+  'connections.manual_hint':
+    'Manual API setup only; automatic configuration is not yet supported for this client. Installation detection does not verify a connection.',
+  'connections.manual_no_source': 'No source is available. Publish another agent first.',
+  'connections.receiver_unavailable':
+    'Installation discovery is available, but no safe receiver configuration adapter is implemented. Source-agent availability is listed under local backends.',
+  'connections.qoder_hint':
+    'Qoder custom models depend on its client wizard and account permissions. Its settings.json is not edited directly.',
+  'connections.vendor_guide': 'Official setup documentation',
+  'connections.backends': 'Local backends',
+  'connections.review': 'Preview configuration',
+  'connections.edit': 'Back to configuration',
+  'connections.key_scope': 'Dedicated key scopes',
+  'connections.not_detected': 'Installation not detected',
+  'connections.agent_client': 'Agent client',
+  'connections.filter': 'Installation status',
+  'connections.filter_installed': 'Detected {count}',
+  'connections.filter_all': 'All {count}',
+  'connections.search': 'Search agents',
+  'connections.rescan': 'Rescan local agents',
+  'connections.no_matches': 'No matching agents',
 };

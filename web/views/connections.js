@@ -1,5 +1,5 @@
 import { hasFeature, hooks, isNodeAdmin, state } from '../lib/state.js';
-import { api, errorText } from '../lib/api.js';
+import { api } from '../lib/api.js';
 import {
   agentGlyph,
   button,
@@ -13,6 +13,13 @@ import {
   withBusy,
 } from '../lib/dom.js';
 import { t } from '../lib/i18n.js';
+import {
+  closeLocalConnection,
+  connectionMode,
+  evidenceLabel,
+  openLocalConnection,
+  protocolName,
+} from '../dialogs/local-connection.js';
 
 export const connections = {
   rev: 0,
@@ -20,28 +27,28 @@ export const connections = {
   error: '',
   token: null,
   pending: null,
-  agent: '',
-  model: 'auto',
-  toolMode: null,
-  editing: false,
+  filter: 'installed',
+  query: '',
 };
-export async function refreshConnections() {
+export async function refreshConnections(rescan = false) {
   if (!isNodeAdmin() || !hasFeature('local-connections-v1')) return;
   if (connections.token !== state.token) {
+    closeLocalConnection();
     Object.assign(connections, {
       token: state.token,
       data: null,
       error: '',
       pending: null,
-      agent: '',
-      model: 'auto',
-      toolMode: null,
-      editing: false,
+      filter: 'installed',
+      query: '',
     });
   }
-  if (connections.pending) return connections.pending;
+  if (connections.pending) {
+    await connections.pending;
+    if (!rescan) return;
+  }
   const token = state.token;
-  const pending = api('GET', '/v1/local/connections')
+  const pending = api('GET', `/v1/local/connections${rescan ? '?refresh=1' : ''}`)
     .then((data) => {
       if (token !== state.token) return;
       connections.data = data;
@@ -61,46 +68,6 @@ export async function refreshConnections() {
   return pending;
 }
 
-const toolLabel = (mode) => t(`access.${mode}`);
-async function configure(agent, model, toolMode) {
-  const token = state.token;
-  const plan = await api('POST', '/v1/local/connections/preview', {
-    agent,
-    model,
-    ...(toolMode ? { tool_mode: toolMode } : {}),
-  });
-  if (token !== state.token) return;
-  const approved = await confirmAction({
-    title: t('connections.confirm_title'),
-    message:
-      t(
-        plan.action === 'sync'
-          ? 'connections.sync_body'
-          : plan.action === 'repair'
-            ? 'connections.repair_body'
-            : 'connections.confirm_body',
-        {
-          agent,
-          count: plan.model_count,
-          files: plan.files.join('\n'),
-        },
-      ) +
-      ` ${t('connections.tool_boundary')}: ${toolLabel(plan.tool_mode)}.` +
-      (plan.execution === 'host' ? ` ${t('connections.host_hint')}` : ''),
-    accept:
-      plan.action === 'sync'
-        ? t('connections.sync')
-        : plan.action === 'repair'
-          ? t('connections.repair')
-          : t('connections.connect'),
-  });
-  if (!approved || token !== state.token) return;
-  await api('POST', '/v1/local/connections/apply', { plan_id: plan.plan_id });
-  connections.editing = false;
-  state.keys = null;
-  toast(t('connections.applied'));
-  await refreshConnections();
-}
 const stateLabels = () => ({
   active: t('connections.active'),
   missing: t('connections.missing'),
@@ -116,6 +83,131 @@ const stateLabels = () => ({
   removed: t('connections.removed'),
 });
 
+function clientCatalog(body, data) {
+  // Keep older local-connections-v1 gateways usable while accepting the additive inventory.
+  const clients = data.clients ?? [
+    {
+      id: 'dsh',
+      name: 'DeepSeek Harness',
+      icon: 'deepseek-harness',
+      installed: data.target.available,
+      connection: 'managed',
+      protocol: 'chat-completions',
+      evidence: [],
+    },
+  ];
+  const detected = (client) => client.installed || (client.id === 'dsh' && data.target.available);
+  const installed = clients.filter(detected);
+  const bar = el('div', undefined, 'local-catalog-toolbar');
+  const filters = el('div', undefined, 'segmented small');
+  filters.setAttribute('role', 'group');
+  filters.setAttribute('aria-label', t('connections.filter'));
+  const grid = el('div', undefined, 'local-discovery');
+  const draw = () => {
+    grid.replaceChildren();
+    const query = connections.query.trim().toLocaleLowerCase();
+    const visible = clients.filter(
+      (c) =>
+        (connections.filter === 'all' || detected(c)) &&
+        `${c.name} ${c.id}`.toLocaleLowerCase().includes(query),
+    );
+    visible.sort(
+      (a, b) =>
+        Number(detected(b)) - Number(detected(a)) ||
+        Number(b.connection === 'managed') - Number(a.connection === 'managed') ||
+        a.name.localeCompare(b.name),
+    );
+    for (const client of visible) {
+      const card = el('button', undefined, 'local-client-card');
+      card.type = 'button';
+      card.dataset.localClient = client.id;
+      card.setAttribute('aria-haspopup', 'dialog');
+      card.setAttribute('aria-label', client.name);
+      const head = el('span', undefined, 'local-card-head');
+      const identity = el('span', undefined, 'local-client-identity');
+      const name = el('span', undefined, 'local-client-title');
+      name.append(
+        el('strong', client.name),
+        el('span', protocolName(client.protocol) || t('connections.agent_client'), 'muted'),
+      );
+      identity.append(agentGlyph(client.icon, 'large'), name);
+      head.append(identity, icon('chevron-right'));
+      const status = el(
+        'span',
+        undefined,
+        `local-detection${detected(client) ? '' : ' is-unavailable'}`,
+      );
+      status.append(
+        icon(detected(client) ? 'circle-check' : 'circle-dashed'),
+        el('span', t(detected(client) ? 'connections.detected' : 'connections.not_detected')),
+      );
+      const footer = el('span', undefined, 'local-card-foot');
+      footer.append(
+        el(
+          'span',
+          connectionMode(client),
+          `local-capability${client.connection === 'managed' ? ' is-managed' : ''}`,
+        ),
+      );
+      const kinds = [...new Set((client.evidence ?? []).map((e) => evidenceLabel(e.kind)))];
+      footer.append(
+        el(
+          'span',
+          kinds.join(' · ') ||
+            (client.id === 'dsh' && data.target.available
+              ? t('connections.evidence_configured')
+              : ''),
+          'muted',
+        ),
+      );
+      card.append(head, status, footer);
+      card.onclick = () => openLocalConnection(client, connections.data, refreshConnections);
+      grid.append(card);
+    }
+    if (!visible.length) grid.append(empty(t('connections.no_matches'), '', { icon: 'search' }));
+    for (const control of filters.children) {
+      const active = control.dataset.filter === connections.filter;
+      control.classList.toggle('active', active);
+      control.setAttribute('aria-pressed', String(active));
+    }
+    icons();
+  };
+  for (const [value, count] of [
+    ['installed', installed.length],
+    ['all', clients.length],
+  ]) {
+    const control = button(
+      t(value === 'installed' ? 'connections.filter_installed' : 'connections.filter_all', {
+        count,
+      }),
+      '',
+      () => {
+        connections.filter = value;
+        draw();
+      },
+    );
+    control.dataset.filter = value;
+    filters.append(control);
+  }
+  const search = el('label', undefined, 'search local-client-search');
+  const input = el('input');
+  input.type = 'search';
+  input.value = connections.query;
+  input.placeholder = t('connections.search');
+  input.setAttribute('aria-label', input.placeholder);
+  input.oninput = () => {
+    connections.query = input.value;
+    draw();
+  };
+  search.append(icon('search'), input);
+  const rescan = iconButton(t('connections.rescan'), 'refresh-cw', async () => {
+    await withBusy(rescan, '', () => refreshConnections(true));
+  });
+  bar.append(filters, search, rescan);
+  body.append(bar, grid);
+  draw();
+}
+
 export function renderConnections(body) {
   if (!isNodeAdmin()) {
     body.append(
@@ -130,14 +222,13 @@ export function renderConnections(body) {
   if (
     connections.token !== state.token ||
     (!connections.data && !connections.pending && !connections.error)
-  ) {
+  )
     void refreshConnections();
-  }
   if (connections.error) {
     body.append(
       empty(t('connections.unavailable'), connections.error, {
         icon: 'circle-alert',
-        action: button(t('common.refresh'), 'refresh-cw', () => void refreshConnections()),
+        action: button(t('common.refresh'), 'refresh-cw', () => void refreshConnections(true)),
       }),
     );
     return;
@@ -147,140 +238,7 @@ export function renderConnections(body) {
     body.append(el('p', t('connections.loading'), 'muted'));
     return;
   }
-  const available = data.sources.filter((s) => s.available);
-  const discovery = el('div', undefined, 'local-discovery');
-  const target = el('article', undefined, 'local-client-card');
-  target.setAttribute('aria-label', 'DeepSeek Harness');
-  const targetHead = el('div', undefined, 'local-card-head');
-  const identity = el('div', undefined, 'local-client-identity');
-  identity.append(agentGlyph('dsh', 'large'));
-  const title = el('div');
-  title.append(el('h2', 'DeepSeek Harness'), el('span', 'OpenAI Chat Completions', 'muted'));
-  identity.append(title);
-  targetHead.append(
-    identity,
-    iconButton(t('common.refresh'), 'refresh-cw', () => void refreshConnections()),
-  );
-  const detected = el('div', undefined, 'local-detection');
-  detected.append(
-    icon(data.target.available ? 'circle-check' : 'circle-alert'),
-    el('span', data.target.available ? t('connections.detected') : errorText(data.target.error)),
-  );
-  detected.classList.toggle('is-unavailable', !data.target.available);
-  const targetFoot = el('div', undefined, 'local-card-foot');
-  targetFoot.append(
-    el('span', t('connections.connection_count', { count: data.data.length }), 'muted'),
-  );
-  const add = button(
-    t('connections.add'),
-    'plus',
-    () => {
-      connections.editing = true;
-      hooks.renderView(true);
-      body.querySelector('.local-connect-form select')?.focus();
-    },
-    'primary',
-  );
-  add.disabled = !data.target.available || !available.length || connections.editing;
-  targetFoot.append(add);
-  target.append(targetHead, detected, targetFoot);
-  discovery.append(target);
-  body.append(discovery);
-  if (!available.some((s) => s.id === connections.agent)) {
-    connections.agent = available[0]?.id ?? '';
-    connections.model = 'auto';
-    connections.toolMode = null;
-  }
-  const form = el('form', undefined, 'local-connect-form');
-  form.hidden = !connections.editing;
-  const selectedSource = available.find((s) => s.id === connections.agent);
-  const saved = data.data.find((item) => item.agent === connections.agent);
-  if (connections.toolMode === null) {
-    connections.model = saved?.model ?? 'auto';
-    connections.toolMode = saved?.tool_mode ?? selectedSource?.default_tool_mode;
-  }
-  const sourceLabel = el('label');
-  sourceLabel.append(el('span', t('connections.source')));
-  const source = el('select');
-  source.setAttribute('aria-label', t('connections.source'));
-  for (const item of data.sources) {
-    const option = el('option', item.id);
-    option.value = item.id;
-    option.disabled = !item.available;
-    option.selected = item.id === connections.agent;
-    source.append(option);
-  }
-  source.onchange = () => {
-    connections.agent = source.value;
-    connections.model = 'auto';
-    connections.toolMode = null;
-    hooks.renderView(true);
-  };
-  sourceLabel.append(source);
-  const modelLabel = el('label');
-  modelLabel.append(el('span', t('connections.model')));
-  const models = selectedSource?.models ?? [];
-  if (!models.some((m) => m.selector === connections.model)) connections.model = 'auto';
-  const model = el('select');
-  model.setAttribute('aria-label', t('connections.model'));
-  for (const item of models) {
-    const option = el('option', item.selector === 'auto' ? t('connections.auto') : item.name);
-    option.value = item.selector;
-    option.selected = item.selector === connections.model;
-    model.append(option);
-  }
-  model.onchange = () => {
-    connections.model = model.value;
-  };
-  modelLabel.append(model);
-  const modeLabel = el('label');
-  modeLabel.append(el('span', t('connections.tool_boundary')));
-  const mode = el('select');
-  mode.setAttribute('aria-label', t('connections.tool_boundary'));
-  const modes = selectedSource?.tool_modes ?? [];
-  if (!modes.includes(connections.toolMode))
-    connections.toolMode = selectedSource?.default_tool_mode;
-  for (const value of modes) {
-    const option = el('option', toolLabel(value));
-    option.value = value;
-    option.selected = value === connections.toolMode;
-    mode.append(option);
-  }
-  mode.disabled = modes.length < 2;
-  mode.onchange = () => {
-    connections.toolMode = mode.value;
-  };
-  modeLabel.append(mode);
-  const submit = button(t('connections.connect'), 'plug', () => {}, 'primary');
-  submit.type = 'submit';
-  submit.disabled = !data.target.available || !available.length;
-  form.append(sourceLabel, modelLabel, modeLabel, submit);
-  const dismiss = iconButton(t('common.close'), 'x', () => {
-    connections.editing = false;
-    hooks.renderView(true);
-  });
-  dismiss.type = 'button';
-  dismiss.classList.add('local-form-dismiss');
-  form.append(dismiss);
-  form.onsubmit = async (event) => {
-    event.preventDefault();
-    try {
-      await withBusy(submit, t('connections.previewing'), () =>
-        configure(connections.agent, connections.model, connections.toolMode),
-      );
-    } catch (error) {
-      toast(error.message);
-      await refreshConnections();
-    }
-  };
-  body.append(form);
-  if (!available.length) body.append(el('p', t('connections.publish_first'), 'muted'));
-  if (data.target.files?.length) {
-    const details = el('details', undefined, 'local-paths');
-    details.append(el('summary', t('connections.files')));
-    for (const file of data.target.files) details.append(el('code', file));
-    body.append(details);
-  }
+  clientCatalog(body, data);
   const labels = stateLabels();
   const cards = data.data.map((item) => {
     const card = el('article', undefined, 'local-binding-card');
@@ -307,7 +265,7 @@ export function renderConnections(body) {
     const facts = el('dl', undefined, 'local-binding-facts');
     for (const [label, value] of [
       [t('connections.models'), String(item.model_count)],
-      [t('connections.tool_boundary'), toolLabel(item.tool_mode)],
+      [t('connections.tool_boundary'), t(`access.${item.tool_mode}`)],
     ]) {
       const fact = el('div');
       fact.append(el('dt', label), el('dd', value));
@@ -327,26 +285,29 @@ export function renderConnections(body) {
         await refreshConnections();
       });
     });
-    const sync = iconButton(t('connections.sync'), 'refresh-cw', async () => {
-      try {
-        await withBusy(sync, '', () => configure(item.agent, item.model, item.tool_mode));
-      } catch (error) {
-        toast(error.message);
-        await refreshConnections();
-      }
-    });
+    const sync = iconButton(t('connections.sync'), 'refresh-cw', () =>
+      openLocalConnection(
+        { id: 'dsh', name: 'DeepSeek Harness', icon: 'deepseek-harness', connection: 'managed' },
+        connections.data,
+        refreshConnections,
+        item,
+      ),
+    );
     const remove = iconButton(t('connections.disconnect'), 'unplug', async () => {
+      const token = state.token;
       if (
         !(await confirmAction({
           title: t('connections.disconnect'),
           message: t('connections.disconnect_body', { agent: item.agent }),
           accept: t('connections.disconnect'),
           danger: true,
-        }))
+        })) ||
+        token !== state.token
       )
         return;
       try {
         const result = await api('DELETE', `/v1/local/connections/${item.id}`);
+        if (token !== state.token) return;
         toast(result.configuration_removed ? t('connections.removed') : t('connections.preserved'));
         state.keys = null;
         await refreshConnections();

@@ -1,11 +1,11 @@
 .local-discovery,
 .local-binding-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
   gap: var(--s-4);
 }
 .local-discovery {
-  max-width: 520px;
+  align-items: stretch;
 }
 .local-client-card,
 .local-binding-card {
@@ -14,6 +14,65 @@
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   background: var(--bg);
+}
+.local-client-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: start;
+  color: var(--text);
+  white-space: normal;
+  height: 180px;
+  cursor: pointer;
+  transition:
+    border-color 140ms,
+    background 140ms;
+}
+.local-client-card:hover {
+  border-color: var(--text-soft);
+  background: var(--bg-elevated);
+}
+.local-client-card:focus-visible {
+  outline: 2px solid var(--text-soft);
+  outline-offset: 3px;
+}
+.local-client-card > .local-card-foot {
+  margin-top: auto;
+}
+.local-client-title {
+  display: grid;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.local-client-title strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.local-card-head > svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-soft);
+}
+.local-capability {
+  color: var(--text-soft);
+}
+.local-capability.is-managed {
+  color: var(--moss);
+}
+.local-catalog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-5);
+}
+.local-client-search {
+  width: 240px;
+  min-width: 120px;
+  margin-left: auto;
 }
 .local-card-head,
 .local-client-identity,
@@ -69,29 +128,103 @@
   gap: var(--s-2);
   flex-wrap: wrap;
 }
-.local-connect-form {
+.local-dialog-fields {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(160px, 0.8fr) auto 32px;
-  align-items: end;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--s-4);
-  margin-top: var(--s-5);
-  padding: var(--s-4) 0 var(--s-5);
-  border-bottom: 1px solid var(--border-soft);
 }
-.local-connect-form[hidden] {
-  display: none;
+.local-dialog-fields > label:first-child {
+  grid-column: 1 / -1;
 }
-.local-connect-form label {
+.local-dialog-fields label {
   display: grid;
   gap: var(--s-2);
   min-width: 0;
 }
-.local-connect-form select {
+.local-dialog-fields select {
   width: 100%;
   min-width: 0;
 }
-.local-form-dismiss {
-  align-self: end;
+.local-connection-modal {
+  max-width: 600px;
+}
+.local-connection-modal .dialog-actions {
+  justify-content: flex-end;
+}
+.local-dialog-body {
+  font-size: 13px;
+}
+.local-dialog-body h3 {
+  font-size: 15px;
+  margin: var(--s-5) 0;
+}
+.local-route {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  border-block: 1px solid var(--border-soft);
+  padding: var(--s-4) 0;
+  margin: var(--s-5) 0;
+}
+.local-route code {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.local-route > svg {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: var(--text-soft);
+}
+.local-notice {
+  color: var(--text-soft);
+  line-height: 1.7;
+}
+.local-review {
+  margin: 0;
+}
+.local-review > div {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.local-review dt {
+  color: var(--text-soft);
+}
+.local-review dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.local-guide {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.local-guide svg {
+  width: 14px;
+  height: 14px;
+}
+.local-manual-fields {
+  margin-top: var(--s-5);
+}
+.local-manual-fields > label:first-child {
+  grid-column: auto;
+}
+.local-manual-values > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 68px;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+}
+.local-manual-values dt {
+  color: var(--text-soft);
+}
+.local-manual-values code {
+  overflow-wrap: anywhere;
 }
 .local-paths {
   margin: var(--s-4) 0 var(--s-5);
@@ -139,20 +272,16 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
-@media (max-width: 1150px) {
-  .local-connect-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .local-connect-form > button {
-    justify-self: start;
-  }
-}
 @media (max-width: 760px) {
-  .local-connect-form {
+  .local-dialog-fields {
     grid-template-columns: minmax(0, 1fr);
   }
-  .local-card-head {
-    flex-wrap: wrap;
+  .local-client-search {
+    width: auto;
+    flex: 1;
+  }
+  .local-catalog-toolbar .segmented {
+    width: 100%;
   }
   .local-client-card,
   .local-binding-card {
