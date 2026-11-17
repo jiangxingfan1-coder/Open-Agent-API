@@ -7,6 +7,9 @@ import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 import { _electron } from 'playwright';
+import lifecycle from './smoke-lifecycle.cjs';
+
+const { withTimeout, waitForProcessExit } = lifecycle;
 
 const require = createRequire(import.meta.url),
   here = path.dirname(fileURLToPath(import.meta.url)),
@@ -17,7 +20,7 @@ if (values.executable && !path.isAbsolute(values.executable))
 const data = await fs.mkdtemp(path.join(os.tmpdir(), 'oaa-desktop-smoke-'));
 const env = { ...process.env, OAA_DESKTOP_NODE: process.execPath, OAA_DESKTOP_DATA_DIR: data };
 delete env.ELECTRON_RUN_AS_NODE;
-let application, failure, port;
+let application, closing, failure, port, desktopPid;
 try {
   application = await _electron.launch({
     executablePath: values.executable ?? require('electron'),
@@ -26,6 +29,7 @@ try {
     timeout: 30000,
   });
   const window = await application.firstWindow({ timeout: 20000 });
+  desktopPid = await application.evaluate(() => process.pid);
   window.setDefaultTimeout(10000);
   await window.waitForFunction(() => !!sessionStorage.getItem('oaa-token'));
   assert.equal(await window.evaluate(() => typeof require), 'undefined');
@@ -84,10 +88,19 @@ try {
   const reportDir = path.join(root, 'output', `desktop-smoke-${process.platform}-${process.arch}`);
   await fs.mkdir(reportDir, { recursive: true });
   await window.screenshot({ path: path.join(reportDir, 'projects.png'), scale: 'css' });
-  await application.close();
-  application = undefined;
+  console.log('[desktop-smoke] UI checks passed; requesting desktop quit.');
+  // Playwright waits for stdio to close, which can outlive Electron while the gateway survives.
+  // Verify the actual desktop PID first; drain the automation transport after stopping the gateway.
+  closing = application.close();
+  void closing.catch(() => {});
+  await waitForProcessExit(desktopPid);
+  console.log('[desktop-smoke] Desktop process exited.');
   assert.equal(
-    (await (await fetch(`http://127.0.0.1:${port}/health`)).json()).protocol,
+    (
+      await (
+        await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(5000) })
+      ).json()
+    ).protocol,
     'oaa/1',
     'Quitting the desktop must not stop its accepted gateway work.',
   );
@@ -106,20 +119,9 @@ try {
 } catch (error) {
   failure = error;
 } finally {
-  if (application) {
-    let timer;
-    try {
-      await Promise.race([
-        application.close(),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(Error('Desktop shutdown timed out.')), 5000);
-        }),
-      ]);
-    } catch {
-      application.process().kill('SIGTERM');
-    } finally {
-      clearTimeout(timer);
-    }
+  if (application && !closing) {
+    closing = application.close();
+    void closing.catch(() => {});
   }
   try {
     await fs.access(path.join(data, 'config.json'));
@@ -131,8 +133,23 @@ try {
   } catch (error) {
     if (!failure) failure = error;
   }
+  if (closing) {
+    try {
+      await withTimeout(closing, 10000, 'Desktop automation transport did not close.');
+    } catch (error) {
+      if (!failure) failure = error;
+      if (desktopPid) {
+        try {
+          process.kill(desktopPid, 'SIGTERM');
+        } catch {}
+      }
+      application.process().kill('SIGTERM');
+      for (const stream of application.process().stdio) stream?.destroy();
+    }
+  }
 }
 if (failure) {
   console.error(failure);
   process.exitCode = 1;
+  setTimeout(() => process.exit(1), 1000).unref();
 }
