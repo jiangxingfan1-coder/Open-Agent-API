@@ -1,6 +1,8 @@
 import { LEGACY_SUBJECT, type Run } from '../core/contracts.js';
 import type { Store } from '../store/store.js';
 import { Fault } from '../core/util.js';
+import { projects } from '../store/projects.js';
+import { projectPrincipal } from './project-memory.js';
 
 /**
  * 内建的跨会话记忆工具（`memory_read` / `memory_write`）。
@@ -13,6 +15,27 @@ export function runMemoryTool(
   name: 'memory_read' | 'memory_write',
   args: Record<string, unknown>,
 ): unknown {
+  if (args.scope === 'project') {
+    if (!run.checkpoint.project)
+      throw new Fault('scope_denied', 'No shared project was selected for this task.', 403);
+    const data = projects(store),
+      p = projectPrincipal(run),
+      id = run.checkpoint.project.id;
+    const namespace = typeof args.namespace === 'string' ? args.namespace : 'shared';
+    if (name === 'memory_write') {
+      const key = typeof args.key === 'string' ? args.key.trim() : '';
+      if (!key) throw new Fault('invalid_tool_arguments', 'memory_write requires a non-empty key.');
+      return { ok: true, entry: data.put(p, id, namespace, key, args.value) };
+    }
+    if (typeof args.key === 'string') {
+      const entry = data.get(p, id, namespace, args.key);
+      return { found: !!entry, namespace, key: args.key, value: entry?.value ?? null };
+    }
+    const entries = data
+      .entries(p, id, namespace, 500)
+      .filter((e) => typeof args.prefix !== 'string' || e.key.startsWith(args.prefix));
+    return { namespace, entries: entries.slice(0, 100) };
+  }
   const namespace =
     typeof args.namespace === 'string' && args.namespace.trim()
       ? args.namespace.trim()

@@ -6,6 +6,7 @@ import { agentAccessSchema } from '../core/agent-access.js';
 import { orchestrationSchema } from '../core/orchestration.js';
 import { modelAliases } from './compat-models.js';
 import { refreshAgentModels } from '../fabric/model-pool.js';
+import { supportsReasoning } from '../fabric/model-pool.js';
 import type { GatewayConfig } from '../config/config.js';
 import { agentSchema, type AgentDefinition, type Principal } from '../core/contracts.js';
 import { agentConversionProfile } from '../engines/conformance.js';
@@ -153,6 +154,74 @@ export function registerAgentRoutes(app: FastifyInstance, deps: AgentRouteDeps):
   app.post('/v1/agents/preview', async (req) =>
     kernel.preview(req.principal, previewSchema.parse(req.body), providerKeyOf(req) !== undefined),
   );
+  app.post('/v1/agents/policy', async (req) => {
+    auth.require(req.principal, 'admin');
+    const body = z
+      .object({
+        agent: z.string().min(1).max(120),
+        version: z.string().regex(/^[a-f0-9]{64}$/),
+        approval: z.enum(['ask', 'auto']),
+        orchestration: z.boolean(),
+        timeout_ms: z.number().int().min(100).max(604_800_000).optional(),
+      })
+      .strict()
+      .parse(req.body);
+    kernel.authorize(req.principal, body.agent, 'admin');
+    const prior = store.bundle(req.principal.owner, body.agent);
+    if (prior.digest !== body.version)
+      throw new Fault('version_conflict', 'The publication changed. Refresh before editing.', 409);
+    if (
+      body.orchestration &&
+      !prior.agent.orchestration?.enabled &&
+      !supportsReasoning(hub, req.principal.owner, prior.agent)
+    )
+      throw new Fault(
+        'capability_unavailable',
+        'This engine cannot yet enforce tool-free planning.',
+        503,
+      );
+    if (prior.agent.engine === 'kernel' && !prior.agent.access)
+      throw new Fault(
+        'invalid_request',
+        'This kernel publication uses per-tool approvals; edit its definition explicitly.',
+      );
+    const updated = makeBundle(
+      {
+        ...prior.agent,
+        ...(body.timeout_ms !== undefined
+          ? { limits: { ...prior.agent.limits, timeoutMs: body.timeout_ms } }
+          : {}),
+        ...(prior.agent.access
+          ? {
+              access: {
+                ...prior.agent.access,
+                approval:
+                  body.approval === 'auto'
+                    ? 'auto'
+                    : prior.agent.access.approval === 'auto'
+                      ? 'owner'
+                      : prior.agent.access.approval,
+              },
+            }
+          : {}),
+        ...(prior.agent.engine !== 'kernel' ? { approvals: body.approval } : {}),
+        ...(body.orchestration !== !!prior.agent.orchestration?.enabled
+          ? {
+              orchestration: {
+                ...prior.agent.orchestration,
+                enabled: body.orchestration,
+                helpers: prior.agent.orchestration?.helpers ?? [],
+                ...(body.orchestration ? { scope: 'agent' as const, helpers: [] } : {}),
+              },
+            }
+          : {}),
+      },
+      prior.files,
+    );
+    store.publish(req.principal.owner, updated);
+    auditPolicy(req, updated.agent);
+    return { agent: body.agent, version: updated.digest };
+  });
   app.post('/v1/agents/publish', async (req) => {
     auth.require(req.principal, 'admin');
     const bundle = validateBundle(req.body);
@@ -208,7 +277,7 @@ export function registerAgentRoutes(app: FastifyInstance, deps: AgentRouteDeps):
     // Built-in native engines, or an owner adapter (`adapter/<name>`) that a node has enabled.
     const target = parseBackendEngine(b.engine);
     kernel.authorize(req.principal, b.id, 'admin');
-    if (b.model_policy?.mode === 'discover' || (b.engine === 'antigravity' && b.access))
+    if (b.model_policy?.mode === 'discover' || b.engine === 'antigravity')
       await refreshAgentModels(hub, req.principal.owner, target.engine);
     if (
       target.kind === 'adapter' &&
@@ -217,6 +286,19 @@ export function registerAgentRoutes(app: FastifyInstance, deps: AgentRouteDeps):
         .some((node) => Array.isArray(node.natives) && node.natives.includes(target.engine))
     )
       throw backendNotEnabled();
+    const existing = store.agentDefinitions(req.principal.owner, [b.id])[0]?.agent;
+    if (b.access && b.approvals && (b.access.approval === 'auto') !== (b.approvals === 'auto'))
+      throw new Fault('invalid_request', 'The access and approval policies disagree.');
+    if (
+      existing?.access &&
+      b.access === undefined &&
+      b.approvals !== undefined &&
+      b.approvals !== (existing.access.approval === 'auto' ? 'auto' : 'ask')
+    )
+      throw new Fault(
+        'invalid_request',
+        'This publication has an explicit access policy. Submit the updated access policy with the approval change.',
+      );
     const bundle = makeBundle(
       agentSchema.parse({
         id: b.id,
@@ -227,8 +309,10 @@ export function registerAgentRoutes(app: FastifyInstance, deps: AgentRouteDeps):
         engine: target.engine,
         model: b.models[0],
         ...(b.model_policy ? { modelPolicy: b.model_policy } : {}),
-        ...(b.access ? { access: b.access } : {}),
-        ...(b.orchestration ? { orchestration: b.orchestration } : {}),
+        ...(b.access ? { access: b.access } : existing?.access ? { access: existing.access } : {}),
+        ...(b.orchestration
+          ? { orchestration: { ...b.orchestration, scope: b.orchestration.scope ?? 'agent' } }
+          : {}),
         provider: 'native',
         instructions: '',
         tools: [],
@@ -239,7 +323,17 @@ export function registerAgentRoutes(app: FastifyInstance, deps: AgentRouteDeps):
           provider: 'native',
           priority: Math.min(i, 100),
         })),
-        ...(b.approvals === 'auto' || b.access?.approval === 'auto' ? { approvals: 'auto' } : {}),
+        ...(() => {
+          if (b.approvals !== undefined) return { approvals: b.approvals };
+          if (b.access) return b.access.approval === 'auto' ? { approvals: 'auto' as const } : {};
+          // Default new publications to API-style execution; never loosen a stored policy.
+          return existing
+            ? {
+                ...(existing.approvals ? { approvals: existing.approvals } : {}),
+                ...(existing.access ? { access: existing.access } : {}),
+              }
+            : { approvals: 'auto' as const };
+        })(),
       }),
     );
     store.publish(req.principal.owner, bundle);

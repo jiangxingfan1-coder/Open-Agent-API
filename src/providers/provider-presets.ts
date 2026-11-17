@@ -6,6 +6,7 @@
  * `--model` always wins; `model: undefined` means the user must name one.
  */
 import type { ProviderConfig } from '../config/config.js';
+import { MODEL_RUNTIMES } from '../config/model-runtimes.js';
 
 export type ProviderPreset = {
   /** Preset name used on the command line; must not collide with external agent names. */
@@ -32,28 +33,20 @@ export type ProviderPreset = {
 const P = (preset: ProviderPreset) => preset;
 
 export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
-  P({
-    id: 'ollama',
-    label: 'Ollama',
-    kind: 'openai-chat',
-    baseUrl: 'http://127.0.0.1:11434/v1',
-    local: true,
-    imageInput: 'inline',
-    maxTokensField: 'max_tokens',
-    docs: 'https://docs.ollama.com/api/openai-compatibility',
-    modelsPath: 'models',
-  }),
-  P({
-    id: 'lmstudio',
-    label: 'LM Studio',
-    kind: 'openai-chat',
-    baseUrl: 'http://127.0.0.1:1234/v1',
-    local: true,
-    imageInput: 'none',
-    maxTokensField: 'max_tokens',
-    docs: 'https://lmstudio.ai/docs/developer/openai-compat',
-    modelsPath: 'models',
-  }),
+  ...MODEL_RUNTIMES.map((runtime) =>
+    P({
+      id: runtime.id,
+      label: runtime.name,
+      kind: 'openai-chat',
+      baseUrl: runtime.baseUrl,
+      local: true,
+      imageInput: runtime.id === 'ollama' ? 'inline' : 'none',
+      maxTokensField: 'max_tokens',
+      ...(['jan', 'gpt4all'].includes(runtime.id) ? { streamUsage: false } : {}),
+      docs: runtime.docs,
+      modelsPath: 'models',
+    }),
+  ),
   P({
     id: 'openai-compatible',
     label: 'OpenAI-compatible endpoint',

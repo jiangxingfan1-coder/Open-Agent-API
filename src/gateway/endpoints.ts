@@ -3,6 +3,10 @@ export { PRODUCT_VERSION as GATEWAY_VERSION } from '../core/version.js';
 
 /** Versioned optional gateway capabilities; transport support is still checked per agent. */
 export const GATEWAY_FEATURES = [
+  'project-memory-v1',
+  'durable-tasks-v1',
+  'visual-workflows-v1',
+  'media-jobs-v1',
   'a2a-adapters-v1',
   'acp-adapters-v1',
   'adapter-stream-v1',
@@ -19,8 +23,11 @@ export const GATEWAY_FEATURES = [
   'image-input-v1',
   'local-backends-v1',
   'local-connections-v1',
+  'local-model-runtimes-v1',
   'local-usage-v1',
   'model-catalog-v1',
+  'model-evaluation-v1',
+  'everything-acp-import-v1',
   'oaa-lang-roundtrip-v1',
   'overview-activity-v1',
   'overview-etag-v1',

@@ -23,7 +23,10 @@ import { registerOverviewRoutes } from './overview-routes.js';
 import { registerProtocolRoutes } from './protocol-routes.js';
 import { registerLocalBackendRoutes } from './local-backend-routes.js';
 import { registerLocalConnectionRoutes } from './local-connection-routes.js';
+import { registerLocalModelRoutes, restoreLocalModelProviders } from './local-model-routes.js';
 import { registerUsageRoutes } from './usage-routes.js';
+import { registerEvaluationRoutes } from './evaluation-routes.js';
+import { restoreEverythingAcp, registerEverythingAcpRoutes } from './everything-acp-routes.js';
 import { registerOwnerRoutes } from './shutdown-route.js';
 import { registerConsoleAssets } from './console-assets.js';
 import { geminiQueryKey, sendError, zodFault } from './compat-errors.js';
@@ -57,6 +60,8 @@ export async function createGateway(
     store.db.exec(
       'CREATE TABLE IF NOT EXISTS local_backends(owner TEXT NOT NULL,engine TEXT NOT NULL,executable TEXT NOT NULL,enabled INTEGER NOT NULL,PRIMARY KEY(owner,engine))',
     );
+    restoreEverythingAcp(store, config, localExecutor);
+    restoreLocalModelProviders(store, config, localExecutor);
     restoreLocalBackends(store.db, config.localWorker, localExecutor);
     const handshakes = new Map<string, HandshakeRecord>();
     const credentials = await Promise.all(
@@ -472,7 +477,23 @@ export async function createGateway(
       configFile: options.configFile,
     });
     registerNodeEnrollRoute(app, { auth, config, hub });
-    registerUsageRoutes(app, { auth, config, store, isLocalRequest: isLocalProbe });
+    registerUsageRoutes(app, { auth, config, store, kernel, hub, isLocalRequest: isLocalProbe });
+    registerEvaluationRoutes(app, {
+      auth,
+      config,
+      store,
+      hub,
+      kernel,
+      isLocalRequest: isLocalProbe,
+    });
+    registerEverythingAcpRoutes(app, {
+      auth,
+      config,
+      store,
+      hub,
+      localExecutor,
+      isLocalRequest: isLocalProbe,
+    });
     await registerLocalConnectionRoutes(app, {
       auth,
       config,
@@ -480,6 +501,14 @@ export async function createGateway(
       hub,
       cachedAgents,
       dshHome: options.dshHome,
+      isLocalRequest: isLocalProbe,
+    });
+    registerLocalModelRoutes(app, {
+      auth,
+      config,
+      store,
+      hub,
+      localExecutor,
       isLocalRequest: isLocalProbe,
     });
     registerOwnerRoutes(app, { auth, audit, config, store, kernel, providerKeyOf });

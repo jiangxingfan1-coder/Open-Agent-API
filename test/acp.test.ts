@@ -742,6 +742,7 @@ test('local backends list native and ACP entries; enable, publish, overview and 
       verified: '2026-11-08',
       publishable: false,
       evidence: 'installed_not_exercised',
+      tool_free_reasoning: false,
       conversion: conversionProfile('adapter/gemini', s.config.localWorker),
     });
     const presets = before.presets as {
@@ -858,6 +859,7 @@ test('gateway ACP approvals reach the owner, and approved outputs become artifac
             id: 'agent/cline',
             engine: 'adapter/cline',
             models: ['default'],
+            approvals: 'ask',
           })
         ).statusCode,
         200,

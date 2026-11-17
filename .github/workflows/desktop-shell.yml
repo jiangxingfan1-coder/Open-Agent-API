@@ -1,0 +1,35 @@
+name: Desktop Shell
+permissions:
+  contents: read
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['desktop/cross-platform/**', 'src/**', 'web/**', 'package*.json', '.github/workflows/desktop-shell.yml']
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix desktop/cross-platform
+      - run: node desktop/cross-platform/node_modules/electron/install.js
+      - run: npm run build
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a npm run desktop:smoke
+      - if: runner.os != 'Linux'
+        run: npm run desktop:smoke
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: desktop-smoke-${{ runner.os }}
+          path: output/desktop-smoke-*
+          if-no-files-found: ignore

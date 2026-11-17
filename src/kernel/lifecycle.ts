@@ -7,15 +7,20 @@ import { isTerminalEvent } from '../core/events.js';
 import type { KernelRuntime } from './runtime.js';
 import { authorize, checkProviderKey } from './submission.js';
 import { expireApprovals } from './approvals.js';
+import { rememberProjectResult } from './project-memory.js';
+import { recoverDurable } from './durability.js';
+import { supportsReasoning } from '../fabric/model-pool.js';
+import { workflowAllowsChildRecovery } from '../store/task-workflows.js';
 
 export function start(rt: KernelRuntime): void {
+  recoverDurable(rt, (principal, id) => resume(rt, principal, id));
   for (const run of rt.store.allRuns(['queued', 'requires_action'])) {
     const parentId = run.metadata?.['oaa.parent_run_id'];
-    if (parentId && !parentActive(rt, parentId)) {
+    if ((parentId && !parentActive(rt, parentId)) || !workflowAllowsChildRecovery(rt.store, run)) {
       finishOrphan(rt, run);
       continue;
     }
-    rt.admission.queue.push(run.id);
+    if (!rt.admission.queue.includes(run.id)) rt.admission.queue.push(run.id);
     // 进程内的密钥并发计数不持久化：重启后重新入队的运行重新计入（不增加已用运行次数）。
     rt.auth()?.rejoinKeyRun(run.checkpoint.keyId, run.id);
     if (run.checkpoint.suspension) {
@@ -48,6 +53,7 @@ export function finishOrphan(rt: KernelRuntime, run: Run): void {
   releaseRun(rt, run);
 }
 export function releaseRun(rt: KernelRuntime, run: Run): void {
+  if (run.status === 'completed') rememberProjectResult(rt.store, run);
   rt.hub.releaseRun(run.id);
   // 运行已终态却还有等待中的步骤（审批被拒、等待中取消或超时）：它们不会再执行，标为
   // failed 并写明原因。中断的运行可以恢复，步骤保持原样。
@@ -156,7 +162,13 @@ export function resume(
       409,
     );
   const bundle = rt.store.bundle(run.owner, run.agentId, run.digest);
-  if (bundle.agent.engine !== 'kernel')
+  if (
+    bundle.agent.engine !== 'kernel' &&
+    !(
+      run.metadata['oaa.tools_disabled'] === 'true' &&
+      supportsReasoning(rt.hub, run.owner, bundle.agent)
+    )
+  )
     throw new Fault(
       'native_resume_unsupported',
       'Interrupted native runs are not automatically replayed.',
@@ -173,7 +185,7 @@ export function resume(
   run.status = 'queued';
   run.error = null;
   delete run.checkpoint.suspension;
-  delete run.checkpoint.deadlineAt;
+  if (!run.checkpoint.durability) delete run.checkpoint.deadlineAt;
   rt.store.save(run);
   if (providerKey !== undefined) {
     clearTimeout(rt.byokExpiry.get(runId));

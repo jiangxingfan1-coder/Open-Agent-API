@@ -12,10 +12,15 @@ export const openaiModel = (a: { id: string }) => ({
 });
 
 export function modelAliases<
-  T extends { id: string; model_policy?: unknown; routes?: readonly { id: string }[] },
+  T extends {
+    id: string;
+    model_policy?: unknown;
+    orchestration?: unknown;
+    routes?: readonly { id: string }[];
+  },
 >(agents: readonly T[]): T[] {
   return agents.flatMap((agent) =>
-    !agent.model_policy
+    !agent.model_policy && !agent.orchestration
       ? [agent]
       : [
           agent,

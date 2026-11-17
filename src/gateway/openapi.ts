@@ -2,6 +2,8 @@
 import { GATEWAY_VERSION } from './endpoints.js';
 import { WEBHOOK_OPERATIONS } from './webhook-core.js';
 import { LOCAL_MANAGEMENT_OPERATIONS } from './local-management-api.js';
+import { PROJECT_OPERATIONS } from './project-api.js';
+import { WORKFLOW_OPERATIONS } from './task-workflow-api.js';
 
 const inspectionQueries: Record<string, Record<string, Record<string, unknown>>> = {
   '/v1/agents/models': {
@@ -77,6 +79,11 @@ export const openapi = {
   paths: Object.fromEntries(
     [
       ['/v1/agents', 'get', 'List published agents and model routes'],
+      [
+        '/v1/agents/policy',
+        'post',
+        'Revision-checked approval and same-agent orchestration policy; existing runs remain pinned',
+      ],
       [
         '/v1/agents/models',
         'get',
@@ -305,6 +312,8 @@ export const openapi = {
         'Lenient Anthropic Messages compatibility endpoint' + CLIENT_TOOLS_NOTE,
       ],
       ['/v1/memory', 'get', 'Read durable cross-session agent memory entries'],
+      ...PROJECT_OPERATIONS,
+      ...WORKFLOW_OPERATIONS,
     ].reduce<[string, Record<string, unknown>][]>((paths, [url, method, summary]) => {
       const entry = {
         summary,

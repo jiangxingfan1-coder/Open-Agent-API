@@ -47,6 +47,8 @@
             ><i data-lucide="bot"></i><span data-i18n="view.agents.title"></span
             ><small id="agent-count"></small
           ></a>
+          <a href="#projects" data-view="projects"><i data-lucide="folder-open"></i><span data-i18n="project.title"></span></a>
+          <a href="#workflows" data-view="workflows"><i data-lucide="workflow"></i><span data-i18n="workflow.title"></span></a>
           <a href="#requests" data-view="requests"
             ><i data-lucide="activity"></i><span data-i18n="view.requests.title"></span
             ><small id="active-count"></small
@@ -297,7 +299,7 @@
           <label class="inline-check"><input id="publish-project-use" type="checkbox" /><span data-i18n="workspace.use"></span></label>
           <div id="publish-project-fields" hidden><label class="field"><span data-i18n="workspace.path"></span><input id="publish-project-path" type="text" autocomplete="off" spellcheck="false" /></label><button id="publish-project-bind" type="button" class="subtle small-btn"><i data-lucide="folder-check"></i><span data-i18n="workspace.bind"></span></button></div>
           <label class="inline-check"><input id="publish-orchestrate" type="checkbox" checked /><span data-i18n="orchestration.enabled"></span></label>
-          <label class="field"><span data-i18n="orchestration.helpers"></span><select id="publish-helpers" multiple size="3"></select></label>
+          <label class="field" hidden><span data-i18n="orchestration.helpers"></span><select id="publish-helpers" multiple size="3"></select></label>
           <p class="callout">
             <i data-lucide="shield-alert"></i
             ><span data-i18n="html.publish.externalNote"></span>
@@ -588,6 +590,7 @@
           </div>
         </div>
         <div class="sheet-actions">
+          <button type="button" id="agent-api-policy-btn" class="icon-button" data-i18n-attr="title,aria-label:policy.title"><i data-lucide="settings-2"></i></button>
           <button type="button" id="agent-key-btn" class="primary small-btn">
             <i data-lucide="key-round"></i><span data-i18n="common.createApiKey"></span>
           </button>
@@ -692,6 +695,17 @@
             ><span id="attachments-label" data-i18n="html.agent.addFiles"></span
             ><input id="input-files" type="file" multiple
           /></label>
+          <label class="field"><span data-i18n="project.selected"></span><select id="task-project"><option value="" data-i18n="project.none"></option></select></label>
+          <label class="inline-check"><input id="task-durable" type="checkbox" checked /><span data-i18n="project.durable"></span></label>
+          <label class="field"><span data-i18n="media.output"></span><select id="task-output-kind"><option value="" data-i18n="media.text"></option></select></label>
+          <label class="field" id="task-output-format-field" hidden><span data-i18n="media.format"></span><select id="task-output-format"></select></label>
+          <label class="field" id="orchestration-action-field" hidden>
+            <span data-i18n="orchestration.action"></span>
+            <select id="orchestration-action">
+              <option value="execute" data-i18n="orchestration.execute"></option>
+              <option value="recommend" data-i18n="orchestration.recommend"></option>
+            </select>
+          </label>
           <button class="primary run-button" type="submit">
             <i data-lucide="play"></i><span data-i18n="html.agent.run"></span>
           </button>
@@ -919,6 +933,7 @@
           </div>
         </div>
         <pre id="run-output" class="output" translate="no"></pre>
+        <div id="run-feedback" class="view-toolbar"></div>
         <div class="inspector-heading execution-heading">
           <h3><span data-i18n="html.run.steps"></span> <span id="step-count" class="muted"></span></h3>
           <div class="pager">

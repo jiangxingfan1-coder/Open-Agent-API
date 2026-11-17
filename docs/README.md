@@ -15,6 +15,9 @@ Find documents by "I want to…". Every document is available in English (this f
 
 ## I want to call an agent
 
+- Measured model routing, plan-only mode and EverythingACP import: [Intelligent Agent API](intelligence.md)
+- Durable tasks, project memory, reusable workflows, media deliverables and desktop builds: [Persistent Agent Workstation](workstation.md)
+
 - Configure a published agent into local DSH without copying a key, with preview and rollback: [Local Connections](local-connections.md)
 - Inspect reported tokens, local key budgets and provider quota snapshots: [Usage & Quotas](usage-monitor.md)
 

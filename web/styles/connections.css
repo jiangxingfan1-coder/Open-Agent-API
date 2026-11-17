@@ -151,6 +151,12 @@
 .local-connection-modal .dialog-actions {
   justify-content: flex-end;
 }
+.local-model-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin-right: auto;
+}
 .local-dialog-body {
   font-size: 13px;
 }

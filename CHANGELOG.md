@@ -4,6 +4,15 @@ English · [简体中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+## 0.0.69 (2026-11-18)
+
+- Discover Ollama, LM Studio, llama.cpp, Jan, GPT4All, LocalAI and vLLM as local model runtimes. Add model-list checks and a dialog that publishes selected models as persistent OAA agents without changing the runtime's own settings.
+- Add fixed and measured model routing, bounded model evaluations, task feedback, and local EverythingACP descriptor import.
+- Add project-scoped memory, recoverable tasks, reusable visual workflows with manual, scheduled and event triggers, and media jobs with artifact previews.
+- Add a sandboxed cross-platform Electron shell while retaining the macOS native shell and the current desktop appearance and navigation.
+
+Local model-list checks do not prove inference capability. Ollama and llama.cpp have live smoke coverage; LM Studio installation downloads did not complete in the verification environment. Cross-platform packages still require platform-specific device acceptance.
+
 ## 0.0.68 (2026-11-16)
 
 - Discover local native/ACP clients, configured entry points, macOS application bundles and selected editor extensions without executing agents or reading credentials. Separate installation evidence from receiver compatibility.

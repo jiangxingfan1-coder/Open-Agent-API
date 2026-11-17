@@ -83,17 +83,29 @@ export async function probeProvider(
       await r.body?.cancel().catch(() => {});
       return { reachable: true, status: r.status };
     }
-    const body = (await r.json().catch(() => ({}))) as {
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    for await (const chunk of r.body ?? []) {
+      bytes += chunk.length;
+      if (bytes > 1_048_576) return { reachable: false, error: 'model list exceeds 1 MiB' };
+      chunks.push(chunk);
+    }
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
       data?: { id?: unknown }[];
       models?: { name?: unknown }[];
     };
+    if (!body || (!Array.isArray(body.data) && !Array.isArray(body.models)))
+      return { reachable: false, error: 'invalid model list' };
     const ids = [
-      ...(body.data ?? []).map((m) => m.id),
+      ...(body.data ?? []).map((m) => m?.id),
       ...(body.models ?? []).map((m) =>
-        typeof m.name === 'string' ? m.name.replace(/^models\//, '') : m.name,
+        typeof m?.name === 'string' ? m.name.replace(/^models\//, '') : m?.name,
       ),
-    ].filter((x): x is string => typeof x === 'string');
-    return { reachable: true, status: r.status, models: ids.slice(0, 200) };
+    ].filter(
+      (x): x is string =>
+        typeof x === 'string' && x.length > 0 && x.length <= 200 && !/[\x00-\x1f]/.test(x),
+    );
+    return { reachable: true, status: r.status, models: [...new Set(ids)].slice(0, 200) };
   } catch (error) {
     return {
       reachable: false,

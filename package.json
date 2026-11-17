@@ -1,6 +1,6 @@
 {
   "name": "open-agent-api",
-  "version": "0.0.68",
+  "version": "0.0.69",
   "private": true,
   "type": "module",
   "description": "A capability-aware agent runtime with a portable API and distributed workers",
@@ -36,6 +36,9 @@
     "licenses"
   ],
   "scripts": {
+    "desktop:dev": "node desktop/cross-platform/launch.mjs",
+    "desktop:smoke": "node desktop/cross-platform/smoke.mjs",
+    "desktop:package": "node desktop/cross-platform/build.mjs",
     "build": "tsc -p tsconfig.json",
     "prepack": "node scripts/prepack.mjs",
     "check": "tsc -p tsconfig.json --noEmit",

@@ -4,6 +4,41 @@ import path from 'node:path';
 import { runNative } from '../src/engines/native.js';
 import { workerSchema } from '../src/config/config.js';
 import { setup, agent } from './helpers.js';
+import { readFile } from 'node:fs/promises';
+
+test('automatic Antigravity permission flags stay per invocation and never enter reasoning calls', async () => {
+  const s = await setup();
+  try {
+    const config = workerSchema.parse({
+      nodeId: 'fixture',
+      dataDir: s.dir,
+      native: {
+        antigravity: {
+          enabled: true,
+          executable: process.execPath,
+          args: [path.resolve('test/fixtures/native-full.mjs')],
+        },
+      },
+    });
+    await runNative(
+      agent({ engine: 'antigravity', model: 'test-model', approvals: 'auto' }),
+      config,
+      s.dir,
+      'Hello',
+      AbortSignal.timeout(5000),
+      async () => {},
+    );
+    assert.match(
+      await readFile(path.join(s.dir, '.agy-fixture.log'), 'utf8'),
+      /dangerously-skip-permissions/,
+    );
+    assert.deepEqual(config.native.antigravity!.args, [
+      path.resolve('test/fixtures/native-full.mjs'),
+    ]);
+  } finally {
+    await s.cleanup();
+  }
+});
 
 test('internal Antigravity reasoning always installs a per-session deny policy', async () => {
   const s = await setup();

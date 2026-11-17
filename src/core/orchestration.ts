@@ -20,12 +20,13 @@ export type ModelMark = {
 export const orchestrationSchema = z
   .object({
     enabled: z.boolean(),
+    scope: z.enum(['agent', 'helpers']).optional(),
     helpers: z
       .array(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,119}$/))
       .max(16)
       .default([]),
     maxStages: z.number().int().min(1).max(24).optional(),
-    timeoutMs: z.number().int().min(1000).max(3_600_000).optional(),
+    timeoutMs: z.number().int().min(1000).max(604_800_000).optional(),
   })
   .strict();
 export const orchestrationPlanSchema = z
@@ -56,4 +57,5 @@ export type OrchestrationState = {
   results: Record<string, { output: string; runId?: string }>;
   activeStage?: string;
   finalText?: string;
+  recommendation?: boolean;
 };

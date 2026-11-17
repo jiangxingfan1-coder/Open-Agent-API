@@ -22,6 +22,8 @@ import { load } from '../lib/live.js';
 import { t } from '../lib/i18n.js';
 import { agentModelName, openKeyDialog } from './key.js';
 import { showRun } from './runs.js';
+import { openAgentPolicy } from './agent-policy.js';
+import { resetMediaOutput, mediaMetadata } from './media-output.js';
 import {
   AUTO_APPROVE_HINT,
   CONVERSION,
@@ -69,6 +71,9 @@ export function updateAgentApi() {
   if (!agent) return;
   const base = sdkBaseUrl();
   const model = agentModelName(agent.id, effectiveModelSelection());
+  const automatic = ['auto', '@fast', '@best', '@eco'].includes(effectiveModelSelection());
+  $('orchestration-action-field').hidden = !agent.orchestration?.enabled || !automatic;
+  if (!automatic) $('orchestration-action').value = 'execute';
   // The call name can be long: it wraps in full, and it is also in the title so it can be checked before copying.
   $('agent-api-base').textContent = base;
   $('agent-api-base').title = base;
@@ -82,6 +87,9 @@ $('copy-agent-model').onclick = () =>
 $('agent-key-btn').onclick = () => {
   const agent = state.selectedAgent;
   if (agent) openKeyDialog({ agents: [agent.id], model: effectiveModelSelection() });
+};
+$('agent-api-policy-btn').onclick = () => {
+  if (state.selectedAgent) void openAgentPolicy(state.selectedAgent);
 };
 export function showAgent(agent) {
   state.agentDialogSequence++;
@@ -104,6 +112,7 @@ export function showAgent(agent) {
   );
   $('agent-version').textContent = agent.version;
   $('agent-key-btn').hidden = !isAdmin();
+  $('agent-api-policy-btn').hidden = !isAdmin() || (agent.engine === 'kernel' && !agent.access);
   $('agent-key-btn').title = t('dlg.agent.key_title');
   $('agent-key-btn').setAttribute('aria-label', t('dlg.agent.key_title'));
   const select = $('model-select');
@@ -146,6 +155,19 @@ export function showAgent(agent) {
   $('input-files').value = '';
   $('attachments-label').textContent = t('dlg.agent.attach.add');
   $('task-input').value = '';
+  $('task-durable').checked = true;
+  resetMediaOutput(state.agentDialogSequence);
+  $('task-project').replaceChildren(new Option(t('project.none'), ''));
+  const projectSequence = state.agentDialogSequence;
+  void api('GET', '/v1/projects')
+    .then((result) => {
+      if (projectSequence !== state.agentDialogSequence) return;
+      for (const project of result.data)
+        $('task-project').add(new Option(project.name, project.id));
+    })
+    .catch(() => {});
+  $('orchestration-action').value = 'execute';
+  $('orchestration-action-field').hidden = !agent.orchestration?.enabled;
   updateEndpointDisplay();
   openDialog('agent-dialog');
   // Focus the task box right away; openDialog would focus the first header button and show a focus ring.
@@ -401,6 +423,12 @@ $('invoke-form').onsubmit = async (e) => {
     sequence: state.agentDialogSequence,
     continuation: continuationFields(state.selectedAgent.id, effectiveModelSelection()),
     fallbackAgent: $('fallback-agent').value,
+    project: $('task-project').value,
+    durable: $('task-durable').checked,
+    mediaMetadata: mediaMetadata(),
+    orchestrationAction: $('orchestration-action-field').hidden
+      ? undefined
+      : $('orchestration-action').value,
   };
   const checkConnection = () => {
     if (state.token !== request.token) throw Error(t('dlg.agent.err.connection_changed'));
@@ -434,6 +462,12 @@ $('invoke-form').onsubmit = async (e) => {
     }
     checkConnection();
     const metadata = {
+      ...request.mediaMetadata,
+      ...(request.project ? { 'oaa.project': request.project } : {}),
+      ...(request.durable ? { 'oaa.durable': 'true' } : {}),
+      ...(request.orchestrationAction === 'recommend'
+        ? { 'oaa.orchestration_action': 'recommend' }
+        : {}),
       ...(request.strategy && request.strategy !== 'auto'
         ? { 'oaa.routing_strategy': request.strategy }
         : {}),

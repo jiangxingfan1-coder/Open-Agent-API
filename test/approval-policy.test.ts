@@ -11,7 +11,7 @@ import { agentSchema, type Run } from '../src/core/contracts.js';
 import { makeBundle } from '../src/lang/bundle.js';
 import { compileOaaLang, formatOaaLang } from '../src/lang/lang.js';
 import { invocationSchema } from '../src/gateway/protocol.js';
-import { principal, setup, waitFor } from './helpers.js';
+import { agent, principal, setup, waitFor } from './helpers.js';
 
 type Gateway = Awaited<ReturnType<typeof setup>>;
 const fixtures = {
@@ -120,8 +120,16 @@ for (const c of CASES)
         [{ approval_id: records[0]!.id, decision: 'approve', actor: 'policy:auto' }],
       );
 
-      // 对照：不设与设 ask 都照旧进入 requires_action，由所有者处理。
-      for (const approvals of [undefined, 'ask'] as const) {
+      const defaultId = `agent/${c.name}-default`;
+      assert.equal((await publish(s, defaultId, c.engine)).statusCode, 200);
+      const automatic = await s.kernel.wait(submit(s, defaultId, 'Write it MODE:approval').id);
+      assert.equal(automatic.status, 'completed');
+      assert.equal(
+        s.store.history(automatic.id).some((e) => e.type === 'run.requires_action'),
+        false,
+      );
+      // An explicitly requested approval policy must still stop for the owner.
+      for (const approvals of ['ask'] as const) {
         const id = `agent/${c.name}-${approvals ?? 'default'}`;
         assert.equal((await publish(s, id, c.engine, approvals)).statusCode, 200);
         const asked = submit(s, id, 'Write it MODE:approval');
@@ -237,7 +245,7 @@ test('approvals: publish surfaces, catalog field, audit row and /health feature'
   const s = await setup();
   try {
     await CASES[0]!.install(s);
-    assert.equal((await publish(s, 'agent/plain', 'adapter/acp')).statusCode, 200);
+    assert.equal((await publish(s, 'agent/plain', 'adapter/acp', 'ask')).statusCode, 200);
     assert.equal((await publish(s, 'agent/auto', 'adapter/acp', 'auto')).statusCode, 200);
     const bad = await s.request('POST', '/v1/agents/publish-native', {
       id: 'agent/x',
@@ -250,7 +258,7 @@ test('approvals: publish surfaces, catalog field, audit row and /health feature'
     const auto = listed.find((a: { id: string }) => a.id === 'agent/auto');
     const plain = listed.find((a: { id: string }) => a.id === 'agent/plain');
     assert.equal(auto.approvals, 'auto');
-    assert.equal('approvals' in plain, false);
+    assert.equal(plain.approvals, undefined);
     const overview = (await s.request('GET', '/v1/overview')).json();
     assert.equal(
       overview.agents.find((a: { id: string }) => a.id === 'agent/auto').approvals,
@@ -284,4 +292,118 @@ test('approvals in OAA-Lang: compile, format round trip, duplicate declaration',
   );
   assert.throws(() => compileOaaLang(source('auto\n  approvals = ask')), /Duplicate 'approvals'/);
   assert.throws(() => compileOaaLang(source('sometimes')), /approvals/);
+});
+
+test('republishing without a policy preserves existing approval and access grants', async () => {
+  const s = await setup();
+  try {
+    const base = { id: 'agent/preserved', engine: 'codex', models: ['default'] };
+    const access = {
+      modes: ['managed'],
+      defaultMode: 'managed',
+      approval: 'owner',
+      trust: 'private',
+    };
+    assert.equal(
+      (await s.request('POST', '/v1/agents/publish-native', { ...base, access })).statusCode,
+      200,
+    );
+    assert.equal((await s.request('POST', '/v1/agents/publish-native', base)).statusCode, 200);
+    const after = s.store.bundle('owner', base.id).agent;
+    assert.deepEqual(after.access, access);
+    assert.notEqual(after.approvals, 'auto');
+    assert.equal(
+      (await s.request('POST', '/v1/agents/publish-native', { ...base, approvals: 'auto' }))
+        .statusCode,
+      400,
+    );
+    assert.equal(
+      (
+        await s.request('POST', '/v1/agents/publish-native', {
+          ...base,
+          access: { ...access, approval: 'auto' },
+          approvals: 'ask',
+        })
+      ).statusCode,
+      400,
+    );
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('explicit policy migration creates a new revision and preserves all other definition fields', async () => {
+  const s = await setup();
+  try {
+    const published = await publish(s, 'agent/migrate', 'codex', 'ask');
+    assert.equal(published.statusCode, 200);
+    const before = s.store.bundle('owner', 'agent/migrate');
+    const migrated = await s.request('POST', '/v1/agents/policy', {
+      agent: before.agent.id,
+      version: before.digest,
+      approval: 'auto',
+      orchestration: false,
+    });
+    assert.equal(migrated.statusCode, 200, migrated.body);
+    const after = s.store.bundle('owner', before.agent.id);
+    assert.equal(after.agent.approvals, 'auto');
+    assert.equal(s.store.bundle('owner', before.agent.id, before.digest).agent.approvals, 'ask');
+    assert.deepEqual(after.agent.routes, before.agent.routes);
+    assert.deepEqual(after.agent.orchestration, before.agent.orchestration);
+    assert.equal(
+      (
+        await s.request('POST', '/v1/agents/policy', {
+          agent: before.agent.id,
+          version: before.digest,
+          approval: 'ask',
+          orchestration: false,
+        })
+      ).statusCode,
+      409,
+    );
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('changing approvals alone preserves legacy orchestration helpers', async () => {
+  const s = await setup();
+  try {
+    const before = makeBundle(
+      agent({
+        orchestration: { enabled: true, scope: 'helpers', helpers: ['agent/reviewer'] },
+        access: {
+          modes: ['managed'],
+          defaultMode: 'managed',
+          approval: 'owner',
+          trust: 'private',
+        },
+      }),
+    );
+    s.store.publish('owner', before);
+    const result = await s.request('POST', '/v1/agents/policy', {
+      agent: before.agent.id,
+      version: before.digest,
+      approval: 'auto',
+      orchestration: true,
+    });
+    assert.equal(result.statusCode, 200, result.body);
+    const automatic = s.store.bundle('owner', before.agent.id);
+    assert.deepEqual(automatic.agent.orchestration, before.agent.orchestration);
+    assert.equal(automatic.agent.access?.approval, 'auto');
+    const migrated = await s.request('POST', '/v1/agents/policy', {
+      agent: automatic.agent.id,
+      version: automatic.digest,
+      approval: 'auto',
+      orchestration: false,
+    });
+    assert.equal(migrated.statusCode, 200, migrated.body);
+    const disabled = s.store.bundle('owner', automatic.agent.id);
+    assert.deepEqual(disabled.agent.orchestration, {
+      ...automatic.agent.orchestration,
+      enabled: false,
+    });
+  } finally {
+    await s.cleanup();
+  }
 });

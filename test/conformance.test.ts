@@ -577,6 +577,7 @@ for (const c of CASES)
           id,
           engine: c.engine,
           models: ['default'],
+          approvals: 'ask',
         });
         assert.equal(published.statusCode, 200, published.body);
       }
@@ -761,6 +762,7 @@ async function publishAdapters(s: Gateway) {
       id,
       engine,
       models: ['default'],
+      approvals: 'ask',
     });
     assert.equal(published.statusCode, 200, published.body);
   }

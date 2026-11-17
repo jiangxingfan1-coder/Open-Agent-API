@@ -102,6 +102,64 @@ test('application-only discovery distinguishes Claude desktop from Claude Code a
   }
 });
 
+test('local model runtimes are discovered without execution and are not receiver clients', async () => {
+  const f = await fixture();
+  try {
+    for (const name of ['ollama', 'lms', 'llama-server', 'vllm', 'local-ai', 'chat'])
+      await f.executable(name);
+    await f.file(path.join(f.apps, 'Jan.app/Contents/Info.plist'));
+    const worker = workerSchema.parse({
+      nodeId: 'fixture',
+      dataDir: f.root,
+      providers: {
+        local: {
+          kind: 'openai-chat',
+          preset: 'lmstudio',
+          baseUrl: 'http://127.0.0.1:1234/v1',
+          apiKeyEnv: 'SECRET_REF',
+        },
+      },
+    });
+    const clients = await discoverLocalClients(worker, f.options);
+    for (const id of ['ollama', 'lmstudio', 'llamacpp', 'jan', 'localai', 'vllm']) {
+      const client = clients.find((c) => c.id === id)!;
+      assert.equal(client.installed, true, id);
+      assert.equal(client.connection, 'provider');
+      assert.match(client.runtime!.base_url, /^http:\/\/127\.0\.0\.1:/);
+    }
+    assert.deepEqual(clients.find((c) => c.id === 'lmstudio')!.runtime!.providers, ['local']);
+    assert.equal(
+      clients.find((c) => c.id === 'gpt4all')!.installed,
+      false,
+      'generic chat command is not GPT4All',
+    );
+    assert.equal(
+      clients.find((c) => c.id === 'lmstudio')!.runtime!.connections?.[0]?.key_env,
+      'SECRET_REF',
+    );
+    await assert.rejects(access(path.join(f.root, 'EXECUTED')));
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('LM Studio and Windows Ollama fixed installation directories work without PATH', async () => {
+  const f = await fixture();
+  try {
+    await f.file(path.join(f.root, '.lmstudio/bin/lms'), '#!/bin/sh\nexit 1', 0o700);
+    await f.file(path.join(f.root, 'AppData/Local/Programs/Ollama/ollama.exe'), 'test', 0o700);
+    const clients = await discoverLocalClients(undefined, {
+      ...f.options,
+      platform: 'win32',
+      installDirs: undefined,
+    });
+    assert.equal(clients.find((c) => c.id === 'lmstudio')!.installed, true);
+    assert.equal(clients.find((c) => c.id === 'ollama')!.installed, true);
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test('configured absolute native and script entries are detected even outside PATH, without leaking args', async () => {
   const f = await fixture();
   try {

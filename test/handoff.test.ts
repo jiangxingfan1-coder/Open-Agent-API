@@ -10,6 +10,65 @@ import { Fault } from '../src/core/util.js';
 const invoke = (fields: Record<string, unknown>) =>
   invocationSchema.parse({ background: true, ...fields });
 
+test('policy-aware publications switch agents on the next turn without exporting private instructions or requiring a handoff flag', async () => {
+  const seen: { agent: string; messages: ModelMessage[] }[] = [];
+  const s = await setup(
+    new FixtureModel((a, messages) => {
+      seen.push({ agent: a.id, messages });
+      return { text: `ANSWER_${a.id}` };
+    }),
+  );
+  try {
+    const access = {
+      modes: ['managed'],
+      defaultMode: 'managed',
+      approval: 'auto',
+      trust: 'private',
+    };
+    s.store.publish(
+      'owner',
+      makeBundle(agent({ id: 'agent/first', instructions: 'PRIVATE_SYSTEM_MARKER', access })),
+    );
+    s.store.publish(
+      'owner',
+      makeBundle(agent({ id: 'agent/next', instructions: 'NEXT_SYSTEM', access })),
+    );
+    const first = await s.kernel.wait(
+      s.kernel.submit(principal, invoke({ agent: 'agent/first', input: 'Visible conversation' }))
+        .id,
+    );
+    const next = await s.kernel.wait(
+      s.kernel.submit(
+        principal,
+        invoke({ agent: 'agent/next', previous_response_id: first.id, input: 'Continue here' }),
+      ).id,
+    );
+    assert.equal(next.status, 'completed');
+    assert.equal(next.sessionId, first.sessionId);
+    const messages = seen.find((call) => call.agent === 'agent/next')!.messages;
+    assert.ok(messages.some((m) => m.content.includes('ANSWER_agent/first')));
+    assert.equal(
+      messages.some((m) => m.content.includes('PRIVATE_SYSTEM_MARKER')),
+      false,
+    );
+    assert.throws(
+      () =>
+        s.kernel.submit(
+          principal,
+          invoke({
+            agent: 'agent/next',
+            previous_response_id: first.id,
+            input: 'Refuse automatic transfer',
+            handoff: false,
+          }),
+        ),
+      { code: 'invalid_continuation' },
+    );
+  } finally {
+    await s.cleanup();
+  }
+});
+
 /** 记录每次模型调用收到的智能体 id 和消息，回复带上智能体 id，便于区分是谁答的。 */
 function recordingModel() {
   const seen: { agent: string; model: string; messages: ModelMessage[] }[] = [];

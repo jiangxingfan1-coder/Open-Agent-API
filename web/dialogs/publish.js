@@ -22,7 +22,11 @@ import {
   renderCatalogStatus,
   bindModelRefresh,
 } from './model-discovery.js';
-import { renderPublishToolModes } from './access-options.js';
+import {
+  renderPublishToolModes,
+  rememberPublishAccessChoice,
+  resetPublishAccessChoices,
+} from './access-options.js';
 import { openProjectOptions, projectWorkspaceSelection } from './project-workspace.js';
 
 /* ── Publish ─────────────────────────────────────────── */
@@ -212,6 +216,7 @@ export function updateIdHint() {
 }
 $('native-id').oninput = updateIdHint;
 export async function openPublish() {
+  resetPublishAccessChoices();
   openProjectOptions();
   $('publish-error').textContent = '';
   $('model-custom').value = '';
@@ -227,8 +232,8 @@ export async function openPublish() {
     }),
   );
   $('model-restrict').checked = false;
-  $('publish-auto-approve').checked = false;
-  $('publish-auto-approve-note').hidden = true;
+  $('publish-auto-approve').checked = true;
+  $('publish-auto-approve-note').hidden = false;
   Object.assign(publishDraft, { models: ['default'], custom: [] });
   renderRuntimePicker();
   updateIdHint();
@@ -518,11 +523,10 @@ $('publish-form').onsubmit = async (e) => {
           },
           orchestration: {
             enabled: $('publish-orchestrate').checked,
-            helpers: [...$('publish-helpers').selectedOptions]
-              .map((o) => o.value)
-              .filter((helper) => helper !== id),
+            scope: 'agent',
+            helpers: [],
           },
-          ...($('publish-auto-approve').checked ? { approvals: 'auto' } : {}),
+          approvals: $('publish-auto-approve').checked ? 'auto' : 'ask',
         });
       } else if (state.publishMode === 'oaa') {
         const source = $('oaa-source-editor').value.trim();
@@ -565,5 +569,9 @@ $('publish-form').onsubmit = async (e) => {
 
 // The auto-approve risk note is only shown while the box is checked.
 $('publish-auto-approve').addEventListener('change', (event) => {
+  rememberPublishAccessChoice($('native-engine').value, 'approval', event.target.checked);
   $('publish-auto-approve-note').hidden = !event.target.checked;
+});
+$('publish-orchestrate').addEventListener('change', (event) => {
+  rememberPublishAccessChoice($('native-engine').value, 'orchestration', event.target.checked);
 });

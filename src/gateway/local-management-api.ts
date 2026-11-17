@@ -1,6 +1,61 @@
 /** Local host-management operations shared by the public OpenAPI directory. */
 export const LOCAL_MANAGEMENT_OPERATIONS = [
   [
+    '/v1/local/model-runtimes/probe',
+    'post',
+    'Probe an explicit loopback model list without generation or starting a runtime',
+  ],
+  [
+    '/v1/local/model-runtimes/connect',
+    'post',
+    'Connect a local model provider and publish a kernel agent without host tools or changes to external application settings',
+  ],
+  [
+    '/v1/local/everything-acp/discover',
+    'get',
+    'Discover generated wrapper descriptors in an owner-selected directory without executing them',
+  ],
+  [
+    '/v1/local/evaluations/sources',
+    'get',
+    'Inspect opt-in public JSON model facts, provenance and freshness',
+  ],
+  [
+    '/v1/local/evaluations/sources',
+    'post',
+    'Configure numeric or boolean public facts without importing web instructions',
+  ],
+  [
+    '/v1/local/evaluations/sources/refresh',
+    'post',
+    'Fetch bounded public HTTPS JSON sources without credentials or redirects',
+  ],
+  [
+    '/v1/local/evaluations/feedback',
+    'post',
+    'Record explicit human task feedback without storing task text or starting model calls',
+  ],
+  [
+    '/v1/local/everything-acp/import',
+    'post',
+    'Import a local EverythingACP client.json launch descriptor without copying credentials or starting a task',
+  ],
+  [
+    '/v1/local/evaluations',
+    'get',
+    'Inspect measured model capability samples and evaluation settings',
+  ],
+  [
+    '/v1/local/evaluations/settings',
+    'post',
+    'Enable bounded background model evaluations for a published agent',
+  ],
+  [
+    '/v1/local/evaluations/run',
+    'post',
+    'Schedule evaluations using the configured daily model-call budget',
+  ],
+  [
     '/v1/local/usage',
     'get',
     'Local owner-admin usage ledger, account quota snapshots and key allowances',

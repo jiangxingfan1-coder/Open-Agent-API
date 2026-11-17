@@ -208,6 +208,13 @@ export class Auth {
     if (own.accountId) this.platform?.checkRun(own.accountId, run.agentId);
     this.usage.checkQuota(own, run.id);
   }
+  refreshPrincipal(principal: Principal): Principal {
+    if (!principal.keyId) throw new Fault('scope_denied', 'A persistent key is required.', 403);
+    const current = this.principalOfKey(principal.keyId, principal.owner);
+    if (current.quota?.expiresAt && Date.now() >= current.quota.expiresAt)
+      throw new Fault('key_expired', 'API key has expired.', 401);
+    return current;
+  }
   /** The principal a key authenticates as, for a key other than the caller's. */
   private principalOfKey(keyId: string, owner: string): Principal {
     const cfg = this.configured.find(
@@ -227,6 +234,9 @@ export class Auth {
         agents: key.agents,
         scopes: key.scopes,
         keyId: key.id,
+        ...(key.execution ? { execution: key.execution } : {}),
+        ...(key.dataScope ? { dataScope: key.dataScope } : {}),
+        ...(key.connection ? { connection: key.connection } : {}),
         ...(key.quota ? { quota: key.quota } : {}),
       };
     if (!this.platform)

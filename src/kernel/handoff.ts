@@ -1,4 +1,7 @@
-import type { Run } from '../core/contracts.js';
+import type { Run, AgentDefinition } from '../core/contracts.js';
+
+export const portableSessions = (agent: AgentDefinition) =>
+  !!(agent.access || agent.modelPolicy || agent.orchestration || agent.approvals === 'auto');
 
 /**
  * 智能体交接：同一个会话里换另一个智能体（或换模型）接着干。

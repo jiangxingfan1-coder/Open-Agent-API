@@ -17,7 +17,7 @@ import { agentFailure, safeEmit, type Emit, type NativeResult } from './shared.j
 import { loadClaudeSdk } from './claude-sdk.js';
 import { DENIAL, errorText } from './native-signals.js';
 import { codex } from './codex.js';
-import { antigravityReasoningArgs } from './reasoning-policy.js';
+import { antigravityReasoningArgs, REASONING_ONLY } from './reasoning-policy.js';
 
 import { sandboxPlan, type NativeSandbox } from './native-sandbox.js';
 export type { NativeSandbox } from './native-sandbox.js';
@@ -75,7 +75,15 @@ export async function runNative(
         // CLI started through the sandbox instead of the SDK's local spawn.
         settingSources: plan || toolsDisabled ? [] : ['user', 'project', 'local'],
         ...(toolsDisabled ? { tools: [], mcpServers: {}, strictMcpConfig: true } : {}),
-        systemPrompt: { type: 'preset', preset: 'claude_code', append: agent.instructions },
+        ...(!toolsDisabled &&
+        (agent.access?.approval === 'auto' || (!agent.access && agent.approvals === 'auto'))
+          ? { permissionMode: 'bypassPermissions' as const, allowDangerouslySkipPermissions: true }
+          : {}),
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: agent.instructions + (toolsDisabled ? `\n\n${REASONING_ONLY}` : ''),
+        },
         abortController: controller,
         maxTurns: agent.limits.maxTurns,
         env: plan ? plan.env : nativeEnvironment(config.nativeEnv),
@@ -208,6 +216,8 @@ export async function runNative(
       'stream-json',
     ];
     if (toolsDisabled) args.push(...antigravityReasoningArgs(settings.args));
+    else if (agent.access?.approval === 'auto' || (!agent.access && agent.approvals === 'auto'))
+      args.push('--dangerously-skip-permissions');
     if (agent.model !== 'default') args.push('--model', agent.model);
     if (typeof state?.conversationId === 'string')
       args.push('--conversation', state.conversationId);
@@ -286,7 +296,9 @@ export async function runNative(
             child.stdin.write(
               JSON.stringify({
                 event: 'user',
-                message: { content: `${agent.instructions}\n\n${input}` },
+                message: {
+                  content: `${agent.instructions}\n\n${toolsDisabled ? `${REASONING_ONLY}\n\n` : ''}${input}`,
+                },
               }) + '\n',
             );
             return;

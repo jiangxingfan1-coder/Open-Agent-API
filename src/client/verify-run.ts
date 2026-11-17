@@ -181,6 +181,7 @@ export async function runVerification(options: RunOptions): Promise<RunOutcome> 
       id: agentId,
       engine: target.engine,
       models: [model],
+      approvals: 'ask',
     });
     if (published.status !== 200)
       throw new Error(`publishing the agent failed: HTTP ${published.status}`);

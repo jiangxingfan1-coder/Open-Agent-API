@@ -13,6 +13,8 @@ import { RunTextSink } from './text-sink.js';
 import { addUsage } from './run-state.js';
 import { storeNativeArtifacts } from './agent-events.js';
 import type { KernelRuntime } from './runtime.js';
+import { projectBrief } from './project-memory.js';
+import { mediaInstruction } from '../core/media.js';
 
 /**
  * 运行一个外部智能体（Claude Code、Codex、Antigravity、ACP、A2A、适配器）的一整轮：
@@ -40,6 +42,11 @@ export async function runNativeAgent(
     input?: string;
   },
 ): Promise<string> {
+  const prior = rt.store.getStep(nativeStepId(run));
+  if (run.metadata['oaa.tools_disabled'] === 'true' && prior?.status === 'completed') {
+    const value = prior.result?.value as { text?: unknown } | undefined;
+    if (typeof value?.text === 'string') return value.text;
+  }
   const nativeKey = run.checkpoint.byok ? rt.byokKeys.get(run.id) : undefined;
   if (run.checkpoint.byok && nativeKey === undefined)
     throw new Fault(
@@ -52,7 +59,7 @@ export async function runNativeAgent(
     runId: run.id,
     callId: 'native',
     name: agent.engine,
-    effect: 'unknown',
+    effect: run.metadata['oaa.tools_disabled'] === 'true' ? 'read' : 'unknown',
     status: 'pending',
     arguments: { model: agent.model },
   };
@@ -66,10 +73,12 @@ export async function runNativeAgent(
         ...(run.metadata['oaa.tools_disabled'] === 'true' ? { toolsDisabled: true } : {}),
         agent,
         input:
-          session.input ??
-          (run.checkpoint.handoffBrief
-            ? `${run.checkpoint.handoffBrief}\n\n新要求：\n${run.input}`
-            : run.input),
+          (session.input ??
+            (run.checkpoint.handoffBrief
+              ? `${run.checkpoint.handoffBrief}\n\n新要求：\n${run.input}`
+              : run.input)) +
+          projectBrief(rt.store, run) +
+          mediaInstruction(run.checkpoint.media),
         nativeState: run.checkpoint.nativeState,
         context: await rt.context(run),
         ...(runSandboxed(run) ? { isolation: 'sandbox' as const } : {}),
@@ -132,7 +141,8 @@ export async function runNativeAgent(
   );
   checkAbort(signal);
   nativeStep.status = 'completed';
-  if (run.checkpoint.orchestration) nativeStep.result = { value: { text: native.text } };
+  if (run.checkpoint.orchestration || run.metadata['oaa.tools_disabled'] === 'true')
+    nativeStep.result = { value: { text: native.text } };
   rt.store.checkpointNativeStep(run, nativeStep, session.writer.finish('completed'), artifactIds);
   session.writer.close();
   return native.text;

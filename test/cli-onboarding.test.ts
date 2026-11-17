@@ -20,6 +20,38 @@ test('cli: unknown options fail as arguments, not execution_failed', async () =>
   });
 });
 
+test('publish-native CLI preserves explicit ask for both native engines and adapters', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'oaa-publish-'));
+  const tokenFile = path.join(dir, 'admin.token');
+  await writeFile(tokenFile, token);
+  const realFetch = globalThis.fetch;
+  const calls: Record<string, unknown>[] = [];
+  globalThis.fetch = (async (input: string | URL | Request, init: RequestInit = {}) => {
+    assert.equal(new URL(String(input)).pathname, '/v1/agents/publish-native');
+    calls.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+    return new Response('{}', { headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  t.after(async () => {
+    globalThis.fetch = realFetch;
+    await rm(dir, { recursive: true, force: true });
+  });
+  for (const engine of ['codex', 'adapter/wrapped']) {
+    const args = [
+      'publish-native',
+      '--engine',
+      engine,
+      '--url',
+      'http://127.0.0.1:9',
+      '--token-file',
+      tokenFile,
+    ];
+    await main([...args, '--approvals', 'ask']);
+    assert.equal(calls.at(-1)?.approvals, 'ask');
+    await main(args);
+    assert.equal(calls.at(-1)?.approvals, undefined, 'Gateway owns the new-publication default');
+  }
+});
+
 test('client: an unreachable gateway says how to start it', async () => {
   // 端口 1 上没有服务：fetch 以 TypeError 失败，不需要也不会监听端口。
   const client = new GatewayClient('http://127.0.0.1:1', 'x'.repeat(32));

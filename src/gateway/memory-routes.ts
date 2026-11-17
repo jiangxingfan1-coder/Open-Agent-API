@@ -4,12 +4,14 @@ import type { Auth } from './auth.js';
 import type { Store } from '../store/store.js';
 import { isOwnerWide, principalSubject, type Principal } from '../core/contracts.js';
 import { Fault } from '../core/util.js';
+import { registerProjectRoutes } from './project-routes.js';
 
 /** 跨会话记忆的读写接口（`/v1/memory`）。 */
 export function registerMemoryRoutes(
   app: FastifyInstance,
   { auth, store }: { auth: Auth; store: Store },
 ): void {
+  registerProjectRoutes(app, { auth, store });
   /**
    * Memories belong to the caller's own subject. Only an owner-wide admin may name another
    * subject (for example `legacy` rows from before schema v4).

@@ -124,7 +124,7 @@ export const agentSchema = z
       .object({
         maxTurns: z.number().int().min(1).max(100).default(16),
         maxOutputTokens: z.number().int().min(1).max(100_000).default(4096),
-        timeoutMs: z.number().int().min(100).max(3_600_000).default(1_800_000),
+        timeoutMs: z.number().int().min(100).max(604_800_000).default(1_800_000),
         toolConcurrency: z.number().int().min(1).max(32).default(4),
         maxTotalTokens: z.number().int().min(1).max(10_000_000).default(200_000),
       })
@@ -282,11 +282,12 @@ export type RunStatus =
   | 'incomplete';
 export const terminal = (s: RunStatus) =>
   ['completed', 'failed', 'cancelled', 'interrupted', 'incomplete'].includes(s);
-/**
- * Model-turn boundaries kept in the durable checkpoint (not in the event log), so timelines can be
- * derived without adding events to compatibility streams. Times are epoch milliseconds.
- */
+/** Model-turn timings live in checkpoints for derived timelines; times are epoch milliseconds. */
 export type Checkpoint = {
+  modelIdentity?: string;
+  media?: { kind: 'image' | 'document' | 'audio' | 'video'; format: string; mime: string };
+  durability?: { deadlineAt: number; attempts: number; maxAttempts: number };
+  project?: { id: string; administrator: boolean; context: string };
   orchestration?: OrchestrationState;
   modelPool?: AgentDefinition['routes'];
   messages: ModelMessage[];
