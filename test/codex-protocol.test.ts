@@ -21,7 +21,11 @@ async function run(mode: string, state?: Record<string, unknown>) {
       },
     });
     const result = await runNative(
-      agent({ engine: 'codex', model: 'test-model' }),
+      agent({
+        engine: 'codex',
+        model: 'test-model',
+        ...(mode === 'auto-policy' ? { approvals: 'auto' } : {}),
+      }),
       config,
       s.dir,
       'Only a fixture.',
@@ -52,6 +56,9 @@ test('Codex scopes events, deduplicates snapshots and records per-turn usage', a
   assert.equal(result.text, 'OK');
   assert.equal(result.nativeState.observedModel, 'test-model');
   assert.deepEqual(result.usage, { input_tokens: 12, output_tokens: 3, total_tokens: 15 });
+});
+test('Codex automatic approval applies only to its explicitly authorized thread', async () => {
+  assert.equal((await run('auto-policy')).text, 'OK');
 });
 test('Codex accepts completed message snapshots without deltas', async () => {
   assert.equal((await run('snapshot')).text, 'OK');

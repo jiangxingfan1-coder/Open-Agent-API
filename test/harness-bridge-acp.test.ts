@@ -64,6 +64,7 @@ async function acpSetup(extra: Record<string, unknown> = {}) {
     id: 'agent/caller',
     engine: 'adapter/caller',
     models: ['default'],
+    approvals: 'ask',
   });
   assert.equal(published.statusCode, 200, published.body);
   return s;

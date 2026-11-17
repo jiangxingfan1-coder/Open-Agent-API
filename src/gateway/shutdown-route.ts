@@ -7,6 +7,8 @@ import { bi } from '../core/locale.js';
 import { registerKeyRoutes } from './key-routes.js';
 import { registerMemoryRoutes } from './memory-routes.js';
 import { registerRunRoutes } from './run-routes.js';
+import { registerTaskWorkflowRoutes } from './task-workflow-routes.js';
+import { registerMediaRoutes } from './media-routes.js';
 
 type RunDeps = Parameters<typeof registerRunRoutes>[1];
 type KeyDeps = Parameters<typeof registerKeyRoutes>[1];
@@ -17,6 +19,8 @@ export function registerOwnerRoutes(app: FastifyInstance, deps: RunDeps & KeyDep
   registerShutdownRoute(app, deps.auth);
   registerMemoryRoutes(app, deps);
   registerRunRoutes(app, deps);
+  registerTaskWorkflowRoutes(app, deps);
+  registerMediaRoutes(app, deps);
   registerRetention(app, deps);
 }
 

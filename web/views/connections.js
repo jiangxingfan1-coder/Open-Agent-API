@@ -13,6 +13,7 @@ import {
   withBusy,
 } from '../lib/dom.js';
 import { t } from '../lib/i18n.js';
+import { closeLocalModel, openLocalModel } from '../dialogs/local-model.js';
 import {
   closeLocalConnection,
   connectionMode,
@@ -34,6 +35,7 @@ export async function refreshConnections(rescan = false) {
   if (!isNodeAdmin() || !hasFeature('local-connections-v1')) return;
   if (connections.token !== state.token) {
     closeLocalConnection();
+    closeLocalModel();
     Object.assign(connections, {
       token: state.token,
       data: null,
@@ -96,7 +98,10 @@ function clientCatalog(body, data) {
       evidence: [],
     },
   ];
-  const detected = (client) => client.installed || (client.id === 'dsh' && data.target.available);
+  const detected = (client) =>
+    client.installed ||
+    !!client.runtime?.providers.length ||
+    (client.id === 'dsh' && data.target.available);
   const installed = clients.filter(detected);
   const bar = el('div', undefined, 'local-catalog-toolbar');
   const filters = el('div', undefined, 'segmented small');
@@ -128,7 +133,13 @@ function clientCatalog(body, data) {
       const name = el('span', undefined, 'local-client-title');
       name.append(
         el('strong', client.name),
-        el('span', protocolName(client.protocol) || t('connections.agent_client'), 'muted'),
+        el(
+          'span',
+          client.runtime
+            ? t('localModels.kind')
+            : protocolName(client.protocol) || t('connections.agent_client'),
+          'muted',
+        ),
       );
       identity.append(agentGlyph(client.icon, 'large'), name);
       head.append(identity, icon('chevron-right'));
@@ -139,7 +150,16 @@ function clientCatalog(body, data) {
       );
       status.append(
         icon(detected(client) ? 'circle-check' : 'circle-dashed'),
-        el('span', t(detected(client) ? 'connections.detected' : 'connections.not_detected')),
+        el(
+          'span',
+          t(
+            client.runtime?.providers.length
+              ? 'localModels.linked'
+              : detected(client)
+                ? 'connections.detected'
+                : 'connections.not_detected',
+          ),
+        ),
       );
       const footer = el('span', undefined, 'local-card-foot');
       footer.append(
@@ -161,7 +181,15 @@ function clientCatalog(body, data) {
         ),
       );
       card.append(head, status, footer);
-      card.onclick = () => openLocalConnection(client, connections.data, refreshConnections);
+      card.onclick = () => {
+        if (client.runtime) {
+          closeLocalConnection();
+          openLocalModel(client, refreshConnections);
+        } else {
+          closeLocalModel();
+          openLocalConnection(client, connections.data, refreshConnections);
+        }
+      };
       grid.append(card);
     }
     if (!visible.length) grid.append(empty(t('connections.no_matches'), '', { icon: 'search' }));

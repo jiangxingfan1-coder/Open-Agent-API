@@ -27,6 +27,7 @@ type Backend = {
   evidence?: string;
   executable?: string;
   name?: string;
+  tool_free_reasoning?: boolean;
 };
 type Preset = { id: string; installed_executable?: string | null; configured?: boolean };
 
@@ -154,10 +155,20 @@ export async function connectAgent(client: GatewayClient, options: ConnectOption
         ),
         409,
       );
+    const current = await client.request<{ data: Backend[] }>('GET', '/v1/local/backends');
+    const reasoning =
+      current.data.find((item) => item.engine === engine)?.tool_free_reasoning === true;
     const published = await client.request<{ warning?: { message: string } }>(
       'POST',
       '/v1/agents/publish-native',
-      { id: agentId, engine, models: ['default'] },
+      {
+        id: agentId,
+        engine,
+        models: ['default'],
+        approvals: 'auto',
+        model_policy: { mode: 'discover' },
+        ...(reasoning ? { orchestration: { enabled: true, scope: 'agent' } } : {}),
+      },
     );
     out(t(`3/4 已发布为 ${agentId}`, `3/4 Published as ${agentId}`));
     if (published.warning)
@@ -177,8 +188,8 @@ export async function connectAgent(client: GatewayClient, options: ConnectOption
   for (const line of callLines(baseUrl, agentId, keyFile, t)) out(line);
   out(
     t(
-      `connect 没有调用 ${engine}。第一次调用会使用它自己在这台机器上的登录状态与额度，并以你在这台机器上的权限运行；需要它做的操作要你批准时，任务会停在「待审批」。`,
-      `connect did not call ${engine}. The first call uses its own sign-in and quota on this machine and runs with your permissions here; when it asks for approval, the task waits in "awaiting approval".`,
+      `connect 没有调用 ${engine}。第一次调用使用它自己的登录、额度及宿主权限。新发布默认自动批准；已有发布保留其审批策略，可在发布设置中主动开启审批。`,
+      `connect did not call ${engine}. Calls use its own sign-in, quota and host authority. New publications default to automatic approval; existing publications keep their policy. Enable approval explicitly in publishing settings when needed.`,
     ),
   );
 }

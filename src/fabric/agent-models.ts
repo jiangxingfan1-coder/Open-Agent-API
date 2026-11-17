@@ -62,7 +62,7 @@ export class AgentModelCatalogs {
       );
     return this.persisting;
   }
-  private identity(engine: string): string {
+  identity(engine: string): string {
     const native = this.config.native[engine as keyof WorkerConfig['native']];
     const adapter = this.config.adapters[engine.slice(8)];
     const executable =

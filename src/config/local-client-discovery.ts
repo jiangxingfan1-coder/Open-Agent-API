@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { acpPresets, findOnPath, nativeBackends, nativeEngines } from './agent-presets.js';
 import type { WorkerConfig } from './config.js';
+import { MODEL_RUNTIMES, modelRuntimeDirs } from './model-runtimes.js';
 
 export type ClientEvidence = {
   kind: 'cli' | 'application' | 'extension' | 'configured';
@@ -14,7 +15,14 @@ export type LocalClient = {
   name: string;
   icon: string;
   installed: boolean;
-  connection: 'managed' | 'manual' | 'unavailable';
+  connection: 'managed' | 'manual' | 'unavailable' | 'provider';
+  runtime?: {
+    preset: string;
+    base_url: string;
+    download_url: string;
+    providers: string[];
+    connections?: { provider: string; base_url: string; key_env?: string }[];
+  };
   protocol?: 'responses' | 'messages' | 'chat-completions';
   guide?: string;
   evidence: ClientEvidence[];
@@ -109,6 +117,23 @@ function catalog(): Definition[] {
   extend('roo-code', { name: 'Roo Code', extension: 'rooveterinaryinc.roo-cline-' });
   extend('continue', { name: 'Continue', extension: 'continue.continue-' });
   extend('kilo', { extension: 'kilocode.kilo-code-' });
+  for (const runtime of MODEL_RUNTIMES) {
+    extend(runtime.id, {
+      name: runtime.name,
+      icon: runtime.id,
+      commands: [{ names: runtime.commands.flatMap((name) => [name, `${name}.exe`]) }],
+      apps: [...runtime.apps],
+      connection: 'provider',
+      protocol: 'chat-completions',
+      guide: runtime.docs,
+      runtime: {
+        preset: runtime.id,
+        base_url: runtime.baseUrl,
+        download_url: runtime.download,
+        providers: [],
+      },
+    });
+  }
   return [...items.values()];
 }
 
@@ -162,6 +187,7 @@ export async function discoverLocalClients(
     path.join(home, '.cargo/bin'),
     path.join(home, '.opencode/bin'),
     path.join(home, '.qoder/bin'),
+    ...modelRuntimeDirs(home, platform),
     ...(platform === 'win32'
       ? [path.join(home, 'AppData/Roaming/npm')]
       : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin']),
@@ -277,6 +303,25 @@ export async function discoverLocalClients(
         ...(item.protocol ? { protocol: item.protocol } : {}),
         ...(item.guide
           ? { guide: qoderDesktop ? 'https://docs.qoder.com/qoder/custom-models' : item.guide }
+          : {}),
+        ...(item.runtime
+          ? {
+              runtime: {
+                ...item.runtime,
+                providers: Object.entries(worker?.providers ?? {})
+                  .filter(([, provider]) => provider.preset === item.runtime!.preset)
+                  .map(([name]) => name),
+                connections: Object.entries(worker?.providers ?? {})
+                  .filter(([, provider]) => provider.preset === item.runtime!.preset)
+                  .map(([name, provider]) => ({
+                    provider: name,
+                    base_url: provider.baseUrl,
+                    ...(!provider.noApiKey && provider.apiKeyEnv
+                      ? { key_env: provider.apiKeyEnv }
+                      : {}),
+                  })),
+              },
+            }
           : {}),
         evidence: unique,
         engines,

@@ -16,6 +16,8 @@ export const signedPoints = (n) => formatSignedPoints(n, lang);
 export const compactTokens = (n) => formatTokensShort(n, lang);
 
 export const VIEWS = {
+  projects: { title: t('project.title'), group: t('view.group.workspace'), desc: '' },
+  workflows: { title: t('workflow.title'), group: t('view.group.workspace'), desc: '' },
   usage: {
     title: t('view.usage.title'),
     group: t('view.group.workspace'),
@@ -68,6 +70,8 @@ export const VIEWS = {
   },
 };
 export const VIEW_ICONS = {
+  projects: 'folder-open',
+  workflows: 'workflow',
   usage: 'chart-no-axes-combined',
   overview: 'layout-dashboard',
   agents: 'bot',
@@ -232,9 +236,16 @@ export const STRATEGY_PROFILES = { auto: 'auto', speed: '@fast', quality: '@best
 const FEATURE_LABELS = {
   'local-usage-v1': t('feature.local-usage-v1'),
   'local-connections-v1': t('feature.local-connections-v1'),
+  'local-model-runtimes-v1': t('feature.local-model-runtimes-v1'),
   'agent-orchestration-v1': t('feature.agent-orchestration-v1'),
   'agent-policy-v1': t('feature.agent-policy-v1'),
   'model-catalog-v1': t('feature.model-catalog-v1'),
+  'model-evaluation-v1': t('feature.model-evaluation-v1'),
+  'project-memory-v1': t('feature.project-memory-v1'),
+  'durable-tasks-v1': t('feature.durable-tasks-v1'),
+  'visual-workflows-v1': t('feature.visual-workflows-v1'),
+  'media-jobs-v1': t('feature.media-jobs-v1'),
+  'everything-acp-import-v1': t('feature.everything-acp-import-v1'),
   'a2a-adapters-v1': t('feature.a2a-adapters-v1'),
   'acp-adapters-v1': t('feature.acp-adapters-v1'),
   'adapter-stream-v1': t('feature.adapter-stream-v1'),

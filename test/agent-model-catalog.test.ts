@@ -188,6 +188,11 @@ test('discovered models reach standard client lists and execute without rewritin
     const catalog = await s.request('GET', '/v1/local/backends/antigravity/models');
     assert.equal(catalog.statusCode, 200, catalog.body);
     assert.equal(catalog.json().models.length, 2);
+    const backends = (await s.request('GET', '/v1/local/backends')).json().data;
+    assert.equal(
+      backends.find((b: { engine: string }) => b.engine === 'antigravity').tool_free_reasoning,
+      true,
+    );
     const bundle = makeBundle(
       agent({
         id: 'agent/catalog',

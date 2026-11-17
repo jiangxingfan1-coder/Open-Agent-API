@@ -43,7 +43,19 @@ oaa connect openai --key-env OPENAI_API_KEY --model <模型名>
 - `--key-file 文件`：配置里存文件的绝对路径（`apiKeyFile`）。connect 会检查它是普通文件（不接受目录、链接或设备）、
   不超过 8 KiB、只有一行，且在 macOS 与 Linux 上只有你能读（`chmod 600`）。网关每次调用时读取，换密钥不需要重启。
   文件内容从不打印、不写日志、不复制进配置；错误信息里只出现路径。
-- 本地预设（`ollama`、`lmstudio`）不需要密钥（`noApiKey: true`，不发认证头）。
+- 本地预设默认不使用密钥（`noApiKey: true`，不发认证头）；本地服务启用认证时，须显式指定密钥引用。
+
+## 本地运行器识别
+
+「本地互联」页面也会识别 **Ollama、LM Studio / llmster、llama.cpp、Jan、GPT4All、LocalAI 和 vLLM** 的可执行文件与应用包。安装识别不会启动程序、读取聊天或凭据，也不代表模型服务已经运行。已配置的端点标为「已接入」，不冒充安装证据。
+
+点击运行器卡片，在弹窗里检查本机 `/v1` 地址、选择模型，再「接入并发布」。提供方和 kernel 智能体原子写入 OAA 自身数据库，无需重启即可使用，重启后保留；不改运行器的设置，也不自动创建调用方密钥。新智能体不携带宿主工具，调用与客户端工具仍受原有 API Key 权限约束。同名但不同设置的提供方或智能体直接拒绝，不覆盖。需要认证的服务只保存环境变量名，不保存明文密钥。
+
+`POST /v1/local/model-runtimes/probe` 接受 `runtime`、可选 `base_url` 和 `key_env`；`/v1/local/model-runtimes/connect` 还需要 `model`，可传 `provider_name` 与 `agent`。两者均限本机回环直连的宿主级所有者管理员。模型列表检查有大小及超时限制，不发生成请求，区分离线、空列表与需要认证。列表成功只证明协议可达，**不等于推理成功或模型能力验证**。弹窗提供官方下载和服务设置链接，不会静默安装或启动第三方软件。
+
+命令行同样支持 `oaa connect llamacpp`、`jan`、`gpt4all`、`localai`、`vllm`；非默认端口用 `--base-url`。LocalAI 与 llama.cpp 默认都用 8080，同时运行时须设不同端口。
+
+2026-11-17，官方 Ollama 0.40.16 与 llama.cpp b12475 包已在隔离 macOS 目录解包，均通过 OAA 完成真实 Chat Completions 和 Responses 调用，网关重启后接入配置保留。烟测使用 `ggml-org/models` 的 26 万参数测试模型，不是指令能力或质量评测；达到小输出上限时 Responses 如实返回 `incomplete`。`scripts/live-local-models.mjs` 可对显式指定的端点重复验证，不负责安装或启动运行器。其余本地运行器有协议替身测试，不代表同等真实推理验证。
 
 ## 预设表
 
@@ -54,6 +66,11 @@ oaa connect openai --key-env OPENAI_API_KEY --model <模型名>
 | --- | --- | --- | --- | --- | --- | --- |
 | `ollama` | Ollama（本地） | openai-chat | `http://127.0.0.1:11434/v1` | 不需要 | `max_tokens`；图片内联（base64） | 取本地列表 |
 | `lmstudio` | LM Studio（本地） | openai-chat | `http://127.0.0.1:1234/v1` | 不需要 | `max_tokens`；不传图片 | 取本地列表 |
+| `llamacpp` | llama.cpp | openai-chat | `http://127.0.0.1:8080/v1` | 可选 | `max_tokens`；默认关闭图片 | 取本地列表 |
+| `jan` | Jan | openai-chat | `http://127.0.0.1:1337/v1` | 可选 | `max_tokens`；不发送流式用量；关闭图片 | 取本地列表 |
+| `gpt4all` | GPT4All | openai-chat | `http://127.0.0.1:4891/v1` | 可选 | `max_tokens`；不发送流式用量；关闭图片 | 取本地列表 |
+| `localai` | LocalAI | openai-chat | `http://127.0.0.1:8080/v1` | 可选 | `max_tokens`；默认关闭图片 | 取本地列表 |
+| `vllm` | vLLM | openai-chat | `http://127.0.0.1:8000/v1` | 可选 | `max_tokens`；默认关闭图片 | 取本地列表 |
 | `openai-compatible` | 任意 OpenAI 兼容地址 | openai-chat | `--base-url` | `--key-env`/`--key-file`，否则无密钥 | `max_tokens`；不要流式用量；不传图片 | `--model` |
 | `openai` | OpenAI | openai-responses | `https://api.openai.com/v1` | `OPENAI_API_KEY` | 无 | `--model` |
 | `anthropic` | Anthropic | anthropic-messages | `https://api.anthropic.com` | `ANTHROPIC_API_KEY` | `anthropic-version: 2023-06-01` | `claude-sonnet-5-5` |
@@ -68,8 +85,7 @@ oaa connect openai --key-env OPENAI_API_KEY --model <模型名>
 | `mistral` | Mistral AI | openai-chat | `https://api.mistral.ai/v1` | `MISTRAL_API_KEY` | `max_tokens`；不要流式用量；不传图片 | `--model` |
 
 「不要流式用量」指文档没有承诺 `stream_options.include_usage`，预设就不发它（`streamUsage: false`）；运行照常，
-只是不报告 token 数。「不传图片」指文档没有以网关可以依赖的方式描述这个端点的图片输入，预设关掉图片
-（`imageInput: "none"`）；用视觉模型时自己设 `imageInput`。
+只是不报告 token 数。「不传图片」指预设关掉图片（`imageInput: "none"`）。本地运行器是否支持图片取决于模型与后端；验证视觉模型后再显式设置 `imageInput`。
 
 预设名不会与外部智能体重名：`gemini` 仍是 Gemini CLI（ACP），`kimi`、`qwen`、`glm` 仍是这些工具的 ACP 预设，
 所以这里用 `gemini-api`、`moonshot`、`zhipu`。
@@ -121,6 +137,8 @@ oaa models [--dir .oaa] [--check] [--json]
 上游的响应内容只用来判断失败类型，从不复制进调用方看到的错误信息。
 
 ## 智能体模型目录与编排
+
+新增的同 Agent 编排、仅规划模式、动态评测和 EverythingACP 导入见[智能 Agent API](intelligence.md)。
 
 `GET /v1/agents/models?agent=<id>` 与 MCP `oaa_list_models` 提供有大小上限的运行时目录。后续 `offset` 分页必须携带 `revision`。它与按版本固定的静态声明线路分开。密钥可用 `connection.audience:"external"` 标记不可信调用者，不能授予宿主执行、所有者全量数据、管理权限或私有智能体执行权限；控制台将它与本人可信密钥区分。
 

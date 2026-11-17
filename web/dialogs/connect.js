@@ -9,6 +9,17 @@ import { t } from '../lib/i18n.js';
 
 /* ── Connection ──────────────────────────────────────── */
 $('live-status').onclick = () => openDialog('connection-dialog');
+window.addEventListener('oaa-desktop-connected', () => {
+  const token = sessionStorage.getItem('oaa-token');
+  if (!token || state.token) return;
+  state.token = token;
+  void load()
+    .then(() => startEvents())
+    .catch((err) => {
+      state.token = '';
+      error(err.message);
+    });
+});
 $('connection-form').onsubmit = async (e) => {
   e.preventDefault();
   const submit = $('connection-form').querySelector('[type=submit]');

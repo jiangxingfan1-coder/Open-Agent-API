@@ -16,6 +16,7 @@ const initial = (): UsageSourceState => ({
   data: null,
 });
 export class UsageMonitor {
+  onChange?: () => void;
   readonly ready: Promise<void>;
   readonly config: UsageConfiguration;
   private settings!: UsageSettings;
@@ -66,6 +67,7 @@ export class UsageMonitor {
         this.lastAttempt = 0;
         this.sources = { codexbar: initial(), ccusage: initial() };
         this.schedule();
+        this.onChange?.();
         return this.view();
       });
     this.control = work;
@@ -167,6 +169,7 @@ export class UsageMonitor {
     };
     this.pending = work().finally(() => {
       this.pending = undefined;
+      this.onChange?.();
     });
     return this.pending;
   }
@@ -174,6 +177,7 @@ export class UsageMonitor {
     await this.ready;
     const data: CollectedUsage = source === 'codexbar' ? parseCodexBar(value) : parseCcusage(value);
     this.sources[source] = { status: 'ready', updated_at: Date.now(), error: null, data };
+    this.onChange?.();
     return this.view();
   }
   async close() {

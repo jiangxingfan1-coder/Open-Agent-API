@@ -7,6 +7,10 @@ import { Fault } from '../core/util.js';
 import { usageSettingsSchema } from '../core/usage-monitor.js';
 import { usageReport } from '../store/usage-monitor.js';
 import { UsageMonitor } from './usage-monitor.js';
+import type { Kernel } from '../kernel/kernel.js';
+import type { AccountQuota } from '../core/usage-monitor.js';
+import { engineQuotaExhausted } from '../kernel/quota-routing.js';
+import type { NodeHub } from '../fabric/network.js';
 
 export function registerUsageRoutes(
   app: FastifyInstance,
@@ -14,17 +18,41 @@ export function registerUsageRoutes(
     auth: Auth;
     store: Store;
     config: GatewayConfig;
+    kernel: Kernel;
+    hub: NodeHub;
     isLocalRequest: (req: FastifyRequest) => boolean;
   },
 ) {
   const { auth, store, config } = deps;
+  let accounts: AccountQuota[] = [];
   const monitor =
     config.localWorker && config.security.profile === 'local'
       ? new UsageMonitor(config.dataDir)
       : undefined;
   app.addHook('preClose', async () => {
+    deps.kernel.router.quotaBlocked = undefined;
     await monitor?.close();
   });
+  deps.kernel.router.quotaBlocked = (owner, agent) => {
+    if (owner !== config.localWorker?.owner) return false;
+    const remote = deps.hub
+      .inventory(owner)
+      .some(
+        (node) =>
+          node.local !== true && Array.isArray(node.natives) && node.natives.includes(agent.engine),
+      );
+    return !remote && engineQuotaExhausted(agent.engine, accounts);
+  };
+  const view = async (source: UsageMonitor) => {
+    const value = await source.view();
+    accounts = value.sources.codexbar.data?.accounts ?? [];
+    if (config.localWorker) deps.kernel.router.observer?.(config.localWorker.owner);
+    return value;
+  };
+  if (monitor)
+    monitor.onChange = () => {
+      void view(monitor).catch(() => {});
+    };
   const guard = (req: FastifyRequest) => {
     auth.requireNodeAdmin(req.principal);
     if (
@@ -78,7 +106,7 @@ export function registerUsageRoutes(
     return {
       ledger: usageReport(store, req.principal.owner, days),
       keys,
-      collectors: await monitor.view(),
+      collectors: await view(monitor),
     };
   });
   app.post('/v1/local/usage/settings', async (req) => {
@@ -91,17 +119,18 @@ export function registerUsageRoutes(
       })
       .strict()
       .parse(req.body);
-    return monitor.configure(body.settings, body.revision, () => {
+    await monitor.configure(body.settings, body.revision, () => {
       const current = auth.revalidate(req.headers.authorization);
       auth.requireNodeAdmin(current);
       if (current.owner !== req.principal.owner || current.keyId !== req.principal.keyId)
         throw new Fault('scope_denied', 'Administrator identity changed.', 403);
     });
+    return view(monitor);
   });
   app.post('/v1/local/usage/refresh', async (req) => {
     const monitor = guard(req);
     await monitor.refresh();
-    return monitor.view();
+    return view(monitor);
   });
   app.post('/v1/local/usage/import', { bodyLimit: 2_097_152 }, async (req) => {
     const monitor = guard(req);
@@ -109,6 +138,7 @@ export function registerUsageRoutes(
       .object({ collector: z.enum(['codexbar', 'ccusage']), snapshot: z.unknown() })
       .strict()
       .parse(req.body);
-    return monitor.import(body.collector, body.snapshot);
+    await monitor.import(body.collector, body.snapshot);
+    return view(monitor);
   });
 }

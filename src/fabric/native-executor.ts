@@ -63,7 +63,9 @@ export async function executeNative(
     );
   if (
     agent.engine === 'antigravity' &&
-    (work.clientTools?.length || (agent.access && agent.access.approval !== 'native'))
+    (work.clientTools?.length ||
+      (agent.approvals === 'auto' && nativeAcp) ||
+      (agent.access && agent.access.approval !== 'native'))
   ) {
     if (!nativeAcp)
       throw new Fault(

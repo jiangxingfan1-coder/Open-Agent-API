@@ -1038,4 +1038,6 @@ HTTP 错误响应默认使用形状 `{"error":{"code":"…","message":"…","typ
 
 ### 仅 CLI / 客户端本地
 
+例外：本地模型管理也会返回 `provider_conflict`（409，同名提供方配置不同）与 `provider_unreachable`（503，本机模型服务不可达）。这两项与 CLI 共用；下方其余错误仍仅来自客户端本地。
+
 以下只由 `oaa` 命令行或 `GatewayClient` 在本地产生，网关不会返回：`arguments`、`unknown_command`、`dsh_overlay_required`、`exposure_conflict`、`native_not_installed`、`node_startup_failed`、`startup_failed`、`startup_timeout`、`tunnel_binary_missing`、`tunnel_exited`、`tunnel_timeout`、`worker_required`、`output_exists`、`tool_conflict`、`mcp_descriptor_too_large`、`mcp_task_mode_unsupported`、`host_binding`（工具导入时所选工具属于另一个节点）、`gateway_error`、`gateway_response_too_large`、`gateway_timeout`、`invalid_gateway_path`、`invalid_gateway_response`、`request_cancelled`、`token_required`、`gateway_unreachable`（连不上网关）、`not_running`（`oaa stop` 找不到由 `--detach` 启动的网关）、`port_in_use`（`oaa quickstart` 要用的端口被占用）、`sample_agent_missing`（找不到随附的离线示例智能体）、`agent_conflict`（`oaa connect` 不覆盖同名的其它引擎智能体）、`provider_conflict`（`oaa connect <预设>` 不覆盖同名但设置不同的模型提供方）、`provider_unreachable`（连不上模型提供方的端点）、`key_file_insecure`（`oaa connect --key-file` 给的密钥文件不私有或不是单行密钥）、`approval_ambiguous`（`oaa approve/deny` 的运行有多个待审批项却没指定哪一项）、`approval_declined`（`oaa approve` 确认时选了不批准）。

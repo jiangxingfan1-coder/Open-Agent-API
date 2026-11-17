@@ -1,5 +1,6 @@
 import { button, el, icon, status } from '../lib/dom.js';
 import { t } from '../lib/i18n.js';
+import { previewArtifact, previewable } from './media-preview.js';
 
 const STEP_ICON = {
   completed: 'check',
@@ -63,6 +64,13 @@ export function createSections({ $, bytes, download, permit, inspectStep }) {
       control.setAttribute('aria-label', control.title);
       control.disabled = !permit('files');
       row.append(control);
+      if (previewable(artifact.filename)) {
+        const preview = button('', 'eye', () => previewArtifact(v, artifact), 'icon-button');
+        preview.title = t('media.preview');
+        preview.setAttribute('aria-label', preview.title);
+        preview.disabled = !permit('files');
+        row.append(preview);
+      }
       parent.append(row);
     }
   }

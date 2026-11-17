@@ -80,6 +80,11 @@ export function registerLocalBackendRoutes(
     return {
       data: listLocalBackends(config.localWorker, handshakes).map((backend) => ({
         ...backend,
+        tool_free_reasoning:
+          localExecutor instanceof WorkerRuntime &&
+          localExecutor
+            .advertisement()
+            .execution?.toolFreeReasoning?.includes(String(backend.engine)) === true,
         ...(localExecutor instanceof WorkerRuntime
           ? { model_catalog: localExecutor.modelCatalogs.snapshot()[String(backend.engine)] }
           : {}),

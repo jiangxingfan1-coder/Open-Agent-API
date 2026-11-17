@@ -15,6 +15,9 @@
 
 ## 我想调用智能体
 
+- 实测模型选路、仅规划模式及 EverythingACP 导入：[智能 Agent API](intelligence.md)
+- 持久任务、项目记忆、可复用工作流、媒体成果及桌面构建：[持久 Agent 工作台](workstation.md)
+
 - 不手动复制密钥，把已发布智能体配入本机 DSH，并可预览和撤销：[本地互联](local-connections.md)
 - 查看已上报 Token、本地密钥预算及上游额度快照：[用量与额度](usage-monitor.md)
 

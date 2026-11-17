@@ -14,6 +14,9 @@ export function applyConnectionDefaults(
   authorize(req.principal, invocation.agent, 'invoke');
   const connection = req.principal.connection;
   const metadata = { ...invocation.metadata };
+  const orchestrationAction = req.headers['x-oaa-orchestration'];
+  if (orchestrationAction !== undefined)
+    metadata['oaa.orchestration_action'] = String(orchestrationAction);
   if (connection?.reasoningOnly) metadata['oaa.tools_disabled'] = 'true';
   const body = req.body as
     { model?: unknown; agent?: unknown; metadata?: Record<string, unknown> } | undefined;

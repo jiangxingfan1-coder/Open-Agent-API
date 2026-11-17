@@ -56,6 +56,12 @@ export function settleStructuredOutput(
     return { again: false };
   }
   const used = contract.used ?? 0;
+  if (run.checkpoint.orchestration?.recommendation)
+    throw new Fault(
+      'structured_output_invalid',
+      'The recommendation does not match the requested output schema. No execution or repair was attempted.',
+      422,
+    );
   const external = agent.engine !== 'kernel';
   const repairable =
     used < contract.repairs && (!external || resumable(run.checkpoint.nativeState));

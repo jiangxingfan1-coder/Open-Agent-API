@@ -8,6 +8,7 @@ import { openKeyDialog } from '../dialogs/key.js';
 import { openPublish } from '../dialogs/publish.js';
 import { AUTO_APPROVE_HINT, conversionBadge, showAgent } from '../dialogs/agent.js';
 import { WINDOW_LABEL } from './overview.js';
+import { openModelEvaluation } from '../dialogs/model-evaluation.js';
 
 export function renderAgents(body) {
   const filter = filterText();
@@ -126,6 +127,10 @@ export function renderAgents(body) {
 
     const foot = el('div', undefined, 'agent-foot');
     foot.append(status(a.status ?? (a.ready ? 'ready' : 'unavailable')));
+    if (isAdmin())
+      foot.append(
+        iconButton(t('evaluation.title'), 'chart-no-axes-combined', () => openModelEvaluation(a)),
+      );
     if (isAdmin())
       foot.append(
         button(

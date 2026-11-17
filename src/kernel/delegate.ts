@@ -137,7 +137,10 @@ export async function callDelegate(
     runId: run.id,
     callId: call.id,
     name: delegate.name,
-    effect: delegateEffect(store, run.owner, delegate.agent),
+    effect:
+      options.metadata?.['oaa.tools_disabled'] === 'true'
+        ? 'read'
+        : delegateEffect(store, run.owner, delegate.agent),
     status: 'running',
     arguments: call.arguments,
   };
@@ -248,6 +251,11 @@ export async function callDelegate(
       throw f;
     }
     childRun.checkpoint.delegationDepth = depth;
+    if (run.checkpoint.project) {
+      childRun.checkpoint.project = { ...run.checkpoint.project };
+      const last = childRun.checkpoint.messages.at(-1);
+      if (last?.role === 'user') last.content += run.checkpoint.project.context;
+    }
     childRun.checkpoint.grantedAgents = [...grantedAgents];
     store.save(childRun);
     // 登记子运行：之后无论怎样中断，恢复时都能重新挂上它。

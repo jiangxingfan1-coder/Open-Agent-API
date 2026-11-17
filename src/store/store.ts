@@ -397,7 +397,7 @@ export class Store {
       this.bundleCache.delete(this.bundleCache.keys().next().value!);
     }
   }
-  publish(owner: string, bundle: AgentBundle): void {
+  publish(owner: string, bundle: AgentBundle, persistMetadata?: () => void): void {
     const existing = this.prepare('SELECT owner FROM bundles WHERE digest=?').get(bundle.digest) as
       Row | undefined;
     if (existing && existing.owner !== owner)
@@ -415,6 +415,7 @@ export class Store {
       this.prepare(
         'INSERT INTO agents VALUES(?,?,?) ON CONFLICT(owner,id) DO UPDATE SET digest=excluded.digest',
       ).run(owner, bundle.agent.id, bundle.digest);
+      persistMetadata?.();
       this.db.exec('COMMIT');
     } catch (e) {
       if (this.db.isTransaction) this.db.exec('ROLLBACK');
@@ -625,7 +626,7 @@ export class Store {
   runState(runId: string, owner: string) {
     const identity = this.runIdentity(runId, owner);
     const row = this.prepare(
-      `SELECT json_extract(payload,'$.digest','$.createdAt','$.updatedAt','$.route','$.usage','$.error','$.metadata."oaa.usage_complete"') AS head,json_array_length(payload,'$.artifactIds') AS artifacts FROM runs WHERE id=?`,
+      `SELECT json_extract(payload,'$.digest','$.createdAt','$.updatedAt','$.route','$.usage','$.error','$.metadata."oaa.usage_complete"') AS head,json_array_length(payload,'$.artifactIds') AS artifacts,(json_extract(payload,'$.checkpoint.modelIdentity') IS NOT NULL AND json_extract(payload,'$.metadata."oaa.evaluation"') IS NULL) AS feedback_identity FROM runs WHERE id=?`,
     ).get(runId)!;
     const [digest, createdAt, updatedAt, route, usage, error, usageComplete] = JSON.parse(
       row.head as string,
@@ -650,6 +651,11 @@ export class Store {
         ).get(digest, owner)?.engine ?? 'unknown',
       ),
       status: identity.status,
+      feedback_eligible:
+        row.feedback_identity === 1 &&
+        (identity.status === 'completed' ||
+          (identity.status === 'failed' &&
+            ['output_contract', 'structured_output_invalid'].includes(error?.code ?? ''))),
       version: digest,
       route,
       created_at: createdAt,

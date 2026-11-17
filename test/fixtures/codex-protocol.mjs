@@ -13,6 +13,13 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   }
   if (m.method === 'initialize') send({ id: m.id, result: {} });
   if (m.method === 'thread/start' || m.method === 'thread/resume') {
+    if (
+      mode === 'auto-policy' &&
+      (m.params.approvalPolicy !== 'never' || m.params.sandbox !== 'danger-full-access')
+    ) {
+      send({ id: m.id, error: { code: -1, message: 'Automatic policy was not forwarded' } });
+      return;
+    }
     if (mode === 'rpc-error') send({ id: m.id, error: { code: -1, message: 'model unavailable' } });
     else
       send({

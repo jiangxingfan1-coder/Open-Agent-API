@@ -13,6 +13,8 @@ import { renderPlatform } from './platform.js';
 import { connections, renderConnections } from './connections.js';
 import { usageView, renderUsage } from './usage.js';
 import { platform } from '../dialogs/platform-data.js';
+import { renderProjects } from './projects.js';
+import { renderWorkflows } from './workflows.js';
 
 /* ── Chrome ──────────────────────────────────────────── */
 export function render() {
@@ -130,6 +132,8 @@ export function viewSignature() {
   const pick = {
     overview: () => [d, activityData(), activity.supported],
     agents: () => [d?.agents, activityData()?.agents],
+    projects: () => [state.token],
+    workflows: () => [state.token, d?.metrics],
     requests: () => state.runs || d?.runs,
     nodes: () => [
       d?.nodes,
@@ -201,6 +205,8 @@ export function renderView(force = false) {
     ({
       overview: renderOverview,
       agents: renderAgents,
+      projects: renderProjects,
+      workflows: renderWorkflows,
       requests: renderRequests,
       nodes: renderNodes,
       access: renderAccess,

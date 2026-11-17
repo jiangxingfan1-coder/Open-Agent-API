@@ -111,3 +111,9 @@ export async function api(method, url, body, options = {}) {
   if (!response.ok) throw apiError(response.status, data);
   return data;
 }
+export const sessionApi =
+  (token = state.token) =>
+  (method, url, body) => {
+    if (token !== state.token) throw Error(t('dlg.agent.err.connection_changed'));
+    return api(method, url, body, { token });
+  };

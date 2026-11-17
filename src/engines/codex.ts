@@ -312,6 +312,9 @@ export async function codex(
       const params = {
         cwd,
         allowProviderModelFallback: false,
+        ...(agent.access?.approval === 'auto' || (!agent.access && agent.approvals === 'auto')
+          ? { approvalPolicy: 'never', sandbox: 'danger-full-access' }
+          : {}),
         ...(agent.model !== 'default' ? { model: agent.model } : {}),
         ...(agent.instructions ? { developerInstructions: agent.instructions } : {}),
       };

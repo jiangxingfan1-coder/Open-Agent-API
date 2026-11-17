@@ -27,6 +27,7 @@ export const builtin = (name: BuiltinToolName): ToolBinding => ({
           ? {
               type: 'object',
               properties: {
+                scope: { type: 'string', enum: ['private', 'project'] },
                 namespace: { type: 'string', maxLength: 120 },
                 key: { type: 'string', maxLength: 240 },
                 prefix: { type: 'string', maxLength: 240 },
@@ -37,6 +38,7 @@ export const builtin = (name: BuiltinToolName): ToolBinding => ({
             ? {
                 type: 'object',
                 properties: {
+                  scope: { type: 'string', enum: ['private', 'project'] },
                   namespace: { type: 'string', maxLength: 120 },
                   key: { type: 'string', maxLength: 240 },
                   value: {},

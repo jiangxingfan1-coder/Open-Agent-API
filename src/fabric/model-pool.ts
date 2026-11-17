@@ -4,6 +4,19 @@ import { sha } from '../core/util.js';
 import type { NodeHub } from './network.js';
 import { WorkerRuntime } from './worker.js';
 
+export function supportsReasoning(hub: NodeHub, owner: string, agent: AgentDefinition): boolean {
+  return (
+    agent.engine === 'kernel' ||
+    hub
+      .inventory(owner)
+      .some((node) =>
+        (
+          node.execution as { toolFreeReasoning?: string[] } | undefined
+        )?.toolFreeReasoning?.includes(agent.engine),
+      )
+  );
+}
+
 export async function refreshAgentModels(
   hub: NodeHub,
   owner: string,

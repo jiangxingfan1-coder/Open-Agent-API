@@ -18,6 +18,7 @@ import {
 import { api } from '../lib/api.js';
 import { live, load } from '../lib/live.js';
 import { filterText, setCount } from './common.js';
+import { openEverythingAcpImport } from '../dialogs/everything-acp.js';
 
 export function nodeState(n) {
   return n.state === 'revoked'
@@ -137,6 +138,7 @@ export function renderNodes(body) {
   };
   const root = el('div', undefined, 'nodes');
   body.append(root);
+  root.append(button(t('eacp.import'), 'download', openEverythingAcpImport));
   if (!rows.length)
     root.append(
       all.length

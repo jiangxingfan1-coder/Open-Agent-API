@@ -55,7 +55,19 @@ A key is never accepted on the command line or typed in (it would end up in shel
   Linux that only you can read it (`chmod 600`). The gateway reads the file on every call, so
   rotating the key needs no restart. The content is never printed, logged or copied into the
   configuration; error messages name the path only.
-- Local presets (`ollama`, `lmstudio`) need no key (`noApiKey: true`, no auth header is sent).
+- Local presets default to no key (`noApiKey: true`, no auth header is sent). For a local server with authentication enabled, supply an explicit key reference.
+
+## Local runtime discovery
+
+The Local Connections page also discovers **Ollama, LM Studio / llmster, llama.cpp, Jan, GPT4All, LocalAI and vLLM** from executable paths and application bundles. Installation detection does not start a program, read chats or credentials, or prove that a model server is running. A configured endpoint is shown as connected, not as installation evidence.
+
+Open a runtime card, check its loopback `/v1` endpoint, select a model, and choose **Connect and publish**. This writes a provider and a kernel agent atomically to OAA's own database, takes effect without a restart, and survives a restart. It does not change the runtime's settings or create a caller key. The new agent has no host tools; existing API key permissions still govern invocation and caller tools. Conflicting provider names and agent IDs are refused rather than overwritten. Authenticated servers accept an environment-variable reference, never a saved plaintext key.
+
+`POST /v1/local/model-runtimes/probe` accepts `runtime`, optional `base_url`, and optional `key_env`. The connect endpoint at `/v1/local/model-runtimes/connect` additionally requires `model` and accepts `provider_name` and `agent`. Both require the direct loopback host owner-admin connection. Model-list checks are bounded, do not generate text, and distinguish offline, empty and authentication-required states. A returned model list proves protocol availability, **not successful inference or model capability**. Official download/settings links are available in the dialog; OAA does not silently install or start third-party software.
+
+The same presets work with `oaa connect llamacpp`, `oaa connect jan`, `oaa connect gpt4all`, `oaa connect localai` and `oaa connect vllm`. Set `--base-url` when using a nondefault port. LocalAI and llama.cpp share port 8080 by default and must use different ports when running together.
+
+On 2026-11-17, official Ollama 0.40.16 and llama.cpp b12475 packages were unpacked into an isolated macOS directory. Both completed real Chat Completions and Responses calls through OAA and retained their connections after a gateway restart. The smoke model was `ggml-org/models`' 260K-parameter test model, not an instruction-following quality benchmark; Responses correctly reported `incomplete` at the small output limit. `scripts/live-local-models.mjs` repeats the explicit endpoint check without installing or starting a runtime. Other local runtimes have protocol-fixture coverage, not equivalent live inference evidence.
 
 ## Presets
 
@@ -67,6 +79,11 @@ change often, so a preset keeps at most one suggestion and `--model` always wins
 | --- | --- | --- | --- | --- | --- | --- |
 | `ollama` | Ollama (local) | openai-chat | `http://127.0.0.1:11434/v1` | none | `max_tokens`; images inline (base64) | from the local list |
 | `lmstudio` | LM Studio (local) | openai-chat | `http://127.0.0.1:1234/v1` | none | `max_tokens`; no images | from the local list |
+| `llamacpp` | llama.cpp | openai-chat | `http://127.0.0.1:8080/v1` | optional | `max_tokens`; images off by default | from the local list |
+| `jan` | Jan | openai-chat | `http://127.0.0.1:1337/v1` | optional | `max_tokens`; no stream usage; images off | from the local list |
+| `gpt4all` | GPT4All | openai-chat | `http://127.0.0.1:4891/v1` | optional | `max_tokens`; no stream usage; images off | from the local list |
+| `localai` | LocalAI | openai-chat | `http://127.0.0.1:8080/v1` | optional | `max_tokens`; images off by default | from the local list |
+| `vllm` | vLLM | openai-chat | `http://127.0.0.1:8000/v1` | optional | `max_tokens`; images off by default | from the local list |
 | `openai-compatible` | any OpenAI-compatible endpoint | openai-chat | `--base-url` | `--key-env`/`--key-file`, else keyless | `max_tokens`; no stream usage; no images | `--model` |
 | `openai` | OpenAI | openai-responses | `https://api.openai.com/v1` | `OPENAI_API_KEY` | none | `--model` |
 | `anthropic` | Anthropic | anthropic-messages | `https://api.anthropic.com` | `ANTHROPIC_API_KEY` | `anthropic-version: 2023-06-01` | `claude-sonnet-5-5` |
@@ -82,9 +99,7 @@ change often, so a preset keeps at most one suggestion and `--model` always wins
 
 "No stream usage" means the documentation does not promise `stream_options.include_usage`, so the
 preset leaves it out (`streamUsage: false`); runs still work, token counts are then not reported.
-"No images" means the preset keeps image input off (`imageInput: "none"`) because the
-documentation does not describe image input for this endpoint in a way the gateway could rely on;
-set `imageInput` yourself when you use a vision model.
+"No images" means the preset keeps image input off (`imageInput: "none"`). Local runtime support depends on the selected model and backend; enable `imageInput` explicitly after verifying a vision model.
 
 Preset names never clash with external agents: `gemini` stays the Gemini CLI (ACP), `kimi`, `qwen`
 and `glm` stay the ACP presets of those tools, hence `gemini-api`, `moonshot` and `zhipu` here.
@@ -140,6 +155,8 @@ The upstream response body is only inspected to classify the failure; it is neve
 message a caller sees.
 
 ## Agent Model Catalogs and Orchestration
+
+For same-agent orchestration, plan-only calls, measured model routing and EverythingACP import, see [Intelligent Agent API](intelligence.md).
 
 `GET /v1/agents/models?agent=<id>` and MCP `oaa_list_models` provide a bounded runtime catalog. Keep `revision` for subsequent `offset` pages. This is separate from the immutable, version-pinned declared routes. A key's optional `connection.audience:"external"` marks an untrusted caller: it cannot grant host execution, owner-wide data, administration, or private-agent execution. The console distinguishes it from trusted personal keys.
 

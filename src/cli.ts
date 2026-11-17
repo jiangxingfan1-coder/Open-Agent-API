@@ -835,25 +835,22 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
           engine: values.engine,
           models: (values.models ?? 'default').split(',').filter(Boolean),
           ...approvalsFlag(values.approvals),
+          ...(values.approvals === 'ask' ? { approvals: 'ask' } : {}),
         }),
       );
       return;
     }
     const engine = zNative(values.engine);
     const models = (values.models ?? 'default').split(',').filter(Boolean);
-    const agent = agentSchema.parse({
-      id: values.id ?? `agent/${engine}`,
-      engine,
-      model: models[0],
-      description: `Native ${engine} agent`,
-      instructions: '',
-      provider: 'native',
-      routes: models.map((m, i) => ({ id: m, model: m, provider: 'native', priority: i })),
-      tools: [],
-      allowGraph: false,
-      ...approvalsFlag(values.approvals),
-    });
-    print(await client.request('POST', '/v1/agents/publish', makeBundle(agent)));
+    print(
+      await client.request('POST', '/v1/agents/publish-native', {
+        id: values.id ?? `agent/${engine}`,
+        engine,
+        models,
+        ...approvalsFlag(values.approvals),
+        ...(values.approvals === 'ask' ? { approvals: 'ask' } : {}),
+      }),
+    );
     return;
   }
   if (command === 'invoke') {

@@ -12,8 +12,9 @@ import { callDelegate } from './delegate.js';
 import type { KernelRuntime } from './runtime.js';
 import type { ExecutionSlice } from './types.js';
 import { nativeStepId } from './native-turn.js';
+import { supportsReasoning } from '../fabric/model-pool.js';
 import { detectTaskIntent } from './routing.js';
-import { inputPreview } from '../store/inspection.js';
+import { mediaInstruction } from '../core/media.js';
 
 export function orchestrationMode(run: Run, agent: AgentDefinition): OrchestrationMode | undefined {
   if (
@@ -56,6 +57,7 @@ export function validateOrchestrationPlan(
       stage.id === 'plan' ||
       /^(fix_|check_)/.test(stage.id) ||
       ids.has(stage.id) ||
+      (agent.orchestration?.scope === 'agent' && stage.agent !== agent.id) ||
       !pools.get(stage.agent)?.includes(stage.model)
     )
       throw new Fault(
@@ -109,10 +111,10 @@ export async function runOrchestration(
   const pool = run.checkpoint.modelPool ?? [{ ...run.route, priority: 0 }];
   run.metadata['oaa.orchestration_mode'] = mode;
   const pools = new Map([[run.agentId, pool.map((r) => r.id)]]);
-  for (const helper of settings.helpers) {
+  for (const helper of settings.scope === 'agent' ? [] : settings.helpers) {
     if (!permits(run.checkpoint.grantedAgents ?? [], helper)) continue;
     const child = rt.store.bundle(run.owner, helper).agent;
-    if (!['kernel', 'antigravity', 'claude'].includes(child.engine)) continue;
+    if (!supportsReasoning(rt.hub, run.owner, child)) continue;
     if (
       (run.checkpoint.externalCaller && child.access?.trust === 'private') ||
       (run.metadata['oaa.tool_boundary'] === 'client' && child.engine !== 'kernel')
@@ -208,13 +210,17 @@ export async function runOrchestration(
     save();
     return value.output;
   };
-  const taskHint = inputPreview(run.input, 24_000);
-  const intent = detectTaskIntent(taskHint);
   if (!state.plan) {
-    const simple =
-      mode !== 'quality' && !run.fileIds.length && taskHint.length < 160 && intent === 'fast';
-    const fastPath = mode === 'speed' && taskHint.length < 2000 && run.fileIds.length < 2;
-    if (simple || fastPath || state.maxStages < 3 || pool.length < 2) {
+    const legacyShortcut =
+      settings.scope === undefined &&
+      run.metadata['oaa.orchestration_action'] !== 'recommend' &&
+      (pool.length < 2 ||
+        (mode === 'speed' && run.input.length < 2000) ||
+        (mode !== 'quality' &&
+          run.input.length < 160 &&
+          !run.fileIds.length &&
+          detectTaskIntent(run.input) === 'fast'));
+    if (legacyShortcut) {
       state.plan = [
         {
           id: 'execute',
@@ -224,13 +230,13 @@ export async function runOrchestration(
           task: run.input,
         },
       ];
+    } else if (state.maxStages < 2 || !supportsReasoning(rt.hub, run.owner, bundle.agent)) {
+      throw new Fault(
+        'capability_unavailable',
+        'This engine cannot yet provide a verified tool-free planning call. Connect a compatible EverythingACP adapter or use a fixed model.',
+        503,
+      );
     } else {
-      if (!['kernel', 'antigravity', 'claude'].includes(bundle.agent.engine))
-        throw new Fault(
-          'capability_unavailable',
-          'Multi-model orchestration is unavailable until this engine has an enforced tool-free planner.',
-          503,
-        );
       const evidence = rt.router
         .candidates(run.owner, run.digest, { ...bundle.agent, routes: pool }, () => true)
         .map((route) => ({
@@ -238,13 +244,16 @@ export async function runOrchestration(
           observedMs: route.health?.successfulCalls ? route.health.averageMs : null,
           costTier: route.costTier ?? null,
           qualityTier: route.qualityTier ?? null,
+          measured: route.performance,
+          reported_sources:
+            rt.router.knowledge?.(run.owner, run.agentId, route.id, route.model) ?? [],
         }));
-      const prompt = `Plan this task; do not execute the task. Use only the listed agent and model IDs. Return stages in order: optional independent analyze stages, exactly one execute stage on ${run.agentId}, then optional review stages. At most two independent analyses run concurrently. Prefer the fewest useful stages. Mode: ${mode}. Maximum stages: ${state.maxStages - 1}. Quality mode should include a review when useful. Do not infer price or quality from model names: null evidence means unknown; tiers are publisher declarations, not verified prices. A stage is {id, role, agent, model, task}. Available pools: ${JSON.stringify(Object.fromEntries(pools))}. Primary route evidence: ${JSON.stringify(evidence)}\nTask:\n${run.input}`;
+      const prompt = `Plan this task; do not execute the task. Use only the listed agent and model IDs. Return stages in order: optional independent analyze stages, exactly one execute stage on ${run.agentId}, then optional review stages. At most two independent analyses run concurrently. Prefer the fewest useful stages. Mode: ${mode}. Maximum stages: ${state.maxStages - 1}. Speed mode should normally choose one execution stage. Quality mode should include a review when useful. Auto mode balances measured quality and latency. Do not infer price or quality from model names: null evidence means unknown; tiers are publisher declarations, not verified prices. Measured scores describe the listed tests, not universal intelligence. A stage is {id, role, agent, model, task}. Available pools: ${JSON.stringify(Object.fromEntries(pools))}. Primary route evidence: ${JSON.stringify(evidence)}\nTask:\n${run.input}`;
       const text = await delegate(
         'plan',
         run.agentId,
         run.route.id,
-        prompt,
+        prompt + mediaInstruction(run.checkpoint.media),
         z.toJSONSchema(orchestrationPlanSchema, { target: 'draft-7' }),
       );
       let parsed: unknown;
@@ -260,6 +269,17 @@ export async function runOrchestration(
       state.plan = validateOrchestrationPlan(parsed, bundle.agent, pools, state.maxStages);
     }
     save();
+  }
+  if (run.metadata['oaa.orchestration_action'] === 'recommend') {
+    state.recommendation = true;
+    state.finalText = JSON.stringify({
+      agent: run.agentId,
+      mode,
+      stages: state.plan,
+      executed: false,
+    });
+    save();
+    return state.finalText;
   }
   let answer = '';
   for (let index = 0; index < state.plan.length; index++) {

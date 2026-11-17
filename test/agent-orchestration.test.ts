@@ -10,7 +10,7 @@ const definition = () =>
   agent({
     id: 'agent/orchestrated',
     model: 'one',
-    orchestration: { enabled: true },
+    orchestration: { enabled: true, scope: 'agent' },
     routes: [
       { id: 'one', provider: 'fixture', model: 'one', priority: 0 },
       { id: 'two', provider: 'fixture', model: 'two', priority: 1 },
@@ -122,7 +122,19 @@ test('an explicit model bypasses orchestration even when quality metadata is pre
 });
 
 test('a committed orchestration answer is not emitted a second time during recovery', async () => {
-  const s = await setup();
+  const s = await setup(
+    new FixtureModel((a, messages) =>
+      messages.some((m) => m.content.startsWith('Plan this task;'))
+        ? {
+            text: JSON.stringify({
+              stages: [
+                { id: 'execute', role: 'execute', agent: a.id, model: 'one', task: 'Hello' },
+              ],
+            }),
+          }
+        : { text: 'Hello' },
+    ),
+  );
   try {
     s.store.publish('owner', makeBundle(definition()));
     const submitted = s.kernel.submit(principal, {
@@ -148,6 +160,143 @@ test('a committed orchestration answer is not emitted a second time during recov
     assert.deepEqual(sink.publishFinalOnce(run.checkpoint.orchestration!.finalText!), []);
     assert.equal(s.store.history(run.id).length, count);
     assert.equal(run.output.length, 1);
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('short speed requests still plan; recommendation never executes the user task', async () => {
+  const calls: string[] = [];
+  const s = await setup(
+    new FixtureModel((a, messages) => {
+      const input = messages
+        .filter((m) => m.role === 'user')
+        .map((m) => m.content)
+        .join('\n');
+      calls.push(input);
+      return {
+        text: JSON.stringify({
+          stages: [
+            {
+              id: 'execute',
+              role: 'execute',
+              agent: a.id,
+              model: 'two',
+              task: 'Do not execute this in recommendation mode.',
+            },
+          ],
+        }),
+      };
+    }),
+  );
+  try {
+    const a = definition();
+    s.store.publish('owner', makeBundle(a));
+    const run = s.kernel.submit(principal, {
+      protocol: 'oaa/1',
+      agent: a.id,
+      model: 'auto',
+      input: 'Hello',
+      file_ids: [],
+      metadata: { 'oaa.routing_strategy': 'speed', 'oaa.orchestration_action': 'recommend' },
+      stream: false,
+      background: false,
+    });
+    const result = await s.kernel.wait(run.id);
+    assert.equal(result.status, 'completed', JSON.stringify(result.error));
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0]!.startsWith('Plan this task;'));
+    assert.equal(JSON.parse(result.output.map((m) => m.text).join('')).executed, false);
+    assert.equal(result.checkpoint.orchestration?.used, 1);
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('agent-scoped orchestration cannot change agents even when a helper pool is supplied', () => {
+  const a = agent({
+    ...definition(),
+    orchestration: { enabled: true, scope: 'agent', helpers: ['agent/helper'] },
+  });
+  assert.throws(() =>
+    validateOrchestrationPlan(
+      {
+        stages: [
+          { id: 'analyze', role: 'analyze', agent: 'agent/helper', model: 'one', task: 'Analyze' },
+          { id: 'execute', role: 'execute', agent: a.id, model: 'one', task: 'Execute' },
+        ],
+      },
+      a,
+      new Map([
+        [a.id, ['one']],
+        ['agent/helper', ['one']],
+      ]),
+      8,
+    ),
+  );
+});
+
+test('new scoped modes appear in standard model lists and explicit selections still bypass planning', async () => {
+  const s = await setup();
+  try {
+    const a = definition();
+    s.store.publish('owner', makeBundle(a));
+    const models = (await s.request('GET', '/v1/models'))
+      .json()
+      .data.map((m: { id: string }) => m.id);
+    assert.ok(models.includes(`${a.id}@best`));
+    assert.ok(models.includes(`${a.id}@two`));
+    const result = await s.request('POST', '/v1/responses', {
+      model: `${a.id}@two`,
+      input: 'Hello',
+    });
+    assert.equal(result.statusCode, 200);
+    assert.equal(s.driver.calls, 1);
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('a recommendation with an incompatible output schema cannot fall through to execution', async () => {
+  let calls = 0;
+  const s = await setup(
+    new FixtureModel((a) => {
+      calls++;
+      return {
+        text: JSON.stringify({
+          stages: [
+            { id: 'execute', role: 'execute', agent: a.id, model: 'one', task: 'Do the task' },
+          ],
+        }),
+      };
+    }),
+  );
+  try {
+    const a = definition();
+    s.store.publish('owner', makeBundle(a));
+    const run = s.kernel.submit(principal, {
+      protocol: 'oaa/1',
+      agent: a.id,
+      model: 'auto',
+      input: 'Hello',
+      file_ids: [],
+      stream: false,
+      background: false,
+      metadata: { 'oaa.orchestration_action': 'recommend' },
+      output_contract: {
+        kind: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: { value: { type: 'number' } },
+          required: ['value'],
+          additionalProperties: false,
+        },
+      },
+    });
+    const result = await s.kernel.wait(run.id);
+    assert.equal(result.error?.code, 'structured_output_invalid');
+    assert.equal(calls, 1);
+    assert.equal(result.checkpoint.orchestration?.used, 1);
   } finally {
     await s.cleanup();
   }

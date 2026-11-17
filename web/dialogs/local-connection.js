@@ -10,6 +10,7 @@ export const connectionMode = (client) =>
       managed: 'connections.mode_managed',
       manual: 'connections.mode_manual',
       unavailable: 'connections.mode_unavailable',
+      provider: 'localModels.api',
     }[client.connection] ?? 'connections.mode_unavailable',
   );
 export const evidenceLabel = (kind) =>

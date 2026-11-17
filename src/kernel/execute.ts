@@ -11,6 +11,7 @@ import { classifyFailure, terminalEventType } from './run-state.js';
 import { isFallbackExempt } from '../core/errors.js';
 import { agentFallbackChain, routeInspector, toTopologyHint } from './fallback.js';
 import { RunTextSink } from './text-sink.js';
+import { validateMediaOutput } from './media-output.js';
 import { boundApprovalDetail, recordProgress } from './agent-events.js';
 import type { KernelRuntime } from './runtime.js';
 import type { ExecutionSlice } from './types.js';
@@ -47,13 +48,14 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
   };
   const orchestration = orchestrationMode(run, agent);
   run.checkpoint.deadlineAt ??=
+    run.checkpoint.durability?.deadlineAt ??
     Date.now() +
-    Math.min(
-      agent.limits.timeoutMs,
-      orchestration
-        ? (agent.orchestration?.timeoutMs ?? ORCHESTRATION_PROFILES[orchestration].timeoutMs)
-        : Infinity,
-    );
+      Math.min(
+        agent.limits.timeoutMs,
+        orchestration
+          ? (agent.orchestration?.timeoutMs ?? ORCHESTRATION_PROFILES[orchestration].timeoutMs)
+          : Infinity,
+      );
   let timedOut = Date.now() >= run.checkpoint.deadlineAt;
   if (timedOut) controller.abort();
   const timer = setTimeout(
@@ -214,6 +216,7 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
           422,
         );
     }
+    await validateMediaOutput(rt.store, run);
     run.status = 'completed';
     run.checkpoint.phase = 'done';
     rt.store.checkpoint(run, [], (view) => ({

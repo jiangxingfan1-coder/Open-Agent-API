@@ -19,10 +19,15 @@ import { asRoutingStrategy } from './routing.js';
 import { Fault, canonical, faultOf, id, scopeDenied, sha } from '../core/util.js';
 import { LIMITS } from '../core/limits.js';
 import { agentFallbackChain, routeInspector, toTopologyHint } from './fallback.js';
-import { buildHandoffBrief, conversationOf } from './handoff.js';
+import { buildHandoffBrief, conversationOf, portableSessions } from './handoff.js';
 import type { KernelRuntime } from './runtime.js';
 import * as clientTools from './client-tools.js';
 import { assertImagesPlaced, imageDemand, modelImages, runImages } from './images.js';
+import { supportsReasoning } from '../fabric/model-pool.js';
+import { projectSelection } from './project-memory.js';
+import { durability } from './durability.js';
+import { mediaPolicy, mediaInstruction } from '../core/media.js';
+import { modelIdentity } from '../fabric/model-identity.js';
 
 /** A caller-supplied provider key: 1-4096 visible ASCII characters (header-safe, no spaces). */
 export function checkProviderKey(key: string): void {
@@ -60,10 +65,20 @@ export function prepare(
     ? rt.store.run(invocation.previous_response_id, principal.owner, visibleSubject(principal))
     : undefined;
   // 智能体交接：显式要求时，允许续接到另一个智能体，或让同一个智能体换一条模型线路。
-  const handoffRequested =
+  let handoffRequested =
     invocation.handoff === true ||
     (invocation as { metadata?: Record<string, string> }).metadata?.['oaa.handoff'] === 'true';
   const crossAgent = !!previous && previous.agentId !== invocation.agent;
+  const metadata = (invocation as { metadata?: Record<string, string> }).metadata ?? {};
+  if (crossAgent && invocation.handoff === undefined && metadata['oaa.handoff'] === undefined) {
+    const source = rt.store.bundle(principal.owner, previous.agentId, previous.digest).agent;
+    const target = rt.store.bundle(
+      principal.owner,
+      invocation.agent,
+      invocation.agent_version,
+    ).agent;
+    handoffRequested ||= portableSessions(source) && portableSessions(target);
+  }
   if (previous && (previous.status !== 'completed' || (crossAgent && !handoffRequested)))
     throw new Fault(
       'invalid_continuation',
@@ -94,11 +109,7 @@ export function prepare(
     ...storedBundle,
     agent: discoveredAgent(rt.hub, principal.owner, storedBundle.agent),
   };
-  if (
-    previous &&
-    !handoff &&
-    (bundle.agent.modelPolicy || bundle.agent.access || bundle.agent.orchestration)
-  ) {
+  if (previous && !handoff && portableSessions(bundle.agent)) {
     const metadata = (invocation as { metadata?: Record<string, string> }).metadata ?? {};
     const changesSelection =
       invocation.model === 'auto'
@@ -349,6 +360,35 @@ export function submit(
       400,
     );
   const placed = inspect(route.provider, route.model);
+  const action = invocation.metadata['oaa.orchestration_action'];
+  if (action !== undefined && action !== 'recommend' && action !== 'execute')
+    throw new Fault('invalid_request', 'oaa.orchestration_action must be recommend or execute.');
+  if (action === 'recommend' && (route.mode !== 'auto' || !bundle.agent.orchestration?.enabled))
+    throw new Fault(
+      'invalid_request',
+      'Recommendation mode requires an orchestrated automatic model selection.',
+    );
+  if (
+    invocation.metadata['oaa.tools_disabled'] === 'true' &&
+    !supportsReasoning(rt.hub, principal.owner, bundle.agent)
+  )
+    throw new Fault(
+      'capability_unavailable',
+      'This engine does not advertise enforced tool-free reasoning.',
+      503,
+    );
+  if (
+    bundle.agent.orchestration?.enabled &&
+    bundle.agent.orchestration.scope === 'agent' &&
+    route.mode === 'auto' &&
+    invocation.metadata['oaa.orchestration_child'] !== 'true' &&
+    !supportsReasoning(rt.hub, principal.owner, bundle.agent)
+  )
+    throw new Fault(
+      'capability_unavailable',
+      'This engine cannot yet plan safely. Use a fixed model or connect a verified reasoning adapter.',
+      503,
+    );
   if (!placed.available && bridge) clientTools.assertBridgePlaced(placed.reasons);
   if (!placed.available) assertImagesPlaced(bundle.agent, images, placed.reasons);
   if (!placed.available)
@@ -370,9 +410,13 @@ export function submit(
             return `inputs/${info.id}/${info.name}`;
           })
       : [];
+  const media = mediaPolicy(invocation.metadata);
   const inputMessage =
     invocation.input +
+    mediaInstruction(media) +
     (newFiles.length ? `\n\nAdditional input files:\n${newFiles.join('\n')}` : '');
+  const project = projectSelection(rt.store, principal, invocation.metadata, previous);
+  const durable = durability(bundle.agent, invocation.metadata);
   // 交接：内核智能体拿到整理过的对话历史；外部智能体自己管理会话，改用一段交接说明。
   const conversation = handoff && previous ? conversationOf(previous) : undefined;
   const continuationBrief =
@@ -423,11 +467,15 @@ export function submit(
         : invocation.metadata,
     route,
     checkpoint: {
+      modelIdentity: modelIdentity(rt.hub, principal.owner, bundle.agent),
+      ...(media ? { media } : {}),
+      ...(durable ? { durability: durable } : {}),
+      ...(project ? { project } : {}),
       messages: [
         ...(conversation ?? previous?.checkpoint.messages ?? []),
         {
           role: 'user',
-          content: inputMessage,
+          content: inputMessage + (project?.context ?? ''),
           ...(bundle.agent.engine === 'kernel' && images.length
             ? { images: modelImages(images) }
             : {}),

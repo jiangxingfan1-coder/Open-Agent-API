@@ -1,7 +1,16 @@
 import type { AgentDefinition, Run } from '../core/contracts.js';
+import type { ModelPerformance } from '../core/model-evaluation.js';
+import type { ModelSourceEvidence } from '../core/model-sources.js';
+import { measuredRouteScore } from './routing-performance.js';
 import { Fault } from '../core/util.js';
 
-export type TaskIntent = 'coding' | 'reasoning' | 'fast' | 'tool_heavy' | 'general';
+import { detectTaskIntent, type TaskIntent } from './task-intent.js';
+export {
+  detectTaskIntent,
+  analyzeTaskIntent,
+  type TaskIntent,
+  type IntentProfile,
+} from './task-intent.js';
 import { isRoutingModeId } from '../core/model-catalog.js';
 export type RoutingStrategy = 'auto' | 'speed' | 'cost' | 'quality' | 'balanced';
 
@@ -198,94 +207,6 @@ export type Health = {
   halfOpenProbeInFlight?: boolean;
 };
 
-export interface IntentProfile {
-  primary: TaskIntent;
-  confidence: number;
-  signals: {
-    coding: number;
-    reasoning: number;
-    fast: number;
-    toolHeavy: number;
-    longContext: boolean;
-    structuredJson: boolean;
-  };
-}
-
-export function analyzeTaskIntent(input: string, toolsCount = 0): IntentProfile {
-  const lower = input.toLowerCase();
-  const trimmed = input.trim();
-
-  let coding = 0;
-  if (input.includes('```')) coding += 3;
-  for (const kw of [
-    'function',
-    'class ',
-    'import ',
-    'def ',
-    'const ',
-    'bug',
-    'refactor',
-    'typescript',
-    'python',
-    'stack trace',
-    'compile',
-    'syntaxerror',
-    'typeerror',
-    'interface ',
-  ]) {
-    if (lower.includes(kw)) coding += 2;
-  }
-
-  let reasoning = 0;
-  for (const kw of [
-    'think step by step',
-    'step by step',
-    'reasoning',
-    'mathematical proof',
-    'proof',
-    '推导',
-    '证明',
-    '深度思考',
-    '数学证明',
-    'algorithm complexity',
-    'formal verification',
-    'theorem',
-  ]) {
-    if (lower.includes(kw)) reasoning += 2;
-  }
-
-  const fast = trimmed.length > 0 && trimmed.length < 80 && !trimmed.includes('\n') ? 3 : 0;
-  const toolHeavy = toolsCount >= 4 ? 4 : toolsCount >= 2 ? 1 : 0;
-  const longContext = input.length >= 12_000;
-  const structuredJson = lower.includes('json schema') || lower.includes('valid json');
-
-  let primary: TaskIntent = 'general';
-  let confidence = 0.6;
-  if (toolsCount >= 4) {
-    primary = 'tool_heavy';
-    confidence = 0.9;
-  } else if (coding >= 2) {
-    primary = 'coding';
-    confidence = Math.min(0.98, 0.65 + coding * 0.08);
-  } else if (reasoning >= 2) {
-    primary = 'reasoning';
-    confidence = Math.min(0.98, 0.65 + reasoning * 0.08);
-  } else if (fast > 0) {
-    primary = 'fast';
-    confidence = 0.85;
-  }
-
-  return {
-    primary,
-    confidence,
-    signals: { coding, reasoning, fast, toolHeavy, longContext, structuredJson },
-  };
-}
-
-export function detectTaskIntent(input: string, toolsCount = 0): TaskIntent {
-  return analyzeTaskIntent(input, toolsCount).primary;
-}
-
 export interface RouteTopologyHint {
   available: boolean;
   ready?: boolean;
@@ -322,6 +243,13 @@ export type RouteChoice = {
 
 export class ModelRouter {
   private health = new Map<string, Health>();
+  evidence?: (
+    owner: string,
+    agent: AgentDefinition,
+    digest: string,
+  ) => Map<string, ModelPerformance>;
+  quotaBlocked?: (owner: string, agent: AgentDefinition) => boolean;
+  knowledge?: (owner: string, agent: string, route: string, model: string) => ModelSourceEvidence[];
   /** Notified after route health changes so read models (e.g. /v1/overview) can invalidate. */
   observer?: (owner: string) => void;
 
@@ -540,9 +468,12 @@ export class ModelRouter {
     const intent =
       context?.intent ??
       (context?.input ? detectTaskIntent(context.input, agent.tools.length) : 'general');
+    const evidence = this.evidence?.(owner, agent, digest);
+    const quotaBlocked = this.quotaBlocked?.(owner, agent) === true;
 
     const rawList = this.choices(agent).map((r) => {
       const health = this.health.get(`${owner}:${digest}:${r.id}`);
+      const performance = evidence?.get(r.id);
       const hint = normalizeHint(available(r.provider, r.model));
       const usable = hint.available;
       const cooldownExpired = (health?.cooldownUntil ?? 0) <= now;
@@ -552,7 +483,7 @@ export class ModelRouter {
         (health?.consecutiveFailures ?? 0) > 0 &&
         (health?.cooldownUntil ?? 0) > 0;
       const probeBlocked = isHalfOpen && health?.halfOpenProbeInFlight === true;
-      const autoEligible = usable && cooldownExpired && !probeBlocked;
+      const autoEligible = usable && cooldownExpired && !probeBlocked && !quotaBlocked;
 
       const avgMs = health?.averageMs ?? hint.estimatedMs ?? 1000;
       const jitterPenalty = Math.round((health?.jitterMs ?? 0) * 0.5);
@@ -604,13 +535,29 @@ export class ModelRouter {
           topologyPenalty;
       }
 
+      score =
+        measuredRouteScore(
+          {
+            performance,
+            strategy,
+            intent,
+            topologyPenalty,
+            priority: r.priority,
+            costTier: r.costTier,
+            now,
+          },
+          health?.successfulCalls ? health.averageMs : undefined,
+        ) ?? score;
+
       return {
         ...r,
         available: usable,
         automatic_eligible: autoEligible,
         half_open: isHalfOpen,
+        quota_blocked: quotaBlocked,
         score,
         health: health ? { ...health } : null,
+        performance: performance ?? null,
         latency_evidence: health?.successfulCalls ? 'observed_execution' : 'default_estimate',
       };
     });
@@ -618,7 +565,7 @@ export class ModelRouter {
     // 若全部可用路由均因单飞半开探测阻塞而无候选，放开最高优半开节点避免假死
     if (!rawList.some((r) => r.automatic_eligible)) {
       for (const r of rawList) {
-        if (r.available && (r.health?.cooldownUntil ?? 0) <= now) {
+        if (r.available && !r.quota_blocked && (r.health?.cooldownUntil ?? 0) <= now) {
           r.automatic_eligible = true;
         }
       }

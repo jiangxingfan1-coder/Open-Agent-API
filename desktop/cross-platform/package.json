@@ -1,0 +1,17 @@
+{
+  "name": "open-agent-api-desktop",
+  "version": "0.0.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "node launch.mjs",
+    "package": "node build.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.65.1",
+    "resedit": "2.0.3",
+    "@electron-internal/extract-zip": "1.0.8",
+    "electron": "45.3.3",
+    "@electron/packager": "20.3.0"
+  }
+}

@@ -8,6 +8,7 @@ import { createTimeline } from './dialogs/inspector-timeline.js';
 import { createActions } from './dialogs/inspector-actions.js';
 import { createSections } from './dialogs/inspector-sections.js';
 import { createNotes } from './dialogs/inspector-notes.js';
+import { renderModelFeedback } from './dialogs/model-feedback.js';
 
 // Shared helpers come from the console modules; only the app-level callbacks are injected.
 export function createRunInspector({ onChanged, onClosed, onSelected, onContinue = () => {} }) {
@@ -206,6 +207,7 @@ export function createRunInspector({ onChanged, onClosed, onSelected, onContinue
       if (!data) return;
       const changed = force || JSON.stringify(data) !== v.stateKey;
       v.state = data;
+      renderModelFeedback($('run-feedback'), data, v.token);
       $('run-title').textContent = data.id;
       // When every pending item is a caller tool, the task waits for the caller to send results back; no person needs to act.
       const pending = data.pending_actions ?? [];
