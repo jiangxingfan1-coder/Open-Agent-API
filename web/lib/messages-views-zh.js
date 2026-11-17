@@ -278,16 +278,12 @@ export const zh = {
   'settings.addressNoteLocal':
     '填给客户端或其它 Agent 的地址，配合 API 密钥使用。当前只有本机能访问。',
   'settings.sections': '设置分区',
+  'settings.back': '返回',
   'settings.appearance': '外观',
   'settings.appearanceDesc': '只保存在这台设备上，不会影响其他使用者。',
   'settings.language': '语言',
   'settings.languageDesc': '控制台界面使用的语言，切换后页面会重新载入。',
   'settings.themeDesc': '跟随系统时，会随系统的浅色与深色外观自动切换。',
-  'settings.palette': '深色配色',
-  'settings.paletteDesc':
-    '纯黑适合 OLED 屏幕与夜间；深潮是带蒂芙尼绿色调的深色。只在深色主题下生效。',
-  'settings.paletteBlack': '纯黑',
-  'settings.paletteTide': '深潮',
   'settings.density': '界面密度',
   'settings.densityDesc': '紧凑模式会缩小表格、卡片与列表的留白，一屏显示更多内容。',
   'settings.densityComfortable': '舒适',

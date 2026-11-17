@@ -288,17 +288,13 @@ export const en = {
   'settings.addressNoteLocal':
     'The address to give to a client or another agent, used together with an API key. Only this machine can reach it right now.',
   'settings.sections': 'Settings sections',
+  'settings.back': 'Back',
   'settings.appearance': 'Appearance',
   'settings.appearanceDesc': 'Saved on this device only; it doesn’t affect other users.',
   'settings.language': 'Language',
   'settings.languageDesc':
     'The language of the console interface. The page reloads when you switch.',
   'settings.themeDesc': 'With System, the console follows your system’s light and dark appearance.',
-  'settings.palette': 'Dark palette',
-  'settings.paletteDesc':
-    'Black suits OLED screens and night use; Tide is a dark with a Tiffany-green tint. Applies only in the dark theme.',
-  'settings.paletteBlack': 'Black',
-  'settings.paletteTide': 'Tide',
   'settings.density': 'Density',
   'settings.densityDesc':
     'Compact mode tightens the spacing of tables, cards and lists to show more on one screen.',

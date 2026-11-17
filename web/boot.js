@@ -26,7 +26,7 @@
     root.dataset.theme = choice === 'system' ? (query.matches ? 'dark' : 'light') : choice;
   };
   apply();
-  root.dataset.palette = prefs.palette === 'tide' ? 'tide' : 'black';
+  root.dataset.palette = 'black';
   root.dataset.density = prefs.density === 'compact' ? 'compact' : 'comfortable';
   if (prefs.motion === 'reduce') root.dataset.motion = 'reduce';
   if (prefs.sidebar === 'collapsed') root.dataset.sidebar = 'collapsed';

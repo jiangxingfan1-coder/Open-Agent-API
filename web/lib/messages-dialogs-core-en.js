@@ -285,8 +285,6 @@ export const enCore = {
   'dlg.cmd.theme.light': 'Light',
   'dlg.cmd.theme.dark': 'Dark',
   'dlg.cmd.theme': 'Theme: {name}',
-  'dlg.cmd.palette_black': 'Dark palette: Black',
-  'dlg.cmd.palette_tide': 'Dark palette: Tide',
   'dlg.cmd.density_comfortable': 'Density: Comfortable',
   'dlg.cmd.density_compact': 'Density: Compact',
   'dlg.cmd.no_input': '(no input)',

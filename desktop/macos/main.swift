@@ -303,10 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         let dark = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         if dark {
-            window.backgroundColor =
-                palette == "tide"
-                ? NSColor(srgbRed: 10 / 255, green: 18 / 255, blue: 17 / 255, alpha: 1)
-                : NSColor.black
+            window.backgroundColor = NSColor(white: 25 / 255, alpha: 1)
         } else {
             window.backgroundColor = NSColor(srgbRed: 236 / 255, green: 233 / 255, blue: 225 / 255, alpha: 1)
         }

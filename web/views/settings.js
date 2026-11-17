@@ -74,37 +74,32 @@ export function selectControl(options, value, onPick, label) {
   select.onchange = () => onPick(select.value);
   return select;
 }
-// A miniature interface thumbnail. It draws how one theme looks, regardless of the theme in use,
-// so its colours are defined together in the stylesheet by data-look and do not follow :root.
-function themeLayer(look) {
-  const layer = el('span', undefined, 'pv-layer');
-  layer.dataset.look = look;
-  const main = el('span', undefined, 'pv-main');
-  main.append(
-    el('span', undefined, 'pv-accent'),
-    el('span', undefined, 'pv-line'),
-    el('span', undefined, 'pv-line short'),
-  );
-  layer.append(el('span', undefined, 'pv-side'), main);
-  return layer;
-}
+// Ported from Possibility's SettingsPage theme cards and mobius-pages.css.
 export function themePicker() {
   const wrap = el('div', undefined, 'theme-options');
   wrap.setAttribute('role', 'radiogroup');
   wrap.setAttribute('aria-label', t('settings.theme'));
-  const dark = prefs.palette === 'tide' ? 'tide' : 'dark';
-  for (const [v, text, looks] of [
-    ['system', t('settings.themeSystem'), ['light', dark]],
-    ['light', t('settings.themeLight'), ['light']],
-    ['dark', t('settings.themeDark'), [dark]],
+  for (const [v, text] of [
+    ['light', t('settings.themeLight')],
+    ['dark', t('settings.themeDark')],
+    ['system', t('settings.themeSystem')],
   ]) {
-    const b = el('button', undefined, `theme-option${prefs.theme === v ? ' selected' : ''}`);
+    const b = el(
+      'button',
+      undefined,
+      `theme-option theme-option-${v}${prefs.theme === v ? ' selected' : ''}`,
+    );
     b.type = 'button';
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', String(prefs.theme === v));
-    const preview = el('span', undefined, `theme-preview${looks.length > 1 ? ' split' : ''}`);
-    looks.forEach((look) => preview.append(themeLayer(look)));
-    b.append(preview, el('span', text, 'theme-name'));
+    const preview = el('span', undefined, 'theme-preview');
+    preview.setAttribute('aria-hidden', 'true');
+    const content = el('b');
+    content.append(el('em'), el('em'), el('s'));
+    preview.append(el('i'), content);
+    const name = el('span', undefined, 'theme-name');
+    name.append(el('span', undefined, 'theme-radio'), el('span', text));
+    b.append(preview, name);
     b.onclick = () => savePrefs({ theme: v });
     wrap.append(b);
   }
@@ -133,20 +128,23 @@ function baseUrlValue(address) {
   );
   return box;
 }
-// The section navigation on the left highlights as the page scrolls; a redraw keeps the last
-// highlight instead of jumping back to the first item.
-let activeSection = null;
-let sectionSpy = null;
+let activeSection = 'appearance';
+export function leaveSettings() {
+  location.hash = state.settingsReturnHash || '#overview';
+}
 export function renderSettings(body) {
   const frame = el('div', undefined, 'settings-wrap');
-  const layout = el('div', undefined, 'settings');
-  frame.append(layout);
-  const nav = el('nav', undefined, 'settings-nav');
-  nav.setAttribute('aria-label', t('settings.sections'));
+  const nav = $('settings-nav');
+  const focusedSection = nav.contains(document.activeElement)
+    ? document.activeElement.dataset.section
+    : null;
+  nav.replaceChildren();
   const main = el('div', undefined, 'settings-main');
   const sections = [];
   const add = (id, title, desc) => {
     const { section, card } = settingSection(id, title, desc);
+    section.setAttribute('aria-labelledby', `${section.id}-title`);
+    section.querySelector('h2').id = `${section.id}-title`;
     sections.push([id, title]);
     main.append(section);
     return card;
@@ -170,20 +168,6 @@ export function renderSettings(body) {
     ),
   );
   settingRow(card, t('settings.theme'), t('settings.themeDesc'), themePicker(), true);
-  settingRow(
-    card,
-    t('settings.palette'),
-    t('settings.paletteDesc'),
-    segmented(
-      [
-        ['black', t('settings.paletteBlack')],
-        ['tide', t('settings.paletteTide')],
-      ],
-      prefs.palette,
-      (v) => savePrefs({ palette: v }),
-      t('settings.palette'),
-    ),
-  );
   settingRow(
     card,
     t('settings.density'),
@@ -525,41 +509,44 @@ export function renderSettings(body) {
     }),
   );
 
+  const symbols = {
+    appearance: 'palette',
+    behavior: 'sliders-horizontal',
+    connection: 'plug',
+    desktop: 'monitor',
+    shortcuts: 'keyboard',
+    about: 'info',
+  };
+  const selectSection = (id) => {
+    activeSection = id;
+    for (const section of main.children) section.hidden = section.id !== `settings-${id}`;
+    for (const entry of nav.children) {
+      const selected = entry.dataset.section === id;
+      entry.classList.toggle('active', selected);
+      if (selected) entry.setAttribute('aria-current', 'page');
+      else entry.removeAttribute('aria-current');
+    }
+  };
   for (const [id, label] of sections) {
-    const a = el('a', label);
-    a.href = '#settings';
-    a.dataset.section = id;
-    a.onclick = (e) => {
-      e.preventDefault();
-      activeSection = id;
-      $(`settings-${id}`).scrollIntoView({
-        behavior: prefs.motion === 'reduce' ? 'auto' : 'smooth',
-        block: 'start',
-      });
-      markSection(nav, id);
-    };
-    nav.append(a);
+    const entry = button(
+      label,
+      symbols[id],
+      () => {
+        selectSection(id);
+        frame.closest('.main').scrollTop = 0;
+      },
+      'settings-nav-item',
+    );
+    entry.dataset.section = id;
+    entry.setAttribute('aria-controls', `settings-${id}`);
+    nav.append(entry);
   }
-  if (!sections.some(([id]) => id === activeSection)) activeSection = sections[0]?.[0] ?? null;
-  markSection(nav, activeSection);
-  layout.append(nav, main);
+  if (!sections.some(([id]) => id === activeSection)) activeSection = 'appearance';
+  selectSection(activeSection);
+  frame.append(main);
   body.append(frame);
-  // The scroll container: .main in the desktop layout; on a narrow screen the whole page
-  // scrolls (root is null).
-  sectionSpy?.disconnect();
-  const scroller = frame.closest('.main');
-  const scrolls = scroller && getComputedStyle(scroller).overflowY !== 'visible';
-  sectionSpy = new IntersectionObserver(
-    (entries) => {
-      const hit = entries.filter((x) => x.isIntersecting).map((x) => x.target.id.slice(9));
-      if (!hit.length) return;
-      activeSection = hit[0];
-      markSection(nav, activeSection);
-    },
-    { root: scrolls ? scroller : null, rootMargin: '-72px 0px -60% 0px' },
-  );
-  main.querySelectorAll('.settings-section').forEach((x) => sectionSpy.observe(x));
-}
-function markSection(nav, id) {
-  nav.querySelectorAll('a').forEach((x) => x.classList.toggle('active', x.dataset.section === id));
+  if (focusedSection)
+    [...nav.children]
+      .find((entry) => entry.dataset.section === focusedSection)
+      ?.focus({ preventScroll: true });
 }
