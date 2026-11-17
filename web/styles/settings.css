@@ -1,39 +1,133 @@
-/* Settings view. */
-.settings {
+/* Ported from Possibility src/styles/shell.css: settings replace the workspace sidebar. */
+.shell.is-settings,
+:root[data-sidebar='collapsed'] .shell.is-settings {
   display: grid;
-  grid-template-columns: 176px minmax(0, 1fr);
-  gap: var(--s-6);
-  align-items: start;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  height: 100dvh;
+}
+.settings-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 10px 16px;
+  background: var(--bg-app);
+  scrollbar-width: thin;
+}
+.settings-sidebar-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  margin-bottom: 14px;
+}
+.settings-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+}
+.settings-back > svg {
+  color: var(--text-muted);
+}
+.settings-back:hover {
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  color: var(--text-strong);
+}
+.settings-sidebar > h1 {
+  flex: none;
+  margin: 0 0 12px 10px;
+  font-family: var(--title-font);
+  font-size: 22px;
+  font-weight: var(--title-weight);
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: var(--text-strong);
 }
 .settings-nav {
-  position: sticky;
-  top: 70px;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.settings-nav a {
+.settings-nav > button {
   display: flex;
-  align-items: center;
-  height: 34px;
-  padding: 0 var(--s-3);
-  border-radius: var(--r-md);
-  color: var(--text-muted);
-  font-size: var(--fs-md);
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
 }
-.settings-nav a:hover {
-  background: color-mix(in srgb, var(--bg) 60%, transparent);
+.settings-nav > button > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.settings-nav > button > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.settings-nav > button:hover {
+  background: var(--bg-subtle);
   color: var(--text-strong);
 }
-.settings-nav a.active {
+.settings-nav > button.active {
+  background: var(--tide-wash);
+  color: var(--tide-deep);
+  font-weight: 550;
+}
+.settings-nav > button.active > svg {
+  color: var(--tide-deep);
+}
+:root[data-theme='light'] .settings-nav > button.active {
   background: var(--bg);
   color: var(--text-strong);
-  font-weight: 550;
-  box-shadow: 0 0 0 1px var(--border);
+}
+.shell.is-settings > .main {
+  grid-column: 2;
+  grid-row: 1;
+  margin-left: 0;
+  overflow-y: auto;
+}
+.shell.is-settings .page {
+  flex: none;
+  max-width: 872px;
+  padding: 44px 48px 72px;
+}
+:root[data-shell='macos'] .settings-sidebar-head {
+  position: relative;
+  height: 40px;
+  margin-bottom: 6px;
+}
+:root[data-shell='macos'] .settings-back {
+  margin-left: 76px;
+}
+:root[data-shell='macos'] .shell.is-settings .page {
+  padding-top: 44px;
 }
 .settings-section {
   margin-bottom: var(--s-6);
-  scroll-margin-top: 70px;
+}
+.settings-section > h2 {
+  margin: 0 0 14px;
+  font-family: var(--sans);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-strong);
 }
 .settings-section > p {
   margin-top: var(--s-1);
@@ -43,18 +137,23 @@
 .setting-card {
   margin-top: var(--s-3);
   overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .setting-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--s-3) var(--s-5);
-  padding: var(--s-4) var(--s-4);
+  min-height: 52px;
+  padding: 8px 0;
 }
 .setting-row + .setting-row,
 .info-list + .setting-actions,
 .about + .setting-row {
-  border-top: 1px solid var(--border-soft);
+  border-top: 0;
 }
 .setting-row.stack {
   grid-template-columns: minmax(0, 1fr);
@@ -90,7 +189,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--s-2);
-  padding: var(--s-4) var(--s-4);
+  padding: var(--s-4) 0;
 }
 .keys {
   display: inline-flex;
@@ -104,118 +203,128 @@
   font-weight: 400;
   color: var(--text);
 }
-/* Theme choice: three flat thumbnails, no card around them; the selection is a tide outline on the
-   thumbnail and a tide label. */
+/* Theme cards copied from Possibility src/styles/mobius-pages.css. */
 .theme-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--s-4);
-  max-width: 560px;
+  gap: 14px;
+  padding-bottom: 10px;
 }
 button.theme-option {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: var(--s-2);
+  gap: 10px;
   height: auto;
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-md);
-  background: transparent;
-  font-weight: 500;
-}
-.theme-name {
-  font-size: var(--fs-sm);
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--bg);
+  text-align: left;
   color: var(--text);
 }
-.theme-option:hover .theme-name {
-  color: var(--text-strong);
+.theme-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 4px;
+  font-size: 13.5px;
+  color: var(--text);
+}
+.theme-radio {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-faint);
+}
+button.theme-option.selected {
+  border: 2px solid var(--ink);
+  padding: 7px;
 }
 .theme-option.selected .theme-name {
-  color: var(--tide-deep);
+  color: var(--text-strong);
   font-weight: 600;
 }
+.theme-option.selected .theme-radio {
+  border: 4px solid var(--ink);
+}
 .theme-preview {
-  position: relative;
-  display: block;
-  height: 76px;
-  border-radius: var(--r-md);
-  overflow: hidden;
+  display: flex;
+  gap: 5px;
+  height: 84px;
+  padding: 7px;
+  border-radius: 9px;
+  background: #ece9e1;
 }
-.theme-preview::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: inset 0 0 0 1px var(--border-strong);
-  pointer-events: none;
-  transition: box-shadow var(--dur-quick) var(--ease);
+.theme-preview i {
+  width: 24%;
+  border-radius: 5px;
+  background: #e1ddd3;
 }
-.theme-option:hover .theme-preview::after {
-  box-shadow: inset 0 0 0 1px var(--text-muted);
-}
-.theme-option.selected .theme-preview::after {
-  box-shadow: inset 0 0 0 2px var(--tide-deep);
-}
-.pv-layer {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  grid-template-columns: 28% 1fr;
-}
-/* "System": a light thumbnail with a diagonally cut dark thumbnail laid over it. */
-.theme-preview.split .pv-layer + .pv-layer {
-  clip-path: polygon(52% 0, 100% 0, 100% 100%, 30% 100%);
-}
-.pv-side {
-  background: var(--pv-side);
-}
-.pv-main {
+.theme-preview b {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
-  margin: var(--s-2) 0 0 var(--s-2);
-  padding: var(--s-3);
-  border-radius: var(--r-md) 0 0 0;
-  background: var(--pv-main);
+  gap: 5px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #f5f3ee;
 }
-.pv-line {
-  height: 6px;
+.theme-preview em {
+  display: block;
+  height: 5px;
+  width: 80%;
   border-radius: 3px;
-  background: var(--pv-line);
+  background: #d0cbbf;
 }
-.pv-line.short {
-  width: 55%;
+.theme-preview em:first-child {
+  width: 58%;
+  height: 6px;
+  background: #132220;
 }
-.pv-accent {
-  width: 38%;
-  height: 10px;
+.theme-preview s {
+  display: block;
+  margin-top: auto;
+  height: 12px;
+  width: 42%;
   border-radius: 4px;
-  background: var(--tide);
+  background: #fbeae2;
+  text-decoration: none;
 }
-/* These are pictures of the light, black and deep-tide themes, so they are fixed on purpose and do
-   not follow the theme in use. They are the only literal colours in this view. */
-.pv-layer[data-look='light'] {
-  --pv-side: #ece9e1;
-  --pv-main: #f5f3ee;
-  --pv-line: #dcd6ca;
+.theme-option-dark .theme-preview {
+  background: #191919;
+  box-shadow: inset 0 0 0 1px #363636;
 }
-.pv-layer[data-look='dark'] {
-  --pv-side: #000000;
-  --pv-main: #111111;
-  --pv-line: #2a2a2a;
+.theme-option-dark .theme-preview i {
+  background: #252525;
 }
-.pv-layer[data-look='tide'] {
-  --pv-side: #0a1211;
-  --pv-main: #121d1b;
-  --pv-line: #2a3b37;
+.theme-option-dark .theme-preview b {
+  background: #202020;
+  box-shadow: inset 0 0 0 1px #343434;
+}
+.theme-option-dark .theme-preview em {
+  background: #555555;
+}
+.theme-option-dark .theme-preview em:first-child {
+  background: #cecece;
+}
+.theme-option-dark .theme-preview s {
+  background: #81d8d0;
+}
+.theme-option-system .theme-preview {
+  background: linear-gradient(90deg, #ece9e1 0 50%, #191919 50% 100%);
+}
+.theme-option-system .theme-preview i,
+.theme-option-system .theme-preview b {
+  visibility: hidden;
 }
 .info-list {
   display: grid;
   grid-template-columns: 160px minmax(0, 1fr);
   gap: var(--s-3) var(--s-4);
   margin: 0;
-  padding: var(--s-4) var(--s-4);
+  padding: var(--s-4) 0;
   font-size: var(--fs-md);
 }
 .info-list dt {
@@ -246,7 +355,7 @@ button.theme-option {
   display: flex;
   align-items: center;
   gap: var(--s-4);
-  padding: var(--s-4);
+  padding: var(--s-4) 0;
   color: var(--text-strong);
 }
 .about .mark {
@@ -271,21 +380,43 @@ button.theme-option {
 .settings-wrap {
   container: settings / inline-size;
 }
-/* The section list stands beside the settings only while there is room for both; below that it is a
-   row of tabs on top (the sidebar leaves ~690px at a 1024 window). */
-@container settings (max-width: 779px) {
-  .settings-wrap .settings {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--s-4);
+@media (max-width: 1100px) {
+  .shell.is-settings .page {
+    padding-inline: 28px;
   }
-  .settings-wrap .settings-nav {
-    position: static;
+}
+@media (max-width: 760px) {
+  .shell.is-settings,
+  :root[data-sidebar='collapsed'] .shell.is-settings {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .shell.is-settings > .main {
+    grid-column: 1;
+    grid-row: 2;
+    margin: 0 8px 8px;
+  }
+  .settings-sidebar {
+    grid-row: 1;
+    overflow: visible;
+    padding: 10px 12px 8px;
+  }
+  .settings-sidebar > h1 {
+    margin-bottom: 8px;
+  }
+  .settings-nav {
     flex-direction: row;
     overflow-x: auto;
     scrollbar-width: none;
   }
-  .settings-wrap .settings-nav a {
+  .settings-nav > button {
     flex: none;
+    width: auto;
+    white-space: nowrap;
+  }
+  .shell.is-settings .page,
+  :root[data-shell='macos'] .shell.is-settings .page {
+    padding: 18px 16px 40px;
   }
 }
 @container settings (max-width: 559px) {

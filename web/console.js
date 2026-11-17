@@ -11,6 +11,7 @@ import { render, renderView } from './views/shell.js';
 import { openCommand, toggleSidebar } from './dialogs/commands.js';
 import { refreshConnections } from './views/connections.js';
 import { refreshUsage } from './views/usage.js';
+import { leaveSettings } from './views/settings.js';
 
 Object.assign(hooks, {
   icons,
@@ -40,6 +41,14 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     toggleSidebar();
   } else if (
+    e.key === 'Escape' &&
+    !e.defaultPrevented &&
+    state.view === 'settings' &&
+    !document.querySelector('dialog[open]')
+  ) {
+    e.preventDefault();
+    leaveSettings();
+  } else if (
     e.key === '/' &&
     !mod &&
     !isTyping(e.target) &&
@@ -54,6 +63,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 /* ── Start ───────────────────────────────────────────── */
+$('settings-back').onclick = leaveSettings;
 if (MOD !== '⌘')
   for (const k of document.querySelectorAll('kbd'))
     k.textContent = k.textContent.replace('⌘', 'Ctrl ');

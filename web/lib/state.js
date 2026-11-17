@@ -3,6 +3,7 @@ export const hooks = {};
 export const state = {
   token: sessionStorage.getItem('oaa-token') || '',
   view: 'overview',
+  settingsReturnHash: '#overview',
   data: null,
   keys: null,
   runs: null,
@@ -61,7 +62,11 @@ export const DEFAULT_PREFS = {
 };
 export const prefs = (() => {
   try {
-    return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') };
+    return {
+      ...DEFAULT_PREFS,
+      ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'),
+      palette: 'black',
+    };
   } catch {
     return { ...DEFAULT_PREFS };
   }
@@ -72,7 +77,7 @@ export const effectiveTheme = () =>
 export function applyPrefs() {
   const root = document.documentElement;
   root.dataset.theme = effectiveTheme();
-  root.dataset.palette = prefs.palette === 'tide' ? 'tide' : 'black';
+  root.dataset.palette = 'black';
   root.dataset.density = prefs.density === 'compact' ? 'compact' : 'comfortable';
   if (prefs.motion === 'reduce') root.dataset.motion = 'reduce';
   else delete root.dataset.motion;
@@ -87,7 +92,7 @@ export function applyPrefs() {
   });
 }
 export function savePrefs(patch) {
-  Object.assign(prefs, patch);
+  Object.assign(prefs, patch, { palette: 'black' });
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {

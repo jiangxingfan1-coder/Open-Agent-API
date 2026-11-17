@@ -29,8 +29,8 @@ enum SplashPage {
                   flex-direction: column;
                   align-items: center;
                   justify-content: center;
-                  background: #000000;
-                  color: #f2f2f2;
+                  background: #191919;
+                  color: #efefef;
                   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
                   -webkit-font-smoothing: antialiased;
                   user-select: none;
@@ -40,13 +40,13 @@ enum SplashPage {
                 .mark { width: 92px; height: 89px; margin-bottom: 22px; }
                 .mark g { fill: none; stroke: currentColor; stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; }
                 h1 { margin: 0; font: italic 400 34px/1.1 "Instrument Serif", "Iowan Old Style", Georgia, serif; letter-spacing: -0.01em; }
-                .sub { margin: 10px 0 28px 0; color: #8e8e8e; font-size: 13px; letter-spacing: 0.24em; }
-                p { display: flex; align-items: center; gap: 8px; margin: 0; color: #9d9d9d; font: 12px ui-monospace, "SF Mono", Menlo, monospace; }
+                .sub { margin: 10px 0 28px 0; color: #b0b0b0; font-size: 13px; letter-spacing: 0.24em; }
+                p { display: flex; align-items: center; gap: 8px; margin: 0; color: #bcbcbc; font: 12px ui-monospace, "SF Mono", Menlo, monospace; }
                 p::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #81d8d0; animation: tide 1.4s ease-in-out infinite; }
                 @keyframes tide { 50% { opacity: 0.3; } }
                 .problem { max-width: 560px; padding: 0 28px; text-align: center; }
                 .problem h2 { margin: 0 0 12px 0; font-size: 15px; font-weight: 600; }
-                .problem pre { margin: 0; white-space: pre-wrap; word-break: break-word; color: #9d9d9d; font: 12px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; user-select: text; cursor: text; }
+                .problem pre { margin: 0; white-space: pre-wrap; word-break: break-word; color: #bcbcbc; font: 12px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; user-select: text; cursor: text; }
                 @media (prefers-color-scheme: light) {
                   body { background: #ece9e1; color: #132220; }
                   .sub { color: #66726e; }

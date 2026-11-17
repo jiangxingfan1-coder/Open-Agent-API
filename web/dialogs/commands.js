@@ -95,23 +95,13 @@ export function commandItems(query) {
       current: prefs.theme === v,
       run: () => savePrefs({ theme: v }),
     });
-  list.push(
-    {
-      group: t('dlg.cmd.group.appearance'),
-      label: prefs.palette === 'tide' ? t('dlg.cmd.palette_black') : t('dlg.cmd.palette_tide'),
-      icon: 'palette',
-      run: () => savePrefs({ palette: prefs.palette === 'tide' ? 'black' : 'tide' }),
-    },
-    {
-      group: t('dlg.cmd.group.appearance'),
-      label:
-        prefs.density === 'compact'
-          ? t('dlg.cmd.density_comfortable')
-          : t('dlg.cmd.density_compact'),
-      icon: 'rows-3',
-      run: () => savePrefs({ density: prefs.density === 'compact' ? 'comfortable' : 'compact' }),
-    },
-  );
+  list.push({
+    group: t('dlg.cmd.group.appearance'),
+    label:
+      prefs.density === 'compact' ? t('dlg.cmd.density_comfortable') : t('dlg.cmd.density_compact'),
+    icon: 'rows-3',
+    run: () => savePrefs({ density: prefs.density === 'compact' ? 'comfortable' : 'compact' }),
+  });
   const agents = (state.data?.agents ?? []).map((a) => ({
     group: t('dlg.cmd.group.agents'),
     label: a.id,

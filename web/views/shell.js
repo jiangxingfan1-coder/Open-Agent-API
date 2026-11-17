@@ -18,6 +18,13 @@ import { platform } from '../dialogs/platform-data.js';
 export function render() {
   const d = state.data;
   const meta = VIEWS[state.view];
+  const settings = state.view === 'settings';
+  document.querySelector('.shell').classList.toggle('is-settings', settings);
+  document.querySelector('.sidebar').hidden = settings;
+  $('settings-sidebar').hidden = !settings;
+  for (const selector of ['.topbar', '.page-heading', '.page-foot'])
+    document.querySelector(selector).hidden = settings;
+  if (!settings) state.settingsReturnHash = location.hash || `#${state.view}`;
   const agents = d?.agents || [];
   $('agent-count').textContent = d ? agents.length : '';
   $('active-count').textContent = d?.metrics.active ? d.metrics.active : '';

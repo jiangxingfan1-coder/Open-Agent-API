@@ -249,8 +249,6 @@ export const zhCore = {
   'dlg.cmd.theme.light': '浅色',
   'dlg.cmd.theme.dark': '深色',
   'dlg.cmd.theme': '主题：{name}',
-  'dlg.cmd.palette_black': '深色配色：纯黑',
-  'dlg.cmd.palette_tide': '深色配色：深潮',
   'dlg.cmd.density_comfortable': '界面密度：舒适',
   'dlg.cmd.density_compact': '界面密度：紧凑',
   'dlg.cmd.no_input': '（无输入）',
