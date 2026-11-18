@@ -280,7 +280,7 @@ test('gemini bridge: built-in tools are refused; bad declarations are invalid; t
       toolConfig: { functionCallingConfig: { mode: 'ANY', allowedFunctionNames: ['lint'] } },
     });
     assert.equal(configured.statusCode, 200, configured.body);
-    assert.match(String(configured.headers['x-oaa-ignored-params']), /toolConfig/);
+    assert.equal(configured.headers['x-oaa-ignored-params'], undefined);
     assert.equal(partsOf(configured.json())[1]!.functionCall!.name, 'edit-file');
   } finally {
     await s.cleanup();

@@ -6,9 +6,15 @@ import { DshClient, type DshProvider, type DshSnapshot } from '../config/dsh-cli
 import { clientConflict } from '../config/local-client-files.js';
 import type { Auth } from './auth.js';
 import { LocalConnectionState, type LocalConnectionRecord } from './local-connection-state.js';
-import type { ConnectionSource } from './local-connection-source.js';
+import type { ConnectionSource, LocalChannel, LocalTargetId } from './local-connection-source.js';
 import { assertQuotaWithin } from './key-guard.js';
-import { checkLocalModel } from './local-connection-check.js';
+import {
+  assertChannelMatchesTarget,
+  assertDshUnchanged,
+  checkLocalModel,
+  validDshKey,
+} from './local-connection-check.js';
+import { ManagedTargetCoordinator, type LocalTargetOptions } from './local-managed-targets.js';
 
 type Plan = {
   id: string;
@@ -30,10 +36,13 @@ type Source = (
   model: string,
   base: string,
   toolMode?: ToolBoundary,
+  target?: LocalTargetId,
 ) => ConnectionSource;
+
 export class LocalConnections {
   readonly ready: Promise<void>;
   private readonly state: LocalConnectionState;
+  private readonly managed: ManagedTargetCoordinator;
   private readonly plans = new Map<string, Plan>();
   private tail: Promise<unknown> = Promise.resolve();
   constructor(
@@ -42,8 +51,17 @@ export class LocalConnections {
     readonly dsh: DshClient,
     private readonly owner: string,
     private readonly source: Source,
+    options: LocalTargetOptions = {},
   ) {
     this.state = new LocalConnectionState(dataDir);
+    this.managed = new ManagedTargetCoordinator(
+      auth,
+      this.state,
+      owner,
+      source,
+      (p, rev) => this.authority(p, rev),
+      options,
+    );
     this.ready = this.recover();
     void this.ready.catch(() => {});
   }
@@ -78,29 +96,6 @@ export class LocalConnections {
       );
     return caller;
   }
-  private validKey(p: Principal, r: LocalConnectionRecord, s: DshSnapshot): boolean {
-    const token = s.refs[r.owned.credentialRef];
-    if (typeof token !== 'string' || sha(token) !== r.owned.tokenHash) return false;
-    try {
-      const caller = this.auth.revalidate(`Bearer ${token}`);
-      const owned = this.auth.list(p).some((k) => k.id === r.keyId && k.localConnectionId === r.id);
-      return (
-        owned &&
-        caller.owner === p.owner &&
-        caller.keyId === r.keyId &&
-        caller.agents.length === 1 &&
-        caller.agents[0] === r.agent &&
-        caller.scopes.length === 3 &&
-        ['read', 'invoke', 'files'].every((scope) => caller.scopes.includes(scope)) &&
-        caller.dataScope !== 'owner' &&
-        caller.connection?.toolMode === r.toolMode &&
-        caller.connection.allowedModes?.length === 1 &&
-        caller.connection.allowedModes[0] === r.toolMode
-      );
-    } catch {
-      return false;
-    }
-  }
   private action(
     p: Principal,
     r: LocalConnectionRecord | undefined,
@@ -108,29 +103,13 @@ export class LocalConnections {
     source: ConnectionSource,
   ): Plan['action'] {
     if (!r || r.phase === 'removed') return 'connect';
-    if (
-      r.phase === 'active' &&
+    return r.phase === 'active' &&
       r.toolMode === source.toolMode &&
-      this.validKey(p, r, s) &&
+      validDshKey(this.auth, p, r, s) &&
       this.dsh.matches(s, r.owned) &&
       this.auth.list(p).find((k) => k.id === r.keyId)?.execution === source.execution
-    )
-      return 'sync';
-    return 'repair';
-  }
-  private unchanged(r: LocalConnectionRecord | undefined, s: DshSnapshot, id: string): void {
-    const providerId = `oaa-${id}`,
-      ref = `OAA_DSH_${id.toUpperCase()}`;
-    if (s.profileProviders.includes(providerId)) throw clientConflict();
-    const provider = s.providers[providerId],
-      value = s.refs[ref];
-    if (!r || r.phase === 'removed') {
-      if (provider !== undefined || value !== undefined) throw clientConflict();
-    } else if (
-      (provider !== undefined && canonical(provider) !== canonical(r.owned.provider)) ||
-      (value !== undefined && (typeof value !== 'string' || sha(value) !== r.owned.tokenHash))
-    )
-      throw clientConflict();
+      ? 'sync'
+      : 'repair';
   }
   private async records(): Promise<LocalConnectionRecord[]> {
     return (await this.state.list()).filter((r) => r.owner === this.owner);
@@ -148,7 +127,11 @@ export class LocalConnections {
       try {
         await this.dsh.locked(async (s) => {
           if (s.root !== r.dshHome) throw clientConflict();
-          if (r.phase !== 'removing' && this.dsh.matches(s, r.owned) && this.validKey(p, r, s)) {
+          if (
+            r.phase !== 'removing' &&
+            this.dsh.matches(s, r.owned) &&
+            validDshKey(this.auth, p, r, s)
+          ) {
             if (r.pendingSource) Object.assign(r, r.pendingSource);
             r.phase = 'active';
           } else if (
@@ -174,11 +157,11 @@ export class LocalConnections {
         await this.state.save(r);
       }
     }
-    // A crash between minting and journal persistence must not leave an untracked live grant.
+    const tracked = [...records, ...(await this.managed.recover(p))];
     for (const key of this.auth.list(p)) {
       if (typeof key.localConnectionId !== 'string' || typeof key.id !== 'string') continue;
       if (
-        !records.some(
+        !tracked.some(
           (r) =>
             r.id === key.localConnectionId &&
             r.keyId === key.id &&
@@ -194,11 +177,12 @@ export class LocalConnections {
       if (!s || s.root !== r.dshHome) status = 'unavailable';
       else if (!Object.hasOwn(s.providers, r.owned.providerId)) status = 'missing';
       else if (!this.dsh.matches(s, r.owned)) status = 'conflict';
-      else if (!this.validKey(p, r, s)) status = 'key_unavailable';
+      else if (!validDshKey(this.auth, p, r, s)) status = 'key_unavailable';
       else {
         try {
           if (
-            this.source(p, r.agent, r.model, base, r.toolMode).revision !== r.sourceRevision ||
+            this.source(p, r.agent, r.model, base, r.toolMode, 'dsh').revision !==
+              r.sourceRevision ||
             base !== r.baseUrl
           )
             status = 'outdated';
@@ -210,6 +194,7 @@ export class LocalConnections {
     return {
       id: r.id,
       target: 'dsh',
+      channel: 'api' as const,
       agent: r.agent,
       model: r.model,
       provider: r.owned.providerId,
@@ -235,37 +220,47 @@ export class LocalConnections {
       } catch (e) {
         error = e instanceof Fault ? e.code : 'local_connection_unavailable';
       }
+      const dshTarget = {
+        id: 'dsh' as const,
+        channel: 'api' as const,
+        available: !!snapshot,
+        error,
+        files: snapshot ? [snapshot.settings.file, snapshot.credentials.file] : [],
+        shared_profiles: true,
+      };
+      const dshViews = (await this.records())
+        .filter((r) => r.phase !== 'removed')
+        .map((r) => this.view(p, r, snapshot, base));
       return {
-        target: {
-          id: 'dsh',
-          available: !!snapshot,
-          error,
-          files: snapshot ? [snapshot.settings.file, snapshot.credentials.file] : [],
-          shared_profiles: true,
-        },
-        data: (await this.records())
-          .filter((r) => r.phase !== 'removed')
-          .map((r) => this.view(p, r, snapshot, base)),
+        target: dshTarget,
+        targets: { dsh: dshTarget, ...this.managed.targetSummaries() },
+        data: [...dshViews, ...(await this.managed.listViews(p, base))],
       };
     });
   }
   async preview(
     p: Principal,
-    agent: string,
+    agent: string | undefined,
     model: string,
     baseUrl: string,
     toolMode?: ToolBoundary,
+    target: LocalTargetId = 'dsh',
+    channel?: LocalChannel,
   ) {
     await this.ready;
     return this.exclusive(async () => {
-      const source = this.source(p, agent, model, baseUrl, toolMode),
+      assertChannelMatchesTarget(target, channel);
+      if (target !== 'dsh') return this.managed.preview(p, target, agent, model, baseUrl, toolMode);
+      if (!agent || agent === '*')
+        throw new Fault('invalid_request', 'Select a published source agent.', 400);
+      const source = this.source(p, agent, model, baseUrl, toolMode, 'dsh'),
         s = await this.dsh.snapshot();
       const bindingId = sha(canonical([p.owner, s.root, agent])).slice(0, 24);
       this.dsh.writable(s, `oaa-${bindingId}`, `OAA_DSH_${bindingId.toUpperCase()}`);
       const existing = (await this.records()).find((r) => r.id === bindingId);
       if (existing && existing.phase !== 'removed' && s.root !== existing.dshHome)
         throw clientConflict();
-      this.unchanged(existing, s, bindingId);
+      assertDshUnchanged(existing, s, bindingId);
       const action = this.action(p, existing, s, source);
       const id = randomBytes(24).toString('hex');
       for (const [key, value] of this.plans) if (value.expires < Date.now()) this.plans.delete(key);
@@ -291,7 +286,8 @@ export class LocalConnections {
       return {
         plan_id: id,
         action,
-        target: 'dsh',
+        target: 'dsh' as const,
+        channel: 'api' as const,
         agent,
         model,
         model_count: source.models.length,
@@ -305,25 +301,47 @@ export class LocalConnections {
       };
     });
   }
-  async apply(p: Principal, planId: string, base: string, revalidate?: () => Principal) {
+  async apply(
+    p: Principal,
+    planId: string,
+    base: string,
+    revalidate?: () => Principal,
+    target?: LocalTargetId,
+    channel?: LocalChannel,
+  ) {
     await this.ready;
     return this.exclusive(async () => {
+      if (target) assertChannelMatchesTarget(target, channel);
+      if (this.managed.hasPlan(planId))
+        return this.managed.apply(p, planId, base, revalidate, target, channel);
       const plan = this.plans.get(planId);
-      if (!plan || plan.owner !== p.owner || plan.keyId !== p.keyId || plan.expires < Date.now())
+      if (
+        !plan ||
+        plan.owner !== p.owner ||
+        plan.keyId !== p.keyId ||
+        plan.expires < Date.now() ||
+        (target && target !== 'dsh') ||
+        (channel && channel !== 'api')
+      )
         throw clientConflict();
-      if (plan.completed) {
-        const r = await this.record(plan.bindingId);
-        return this.view(p, r, await this.dsh.snapshot(), base);
-      }
-      const source = this.source(p, plan.source.id, plan.source.model, base, plan.source.toolMode);
+      if (plan.completed)
+        return this.view(p, await this.record(plan.bindingId), await this.dsh.snapshot(), base);
+      const source = this.source(
+        p,
+        plan.source.id,
+        plan.source.model,
+        base,
+        plan.source.toolMode,
+        'dsh',
+      );
       if (source.revision !== plan.source.revision || base !== plan.baseUrl) throw clientConflict();
       const result = await this.dsh.locked(async (snapshot) => {
         if (snapshot.revision !== plan.revision || snapshot.root !== plan.root)
           throw clientConflict();
-        let existing = (await this.records()).find((r) => r.id === plan.bindingId);
+        const existing = (await this.records()).find((r) => r.id === plan.bindingId);
         const current = () => this.authority(p, revalidate);
         current();
-        this.unchanged(existing, snapshot, plan.bindingId);
+        assertDshUnchanged(existing, snapshot, plan.bindingId);
         if (
           existing?.keyId !== plan.existingKeyId ||
           this.action(p, existing, snapshot, source) !== plan.action
@@ -356,8 +374,8 @@ export class LocalConnections {
             current();
             await this.dsh.sync(snapshot, { ...existing.owned, provider: previous }, provider);
           } catch (error) {
-            const current = await this.dsh.snapshot().catch(() => null);
-            if (current && this.dsh.matches(current, existing.owned)) {
+            const latest = await this.dsh.snapshot().catch(() => null);
+            if (latest && this.dsh.matches(latest, existing.owned)) {
               Object.assign(existing, existing.pendingSource);
               existing.phase = 'active';
               delete existing.previousProvider;
@@ -368,7 +386,7 @@ export class LocalConnections {
             }
             existing.owned.provider = previous;
             existing.phase =
-              current && this.dsh.matches(current, existing.owned) ? 'active' : 'conflict';
+              latest && this.dsh.matches(latest, existing.owned) ? 'active' : 'conflict';
             delete existing.previousProvider;
             delete existing.pendingSource;
             await this.state.save(existing);
@@ -449,8 +467,8 @@ export class LocalConnections {
           this.revoke(p, record);
           record.phase = 'failed';
           try {
-            const current = await this.dsh.snapshot();
-            if (current.root !== record.dshHome || !(await this.dsh.remove(current, record.owned)))
+            const latest = await this.dsh.snapshot();
+            if (latest.root !== record.dshHome || !(await this.dsh.remove(latest, record.owned)))
               record.phase = 'conflict';
           } catch {
             record.phase = 'conflict';
@@ -468,9 +486,25 @@ export class LocalConnections {
       return this.view(p, result, await this.dsh.snapshot(), base);
     });
   }
-  async remove(p: Principal, id: string, base: string, revalidate?: () => Principal) {
+  async remove(
+    p: Principal,
+    id: string,
+    base: string,
+    revalidate?: () => Principal,
+    target?: LocalTargetId,
+    channel?: LocalChannel,
+  ) {
     await this.ready;
     return this.exclusive(async () => {
+      if (target) assertChannelMatchesTarget(target, channel);
+      const ext = await this.managed.findRecord(id);
+      if (ext) {
+        if ((target && ext.target !== target) || (channel && ext.channel !== channel))
+          throw new Fault('local_connection_not_found', 'Local connection not found.', 404);
+        return this.managed.remove(p, ext, base, revalidate);
+      }
+      if ((target && target !== 'dsh') || (channel && channel !== 'api'))
+        throw new Fault('local_connection_not_found', 'Local connection not found.', 404);
       const r = await this.record(id);
       this.authority(p, revalidate);
       this.revoke(p, r);
@@ -491,13 +525,28 @@ export class LocalConnections {
       return { ...this.view(p, r, null, base), key_revoked: true, configuration_removed: removed };
     });
   }
-  async check(p: Principal, id: string, base: string) {
+  async check(
+    p: Principal,
+    id: string,
+    base: string,
+    target?: LocalTargetId,
+    channel?: LocalChannel,
+  ) {
     await this.ready;
     return this.exclusive(async () => {
+      if (target) assertChannelMatchesTarget(target, channel);
+      const ext = await this.managed.findRecord(id);
+      if (ext) {
+        if ((target && ext.target !== target) || (channel && ext.channel !== channel))
+          throw new Fault('local_connection_not_found', 'Local connection not found.', 404);
+        return this.managed.check(p, ext, base);
+      }
+      if ((target && target !== 'dsh') || (channel && channel !== 'api'))
+        throw new Fault('local_connection_not_found', 'Local connection not found.', 404);
       const r = await this.record(id),
         s = await this.dsh.snapshot();
       if (s.root !== r.dshHome || !this.dsh.matches(s, r.owned)) throw clientConflict();
-      if (!this.validKey(p, r, s))
+      if (!validDshKey(this.auth, p, r, s))
         return { ok: false, code: 'key_unavailable', generation_verified: false };
       if (r.baseUrl !== base) return { ok: false, code: 'outdated', generation_verified: false };
       return {

@@ -39,6 +39,10 @@ const resetBody = z
     new_password: z.string().max(1000),
   })
   .strict();
+const verifySignupBody = z
+  .object({ email: z.string().max(320), code: z.string().max(1000) })
+  .strict();
+const resetRequestBody = z.object({ email: z.string().max(320) }).strict();
 const runsQuery = z
   .object({
     limit: z.coerce.number().optional(),
@@ -93,7 +97,7 @@ export function registerPortalRoutes(
   );
   app.post('/v1/portal/signup', CREDENTIALS_ROUTE, async (req, reply) => {
     const b = signupBody.parse(req.body);
-    const { account, session } = await platform.signup(
+    const outcome = await platform.portalSignup(
       {
         email: b.email,
         password: b.password,
@@ -102,12 +106,26 @@ export function registerPortalRoutes(
       },
       clientIp(req) ?? 'unknown',
     );
+    if (outcome.kind === 'verification')
+      return reply.code(202).send({ verification_required: true, message: outcome.message });
+    return reply
+      .code(201)
+      .send({ account: wireAccount(outcome.account), session: wireSession(outcome.session) });
+  });
+  app.post('/v1/portal/signup/verify', CREDENTIALS_ROUTE, async (req, reply) => {
+    const b = verifySignupBody.parse(req.body);
+    const { account, session } = platform.verifySignup(b, clientIp(req) ?? 'unknown');
     return reply.code(201).send({ account: wireAccount(account), session: wireSession(session) });
   });
   app.post('/v1/portal/login', CREDENTIALS_ROUTE, async (req) => {
     const b = loginBody.parse(req.body);
     const { account, session } = await platform.login(b, clientIp(req) ?? 'unknown');
     return { account: wireAccount(account), session: wireSession(session) };
+  });
+  app.post('/v1/portal/password-reset/request', CREDENTIALS_ROUTE, async (req, reply) => {
+    const b = resetRequestBody.parse(req.body);
+    const { message } = platform.requestPasswordReset(b, clientIp(req) ?? 'unknown');
+    return reply.code(202).send({ verification_required: true, message });
   });
   app.post('/v1/portal/password-reset', CREDENTIALS_ROUTE, async (req, reply) => {
     const b = resetBody.parse(req.body);

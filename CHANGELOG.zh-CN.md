@@ -4,6 +4,16 @@
 
 ## 未发布
 
+## 0.0.70（2026-11-18）
+
+- **双层 Harness 与协议兼容性增强**：通过 `oaa-caller`（`oaa mcp-relay`）为内置 `claude` 与 `codex` 原生引擎打通调用方工具桥接（含 Codex `mcpServer/elicitation/request` 声明工具自动放行），补齐 Claude Token 级增量流式与 Codex `turn/interrupt` 协议级优雅中断，并解锁 Codex 与全部 ACP 适配器的无工具纯推理通道（`toolsDisabled`）。面向 OpenAI Chat/Responses、Anthropic 与 Gemini 驱动原生下推 JSON Schema 结构化输出及 `tool_choice`（`none` / `auto` / `required` / 具名函数），在 `repairs === 0` 严格原生模式下解除流式阻塞，并为外部桥接智能体提供强制工具纠正轮与 `422 tool_choice_unmet` 错误契约。
+- **全引擎智能编排、结构化 Handoff 与工具评测**：支持所有具备无工具推理能力的引擎或显式绑定专职 `orchestration.planner` 开启 `@fast` / `@best` / `@eco` / `recommend` 自动编排；`scope: "helpers"` 开放跨多智能体流水线分工；`handoff` 新增步骤摘要与产物引用注入；模型评测新增第 5 维度 `tool_calling`。
+- **控制台交互工作台与双通道本机互联**：新增控制台一级视图 `#workbench`（`previous_response_id` 多轮续接、图片粘贴/上传、流式思考进度、内联批准/拒绝、模拟外层 `bridge` 工具调试与四协议代码一键导出）及 Webhooks 完整 CRUD 管理界面。本机互联在 DSH 之外扩展支持 `opencode` / `codex` API 自动配置及 `claude-desktop` / `cursor` / `windsurf` / `claude-code` MCP 桥一键安全注入（统一引用 `0600` 私有密钥文件）。
+- **持久化工作站深化**：新增基于 SQLite FTS5 的项目记忆全文检索（`GET /v1/projects/:id/memory/search`、`memory_search` 工具与 BM25 相关性召回）、支持 IANA 时区的 Cron 与 SHA-256 鉴权入站 Webhook 工作流触发器，以及流式大文件产物落盘与下载（默认上限从 8 MiB 升至 64 MiB，最高可配至 256 MiB）。
+- **Electron 桌面统一、安全加固与可观测性**：将 macOS `hiddenInset` 顶栏、Dock 审批角标与孤儿网关校验接管合入跨平台 Electron 安全沙箱壳，新增沙箱化托盘快捷审批小窗与开机自启；`srt` 沙箱升级为按调用方主体隔离的多槽位并发池并补齐 Antigravity/ACP 规则；开发者平台限流写入 SQLite 并支持可选防枚举验证码回调；新增 Prometheus `GET /metrics`、W3C `traceparent`/`tracestate` 全链路追踪、远程节点 `conversion-profiles-v1` 适配器画像同步及防注入一键配对 UI。
+
+真实智能体端到端验收覆盖 Antigravity `1.5.10`、Codex `0.167.0`（流式、真实用量上报、`turn/interrupt`、无工具 `recommend`；S8 桥接真机复测因上游账号额度耗尽至 11 月 21 日阻塞，elicitation 协议解析与载荷已通过单测/集成测试）及 Claude Code `2.1.318`（未登录认证错误面）。跨平台 Electron 安装包仍需对应设备实机验收。
+
 ## 0.0.69（2026-11-18）
 
 - 将 Ollama、LM Studio、llama.cpp、Jan、GPT4All、LocalAI、vLLM 纳入本地模型运行器识别，增加模型列表检查与弹窗接入，选定模型可持久化发布成 OAA 智能体，不修改运行器自身设置。

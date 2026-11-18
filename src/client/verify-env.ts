@@ -23,8 +23,8 @@ export type Expectations = {
   approvals: boolean;
 };
 export const EXPECT: Partial<Record<AgentKind, Expectations>> = {
-  claude: { streaming: 'message', usage: true, bridge: false, resume: true, approvals: true },
-  codex: { streaming: 'token', usage: false, bridge: false, resume: true, approvals: true },
+  claude: { streaming: 'token', usage: true, bridge: true, resume: true, approvals: true },
+  codex: { streaming: 'token', usage: true, bridge: true, resume: true, approvals: true },
   // Antigravity: approvals are not bridged (the agent itself refuses: permission_denied); usage is first-turn only.
   antigravity: { streaming: 'token', usage: true, bridge: false, resume: true, approvals: false },
   fixture: { streaming: 'token', usage: true, bridge: true, resume: true, approvals: true },

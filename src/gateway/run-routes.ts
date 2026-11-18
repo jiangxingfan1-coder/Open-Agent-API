@@ -12,6 +12,7 @@ import { observeAuthorization, revalidateObservation } from './streams.js';
 import { etagMatches } from './overview.js';
 import { streamSlots } from './stream-slots.js';
 import { buildTimeline } from './timeline.js';
+import { attachTimelineTraces, runTraceOf } from './run-trace.js';
 import { runImageSummary } from './image-summary.js';
 import { Fault, faultOf } from '../core/util.js';
 
@@ -96,11 +97,13 @@ export function registerRunRoutes(app: FastifyInstance, context: RunRouteContext
     const queue = kernel.queueInsight(run.id, run.owner, state.status);
     const contract = outputContractOf(store, run.id);
     const images = runImageSummary(store, run.id);
+    const trace = runTraceOf(store, run.id);
     return {
       ...state,
       ...(contract ? { output_contract: contract } : {}),
       ...(queue ? { queue } : {}),
       ...(images.length ? { images } : {}),
+      ...(trace ? { trace } : {}),
     };
   });
   // Derived from durable events, steps and checkpoint marks; never calls a model or tool.
@@ -111,7 +114,11 @@ export function registerRunRoutes(app: FastifyInstance, context: RunRouteContext
     reply.header('ETag', etag);
     if (etagMatches(req.headers['if-none-match'], etag)) return reply.code(304).send();
     const images = runImageSummary(store, run.id);
-    const timeline = buildTimeline({ ...store.timelineSource(run.id, run.owner), now: Date.now() });
+    const timeline = attachTimelineTraces(
+      store,
+      run.id,
+      buildTimeline({ ...store.timelineSource(run.id, run.owner), now: Date.now() }),
+    );
     return images.length ? { ...timeline, images } : timeline;
   });
   app.get('/v1/runs/:id/steps', async (req) => {
@@ -202,6 +209,7 @@ export function registerRunRoutes(app: FastifyInstance, context: RunRouteContext
   });
   app.get('/v1/runs/:id', async (req) => {
     const run = ownedRun(req);
+    const trace = runTraceOf(store, run.id);
     return {
       response: responseObject(run),
       status: run.status,
@@ -210,6 +218,7 @@ export function registerRunRoutes(app: FastifyInstance, context: RunRouteContext
       steps: store.steps(run.id),
       actions: store.approvals(run.id),
       artifacts: run.artifactIds.map((f) => store.file(f, run.owner)),
+      ...(trace ? { trace } : {}),
     };
   });
   app.get('/v1/runs', async (req) => {

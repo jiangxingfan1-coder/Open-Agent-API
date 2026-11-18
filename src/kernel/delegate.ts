@@ -17,9 +17,11 @@ import type {
   Principal,
   Run,
   ToolCall,
+  TraceContext,
   OutputContract,
 } from '../core/contracts.js';
 import { LEGACY_SUBJECT, sandboxable } from '../core/contracts.js';
+import { childTraceContext } from '../core/trace-context.js';
 import { Fault, checkAbort, faultOf } from '../core/util.js';
 import { LIMITS } from '../core/limits.js';
 import { permits } from '../fabric/network.js';
@@ -31,7 +33,13 @@ import { contractInstruction } from './output-contract.js';
 /** 委托需要的内核能力。由 Kernel 显式提供，不暴露它的私有字段。 */
 export interface DelegateRuntime {
   readonly store: Store;
-  submit(principal: Principal, invocation: Invocation, idem?: string, providerKey?: string): Run;
+  submit(
+    principal: Principal,
+    invocation: Invocation,
+    idem?: string,
+    providerKey?: string,
+    trace?: TraceContext,
+  ): Run;
   wait(runId: string, includeActions: boolean, signal: AbortSignal): Promise<Run>;
   cancel(principal: Principal, runId: string): Promise<Run>;
   /** 父运行的调用方密钥（BYOK），只在内存里。 */
@@ -244,6 +252,7 @@ export async function callDelegate(
         },
         undefined,
         childKey,
+        run.trace ? childTraceContext(run.trace) : undefined,
       );
     } catch (err) {
       const f = faultOf(err);

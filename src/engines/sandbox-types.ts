@@ -9,6 +9,11 @@ export type SandboxPolicy = {
   allowedDomains: string[];
   /** CPU-time cap in seconds (`ulimit -t`). */
   cpuSeconds: number;
+  /**
+   * Caller trust subject (for example `key:<id>` or `acct:<id>`). Distinct subjects are isolated
+   * onto separate sandbox proxy instances; untagged calls run one at a time.
+   */
+  subject?: string;
 };
 export type SandboxedCommand = {
   command: string;
@@ -27,7 +32,7 @@ export interface SandboxLauncher {
   readonly backend: SandboxBackend;
   /** Self-check outcome; undefined until checked or when the check failed. */
   report(): SandboxReport | undefined;
-  /** Wrap one command. Resolves only when this process may start (one at a time). */
+  /** Wrap one command. Admits concurrent calls across isolated subject slots up to pool capacity. */
   wrap(
     command: string,
     args: string[],

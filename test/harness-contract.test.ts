@@ -113,10 +113,12 @@ test('harness: mode resolution, note and bridge precheck', () => {
   );
   assert.equal(CLIENT_TOOLS_MANAGED_NOTE.split(/(?<=\.)\s+/).length, 3);
   assert.throws(
-    () => assertClientToolsSupported(agent({ engine: 'codex', model: 'default' }), 'bridge'),
+    () => assertClientToolsSupported(agent({ engine: 'dsh', model: 'default' }), 'bridge'),
     code('client_tools_bridge_unsupported'),
   );
   assertClientToolsSupported(agent(), 'bridge'); // 内核智能体支持桥接（T09）
+  assertClientToolsSupported(agent({ engine: 'codex', model: 'default' }), 'bridge');
+  assertClientToolsSupported(agent({ engine: 'claude', model: 'default' }), 'bridge');
   assertClientToolsSupported(agent({ engine: 'codex', model: 'default' }), 'managed');
   assertClientToolsSupported(agent(), undefined);
 });
@@ -341,8 +343,9 @@ test('harness gateway: X-OAA-Client-Tools header, errors and bridge precheck', a
     const health = await s.app.inject({ method: 'GET', url: '/health' });
     assert.ok(health.json().features.includes('client-tools-policy-v1'));
     assert.ok(GATEWAY_FEATURES.includes('client-tools-policy-v1'));
-    assert.equal(conversionProfile('kernel').client_tools, 'bridge');
-    for (const engine of ['codex', 'claude', 'adapter/missing'])
+    for (const engine of ['kernel', 'codex', 'claude'])
+      assert.equal(conversionProfile(engine).client_tools, 'bridge', engine);
+    for (const engine of ['dsh', 'antigravity', 'adapter/missing'])
       assert.equal(conversionProfile(engine).client_tools, 'managed', engine);
   } finally {
     await s.cleanup();

@@ -10,13 +10,86 @@ import type { VisibleAgent } from './agent-views.js';
 import { modelAliases } from './compat-models.js';
 import { acceptsImages } from './image-catalog.js';
 
-/** Refuse declared paths back into the DSH being configured; opaque native behavior is not a sandbox. */
-export function assertDshSource(
+export const API_TARGETS = ['dsh', 'opencode', 'codex'] as const;
+export const MCP_TARGETS = ['claude-desktop', 'cursor', 'windsurf', 'claude-code'] as const;
+export const LOCAL_TARGETS = [...API_TARGETS, ...MCP_TARGETS] as const;
+export type ApiTargetId = (typeof API_TARGETS)[number];
+export type McpTargetId = (typeof MCP_TARGETS)[number];
+export type LocalTargetId = (typeof LOCAL_TARGETS)[number];
+export type LocalChannel = 'api' | 'mcp';
+
+function matchesClientEngine(
+  target: LocalTargetId,
+  engine: string,
+  adapter: NonNullable<GatewayConfig['localWorker']>['adapters'][string] | undefined,
+): boolean {
+  const cmd = adapter && 'command' in adapter ? path.basename(adapter.command) : '';
+  const args = adapter && 'args' in adapter ? adapter.args.map((a) => path.basename(a)) : [];
+  const preset = adapter?.transport === 'acp' ? adapter.preset : undefined;
+  if (target === 'dsh') {
+    return engine === 'dsh' || preset === 'deepseek-harness' || /^dsh(?:\.exe|\.cmd)?$/i.test(cmd);
+  }
+  if (target === 'opencode') {
+    return (
+      engine === 'opencode' ||
+      engine === 'adapter/opencode' ||
+      engine === 'adapter/opencode-acp' ||
+      preset === 'opencode-acp' ||
+      /^opencode(?:-acp)?(?:\.exe|\.cmd)?$/i.test(cmd) ||
+      args.some((a) => /^opencode(?:-acp)?(?:\.mjs|\.cjs|\.js)?$/i.test(a))
+    );
+  }
+  if (target === 'codex') {
+    return (
+      engine === 'codex' ||
+      engine === 'adapter/codex' ||
+      engine === 'adapter/codex-acp' ||
+      preset === 'codex-acp' ||
+      /^codex(?:-acp)?(?:\.exe|\.cmd)?$/i.test(cmd) ||
+      args.some((a) => /^codex(?:-acp)?(?:\.mjs|\.cjs|\.js)?$/i.test(a))
+    );
+  }
+  if (target === 'claude-code' || target === 'claude-desktop') {
+    return (
+      engine === 'claude' ||
+      engine === 'adapter/claude' ||
+      engine === 'adapter/claude-acp' ||
+      preset === 'claude-acp' ||
+      /^claude(?:-acp|-code)?(?:\.exe|\.cmd)?$/i.test(cmd)
+    );
+  }
+  if (target === 'cursor') {
+    return (
+      engine === 'adapter/cursor' ||
+      preset === 'cursor' ||
+      /^cursor(?:-agent)?(?:\.exe|\.cmd)?$/i.test(cmd)
+    );
+  }
+  return (
+    engine === 'adapter/windsurf' ||
+    preset === 'windsurf' ||
+    /^windsurf(?:\.exe|\.cmd)?$/i.test(cmd)
+  );
+}
+
+const TARGET_NAMES: Record<LocalTargetId, string> = {
+  dsh: 'DSH',
+  opencode: 'OpenCode',
+  codex: 'Codex',
+  'claude-desktop': 'Claude Desktop',
+  cursor: 'Cursor',
+  windsurf: 'Windsurf',
+  'claude-code': 'Claude Code',
+};
+
+/** Refuse declared paths back into the target client being configured; opaque native behavior is not a sandbox. */
+export function assertTargetSource(
   store: Store,
   config: GatewayConfig,
   owner: string,
   agentId: string,
   base: string,
+  target: LocalTargetId = 'dsh',
 ): void {
   const visited = new Set<string>();
   const isGateway = (endpoint: string) => {
@@ -40,16 +113,10 @@ export function assertDshSource(
     const adapter = a.engine.startsWith('adapter/')
       ? config.localWorker?.adapters[a.engine.slice(8)]
       : undefined;
-    const dsh =
-      a.engine === 'dsh' ||
-      (adapter?.transport === 'acp' && adapter.preset === 'deepseek-harness') ||
-      (adapter &&
-        'command' in adapter &&
-        /^dsh(?:\.exe|\.cmd)?$/i.test(path.basename(adapter.command)));
-    if (dsh)
+    if (matchesClientEngine(target, a.engine, adapter))
       throw new Fault(
         'local_connection_unavailable',
-        'DSH cannot be connected back into itself, including through declared delegates or helpers.',
+        `${TARGET_NAMES[target]} cannot be connected back into itself, including through declared delegates or helpers.`,
         409,
       );
     if (adapter && 'url' in adapter && isGateway(adapter.url))
@@ -75,6 +142,34 @@ export function assertDshSource(
   visit(agentId);
 }
 
+export function assertDshSource(
+  store: Store,
+  config: GatewayConfig,
+  owner: string,
+  agentId: string,
+  base: string,
+): void {
+  assertTargetSource(store, config, owner, agentId, base, 'dsh');
+}
+
+export function blockedTargetsForSource(
+  store: Store,
+  config: GatewayConfig,
+  owner: string,
+  agentId: string,
+  base: string,
+): LocalTargetId[] {
+  const blocked: LocalTargetId[] = [];
+  for (const target of LOCAL_TARGETS) {
+    try {
+      assertTargetSource(store, config, owner, agentId, base, target);
+    } catch {
+      blocked.push(target);
+    }
+  }
+  return blocked;
+}
+
 export type ConnectionSource = {
   id: string;
   version: string;
@@ -96,15 +191,16 @@ export function connectionSource(
   model: string,
   base: string,
   requestedMode?: ToolBoundary,
+  target: LocalTargetId = 'dsh',
 ): ConnectionSource {
   const view = agents.find((a) => a.id === agentId);
   if (!view)
     throw new Fault(
       'agent_not_found',
-      'Publish the source agent before connecting it to DSH.',
+      `Publish the source agent before connecting it to ${TARGET_NAMES[target]}.`,
       404,
     );
-  assertDshSource(store, config, principal.owner, agentId, base);
+  assertTargetSource(store, config, principal.owner, agentId, base, target);
   if (!view.dispatchable)
     throw new Fault(
       'model_unavailable',

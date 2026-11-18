@@ -92,10 +92,15 @@ $PidFile = Join-Path $DataDir "desktop.pid"
 ${PS_LANG}`;
 
 export function desktopPs1(req) {
-  return `# Open Agent API 桌面启动器 / desktop launcher：后台启动网关（无控制台窗口），然后以独立窗口打开控制台。
+  return `# Open Agent API 桌面启动器 / desktop launcher：优先启动统一 Electron 安全沙箱桌面端，缺失时回退后台网关与独立窗口。
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 ${PS_COMMON}
+$ElectronExe = Join-Path $BundleRoot "desktop\\open-agent-api.exe"
+if (Test-Path -LiteralPath $ElectronExe) {
+  Start-Process -FilePath $ElectronExe -WorkingDirectory $BundleRoot
+  exit 0
+}
 function Show-Error([string]$Message) {
   [System.Windows.Forms.MessageBox]::Show($Message, "Open Agent API", 0, 16) | Out-Null
   exit 1

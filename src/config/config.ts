@@ -163,6 +163,8 @@ export const workerSchema = z
     sandbox: z
       .object({
         backend: z.enum(['none', 'srt']).default('none'),
+        /** Maximum isolated sandbox slots running concurrently across distinct caller subjects. */
+        maxConcurrentSandboxes: z.number().int().min(1).max(32).default(4),
         /** Upper bound for domains a sandboxed script may reach (publisher list ∩ this). */
         allowDomains: z.array(domainPattern).max(200).default([]),
         cpuSeconds: z.number().int().min(1).max(3600).default(60),
@@ -174,7 +176,7 @@ export const workerSchema = z
          */
         native: z
           .partialRecord(
-            z.enum(['claude', 'codex']),
+            z.enum(['claude', 'codex', 'antigravity']),
             z
               .object({
                 providerDomains: z.array(domainPattern).min(1).max(20),
@@ -194,8 +196,22 @@ export const workerSchema = z
           .optional(),
       })
       .strict()
-      .default({ backend: 'none', allowDomains: [], cpuSeconds: 60, denyRead: [], native: {} }),
+      .default({
+        backend: 'none',
+        maxConcurrentSandboxes: 4,
+        allowDomains: [],
+        cpuSeconds: 60,
+        denyRead: [],
+        native: {},
+      }),
     scripts: z.array(z.enum(['node', 'python3'])).default([]),
+    /** Optional cap on exported artifact bytes per run (default 64 MiB, up to 256 MiB). */
+    maxArtifactBytes: z
+      .number()
+      .int()
+      .min(1024)
+      .max(256 * 1024 * 1024)
+      .optional(),
     adapters: z
       .record(
         z.string(),
@@ -287,6 +303,13 @@ export const platformSchema = z
     /** Account keys never reach `host`. */
     keyExecution: z.enum(['workspace', 'sandbox']).default('workspace'),
     sessionTtlHours: z.number().int().min(1).max(8760).default(720),
+    /**
+     * Optional signed webhook URL for signup & self-service password-reset verification codes.
+     * When set, duplicate-email signups no longer return 409 `email_taken` (eliminating account
+     * enumeration); unset preserves synchronous signup compatibility.
+     */
+    verificationWebhookUrl: z.string().url().optional(),
+    verificationWebhookSecret: z.string().min(16).max(256).optional(),
   })
   .strict();
 const gatewayObject = z
@@ -349,6 +372,13 @@ const gatewayObject = z
     maxActiveRunsPerSubject: z.number().int().min(1).max(32).optional(),
     /** Optional per-caller cap on stored file bytes (uploads and artifacts). Unset: unlimited. */
     maxStoredBytesPerSubject: z.number().int().min(1).optional(),
+    /** Optional cap on exported artifact bytes per run (default 64 MiB, up to 256 MiB). */
+    maxArtifactBytes: z
+      .number()
+      .int()
+      .min(1024)
+      .max(256 * 1024 * 1024)
+      .optional(),
     approvalTimeoutMs: z.number().int().min(50).max(86_400_000).default(600_000),
     /**
      * What a request that declares caller tools gets when it does not choose a mode itself

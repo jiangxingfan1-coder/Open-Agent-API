@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Fault } from '../core/util.js';
 import { collectProcess } from './process.js';
+import { WorkerSlotBackend, type SrtSlotBackend } from './srt-slot-client.js';
 import type {
   SandboxBackend,
   SandboxedCommand,
@@ -12,6 +13,7 @@ import type {
   SandboxReport,
 } from './sandbox-types.js';
 
+export type { SrtSlotBackend } from './srt-slot-client.js';
 export type {
   SandboxBackend,
   SandboxedCommand,
@@ -20,57 +22,55 @@ export type {
   SandboxReport,
 } from './sandbox-types.js';
 
-/**
- * OS-level isolation for processes a worker starts on behalf of `sandbox`-level callers
- * (docs/sandbox-design.md). Backends are replaceable; S1 ships `srt`
- * (@anthropic-ai/sandbox-runtime: sandbox-exec on macOS, bubblewrap on Linux, host-side proxies
- * that allow only listed domains).
- *
- * Boundary notes that shape this implementation:
- * - srt binds a connection to a per-invocation allow list through a command ID the sandboxed
- *   client presents; "presenting another live invocation's id gets that invocation's allows".
- *   So this launcher runs at most ONE sandboxed process at a time per worker: no concurrent
- *   process can borrow another's network list.
- * - srt reads are allowed by default. Every call denies the home directory, other volumes and the
- *   OAA data directory, then re-opens only the workspace and the declared read-only paths.
- * - srt does not limit CPU or memory. A `ulimit -t` CPU-time cap is applied outside the sandbox;
- *   wall time is enforced by the caller's AbortSignal. Memory and process-count limits are not
- *   enforced by this backend.
- */
-/** Native engines that can run inside the sandbox (S2a; see docs/sandbox-design.md §4.1). */
-export const sandboxNativeEngines = ['claude', 'codex'] as const;
+/** Native engines that have a sandbox profile (see docs/sandbox-design.md §4.1). */
+export const sandboxNativeEngines = ['claude', 'codex', 'antigravity'] as const;
 export type SandboxNativeEngine = (typeof sandboxNativeEngines)[number];
+export type SandboxProfileEngine = SandboxNativeEngine | 'acp';
+export type SandboxEngineProfile = {
+  homeVar: string;
+  homeDir: string;
+  keyVar?: string;
+  args: string[];
+  /** Populate isolated XDG directories inside `.oaa-home` (Antigravity and generic ACP CLIs). */
+  xdg?: boolean;
+};
+
 /**
- * Per-engine sandbox profile: where the CLI keeps its state (pointed at the session's own
- * `.oaa-home`), which variable carries the caller's key, and flags that keep the CLI from using
- * the owner's login or nesting its own OS sandbox inside ours.
+ * Per-engine sandbox profile: isolated state directory inside `.oaa-home`, caller BYOK environment
+ * variable (when applicable), and flags preventing nested OS sandboxes or host-credential access.
  */
-export const nativeSandboxProfiles: Record<
-  SandboxNativeEngine,
-  { homeVar: string; homeDir: string; keyVar: string; args: string[] }
-> = {
+export const nativeSandboxProfiles: Record<SandboxProfileEngine, SandboxEngineProfile> = {
   claude: {
     homeVar: 'CLAUDE_CONFIG_DIR',
     homeDir: '.claude',
     keyVar: 'ANTHROPIC_API_KEY',
     args: [],
   },
-  // Unverified until the S2 live check: Codex reading OPENAI_API_KEY with an empty CODEX_HOME.
   codex: {
     homeVar: 'CODEX_HOME',
     homeDir: '.codex',
     keyVar: 'OPENAI_API_KEY',
     args: ['-c', 'sandbox_mode="danger-full-access"'],
   },
+  antigravity: {
+    homeVar: 'AGY_HOME',
+    homeDir: '.gemini',
+    keyVar: 'GEMINI_API_KEY',
+    args: [],
+    xdg: true,
+  },
+  acp: {
+    homeVar: 'XDG_CONFIG_HOME',
+    homeDir: '.config',
+    args: [],
+    xdg: true,
+  },
 };
+
 /** POSIX single-quote a word for `/bin/sh`. */
 export const shellQuote = (word: string): string => `'${word.replace(/'/g, `'\\''`)}'`;
 
-/**
- * Reads denied in every sandboxed call before the per-call re-opens. Home and the volumes
- * root cover user data and project checkouts; the worker data directory covers other sessions,
- * bundles and credentials.
- */
+/** Reads denied in every sandboxed call before the per-call re-opens. */
 export function defaultDeniedReads(dataDir: string): string[] {
   const denied = [os.homedir(), path.resolve(dataDir)];
   if (process.platform === 'darwin') denied.push('/Volumes', '/Users', '/private/var/folders');
@@ -78,7 +78,7 @@ export function defaultDeniedReads(dataDir: string): string[] {
   return [...new Set(denied)];
 }
 
-/** Language runtimes a sandboxed script needs to read (node install, python). */
+/** Language runtimes a sandboxed script needs to read (node install). */
 export function runtimeReadPaths(): string[] {
   const nodeRoot = path.dirname(path.dirname(process.execPath));
   return [nodeRoot];
@@ -93,99 +93,273 @@ export function permittedDomains(declared: string[], ownerAllowed: string[]): st
   return [...new Set(declared.filter(covered))];
 }
 
-/**
- * How to start an installed CLI inside the sandbox. Symlinks under the (denied) home directory
- * cannot be followed there, so the real path is used; a `#!/usr/bin/env node` script runs on the
- * real node binary. `readOnly` covers the install: a node package's root, or a binary's directory.
- */
-export async function cliLaunch(
-  executable: string,
-): Promise<{ command: string; prefix: string[]; readOnly: string[]; real: string }> {
-  const { open, realpath, stat } = await import('node:fs/promises');
-  const real = await realpath(executable);
-  const handle = await open(real, 'r');
-  let head = '';
-  try {
-    const buffer = Buffer.alloc(128);
-    const { bytesRead } = await handle.read(buffer, 0, 128, 0);
-    head = buffer.subarray(0, bytesRead).toString('utf8');
-  } finally {
-    await handle.close();
-  }
-  const firstLine = head.split('\n')[0] ?? '';
-  if ((firstLine.startsWith('#!') && /\bnode\b/.test(firstLine)) || /\.(mjs|cjs|js)$/.test(real)) {
-    // The nearest package root within 4 levels (a CLI's own package), else just the script's
-    // directory: never widen to an unrelated ancestor.
-    let root = path.dirname(real);
-    let candidate = root;
-    for (let i = 0; i < 4; i++) {
-      const found = await stat(path.join(candidate, 'package.json')).then(
+async function nearestPackageRoot(realFile: string): Promise<string> {
+  const fallback = path.dirname(realFile);
+  let candidate = fallback;
+  for (let i = 0; i < 4; i++) {
+    for (const marker of ['package.json', 'pyproject.toml']) {
+      const found = await stat(path.join(candidate, marker)).then(
         () => true,
         () => false,
       );
-      if (found) {
-        root = candidate;
-        break;
-      }
-      candidate = path.dirname(candidate);
+      if (found) return candidate;
     }
-    return {
-      command: process.execPath,
-      prefix: [real],
-      readOnly: [root, ...runtimeReadPaths()],
-      real,
-    };
+    candidate = path.dirname(candidate);
   }
-  return { command: real, prefix: [], readOnly: [path.dirname(real)], real };
+  return fallback;
 }
 
-type SrtModule = typeof import('@anthropic-ai/sandbox-runtime');
+function appBundleContents(realFile: string): string | undefined {
+  const marker = `.app${path.sep}Contents${path.sep}`;
+  const idx = realFile.indexOf(marker);
+  return idx >= 0 ? realFile.slice(0, idx + marker.length - 1) : undefined;
+}
+
+const isNodeScript = (firstLine: string, realFile: string) =>
+  (firstLine.startsWith('#!') && /\bnode\b/.test(firstLine)) || /\.(mjs|cjs|js)$/.test(realFile);
+
+async function readShebang(realFile: string): Promise<string> {
+  const handle = await open(realFile, 'r');
+  try {
+    const buffer = Buffer.alloc(128);
+    const { bytesRead } = await handle.read(buffer, 0, 128, 0);
+    return buffer.subarray(0, bytesRead).toString('utf8').split('\n')[0] ?? '';
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Resolve how to launch an installed CLI or stdio ACP adapter inside the sandbox: dereferences
+ * symlinks (whose links under HOME are denied), locates bounded read-only package/app-bundle roots,
+ * and resolves script file arguments when the command itself is a language runtime.
+ */
+export async function cliLaunch(
+  executable: string,
+  args: readonly string[] = [],
+): Promise<{
+  command: string;
+  prefix: string[];
+  args: string[];
+  readOnly: string[];
+  real: string;
+}> {
+  const real = await realpath(executable);
+  const firstLine = await readShebang(real);
+  const readOnly: string[] = [];
+  const bundleRoot = appBundleContents(real);
+  if (bundleRoot) readOnly.push(bundleRoot);
+
+  let command = real;
+  let prefix: string[] = [];
+  if (isNodeScript(firstLine, real)) {
+    command = process.execPath;
+    prefix = [real];
+    readOnly.push(await nearestPackageRoot(real), ...runtimeReadPaths());
+  } else {
+    readOnly.push(path.dirname(real));
+    if (real === process.execPath || /\bnode(?:\.exe)?$/i.test(path.basename(real)))
+      readOnly.push(...runtimeReadPaths());
+  }
+
+  const resolvedArgs: string[] = [];
+  for (const arg of args) {
+    if (!arg || arg.startsWith('-') || !path.isAbsolute(arg)) {
+      resolvedArgs.push(arg);
+      continue;
+    }
+    const target = await realpath(arg).catch(() => undefined);
+    const isFile =
+      target !== undefined &&
+      (await stat(target).then(
+        (s) => s.isFile(),
+        () => false,
+      ));
+    if (!isFile || !target) {
+      resolvedArgs.push(arg);
+      continue;
+    }
+    resolvedArgs.push(target);
+    const argBundle = appBundleContents(target);
+    if (argBundle) readOnly.push(argBundle);
+    readOnly.push(await nearestPackageRoot(target));
+    if (/\.(mjs|cjs|js)$/.test(target)) readOnly.push(...runtimeReadPaths());
+  }
+  return { command, prefix, args: resolvedArgs, readOnly: [...new Set(readOnly)], real };
+}
+
+type Slot = {
+  index: number;
+  backend: SrtSlotBackend;
+  boundKey: string | null;
+  exclusive: boolean;
+  active: number;
+  initialized: boolean;
+  busy: Promise<void>;
+};
+type Waiter = {
+  trustKey: string;
+  exclusive: boolean;
+  resolve: (acquired: { slot: Slot; rotate: boolean }) => void;
+  reject: (error: Error) => void;
+  cancel: () => void;
+};
 
 export class SrtLauncher implements SandboxLauncher {
   readonly backend = 'srt' as const;
-  private srt?: SrtModule['SandboxManager'];
-  private initializing?: Promise<void>;
+  readonly maxConcurrentSandboxes: number;
   private checked?: SandboxReport;
-  private queue: Promise<void> = Promise.resolve();
+  private readonly slots: Slot[] = [];
+  private readonly waiters: Waiter[] = [];
+  /** Diagnostic count of active sandbox invocations across all slots. */
+  activeCount = 0;
+
   constructor(
     private readonly options: {
       dataDir: string;
+      maxConcurrentSandboxes?: number;
       extraDeniedReads?: string[];
       parentProxy?: { http?: string; https?: string; noProxy?: string };
+      createSlotBackend?: (slotIndex: number) => SrtSlotBackend;
     },
-  ) {}
+  ) {
+    this.maxConcurrentSandboxes = Math.max(
+      1,
+      Math.min(32, Math.floor(options.maxConcurrentSandboxes ?? 4)),
+    );
+  }
+
   report(): SandboxReport | undefined {
     return this.checked;
   }
+
   private deniedReads(): string[] {
     return [...defaultDeniedReads(this.options.dataDir), ...(this.options.extraDeniedReads ?? [])];
   }
-  /** Start srt's proxies (they listen on localhost). Fails closed on an unsupported host. */
-  async initialize(): Promise<void> {
-    this.initializing ??= (async () => {
-      const { SandboxManager } = (await import('@anthropic-ai/sandbox-runtime')) as SrtModule;
-      if (!SandboxManager.isSupportedPlatform())
-        throw new Fault('sandbox_unavailable', 'srt does not support this platform.', 503);
-      const deps = SandboxManager.checkDependencies();
-      if (deps.errors.length)
-        throw new Fault(
-          'sandbox_unavailable',
-          `srt dependencies missing: ${deps.errors.join('; ').slice(0, 500)}`,
-          503,
-        );
-      await SandboxManager.initialize({
-        network: {
-          // Nothing is allowed globally; each call registers its own (unguessable) list.
-          allowedDomains: [],
-          deniedDomains: [],
-          ...(this.options.parentProxy ? { parentProxy: this.options.parentProxy } : {}),
-        },
-        filesystem: { denyRead: this.deniedReads(), allowRead: [], allowWrite: [], denyWrite: [] },
-      });
-      this.srt = SandboxManager;
-    })();
-    return this.initializing;
+
+  private makeSlot(): Slot {
+    const index = this.slots.length;
+    const backend =
+      this.options.createSlotBackend?.(index) ??
+      new WorkerSlotBackend(this.deniedReads(), this.options.parentProxy);
+    const slot: Slot = {
+      index,
+      backend,
+      boundKey: null,
+      exclusive: false,
+      active: 0,
+      initialized: false,
+      busy: Promise.resolve(),
+    };
+    this.slots.push(slot);
+    return slot;
   }
+
+  private tryClaim(
+    trustKey: string,
+    exclusive: boolean,
+  ): { slot: Slot; rotate: boolean } | undefined {
+    if (exclusive && this.slots.some((s) => s.active > 0)) return undefined;
+    if (!exclusive) {
+      if (this.slots.some((s) => s.active > 0 && s.exclusive)) return undefined;
+      const shared = this.slots.find(
+        (s) => s.active > 0 && !s.exclusive && s.boundKey === trustKey,
+      );
+      if (shared) {
+        shared.active++;
+        return { slot: shared, rotate: false };
+      }
+    }
+    const warmIdle = this.slots.find((s) => s.active === 0 && s.boundKey === trustKey);
+    if (warmIdle) {
+      warmIdle.exclusive = exclusive;
+      warmIdle.active = 1;
+      return { slot: warmIdle, rotate: false };
+    }
+    if (this.slots.length < this.maxConcurrentSandboxes) {
+      const created = this.makeSlot();
+      created.boundKey = trustKey;
+      created.exclusive = exclusive;
+      created.active = 1;
+      return { slot: created, rotate: false };
+    }
+    const coldIdle = this.slots.find((s) => s.active === 0);
+    if (coldIdle) {
+      const rotate = coldIdle.initialized && coldIdle.boundKey !== trustKey;
+      coldIdle.boundKey = trustKey;
+      coldIdle.exclusive = exclusive;
+      coldIdle.active = 1;
+      return { slot: coldIdle, rotate };
+    }
+    return undefined;
+  }
+
+  private acquireSlot(
+    trustKey: string,
+    exclusive: boolean,
+    signal: AbortSignal,
+  ): Promise<{ slot: Slot; rotate: boolean }> {
+    if (signal.aborted)
+      return Promise.reject(
+        new Fault('cancelled', 'Sandboxed work was cancelled before it started.', 409),
+      );
+    const immediate = this.tryClaim(trustKey, exclusive);
+    if (immediate) return Promise.resolve(immediate);
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        const idx = this.waiters.indexOf(waiter);
+        if (idx >= 0) this.waiters.splice(idx, 1);
+        reject(new Fault('cancelled', 'Sandboxed work was cancelled before it started.', 409));
+      };
+      const waiter: Waiter = {
+        trustKey,
+        exclusive,
+        resolve: (claimed) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(claimed);
+        },
+        reject: (err) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(err);
+        },
+        cancel: onAbort,
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      this.waiters.push(waiter);
+    });
+  }
+
+  private releaseSlot(slot: Slot): void {
+    slot.active = Math.max(0, slot.active - 1);
+    while (this.waiters.length > 0) {
+      const next = this.waiters[0]!;
+      const claimed = this.tryClaim(next.trustKey, next.exclusive);
+      if (!claimed) break;
+      this.waiters.shift();
+      next.resolve(claimed);
+    }
+  }
+
+  private runOnSlot<T>(slot: Slot, fn: () => Promise<T>): Promise<T> {
+    const next = slot.busy.then(fn, fn);
+    slot.busy = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+
+  /** Ensure at least one sandbox slot can initialize on this host. */
+  async initialize(): Promise<void> {
+    const slot = this.slots[0] ?? this.makeSlot();
+    await this.runOnSlot(slot, async () => {
+      if (!slot.initialized) {
+        await slot.backend.init();
+        slot.initialized = true;
+      }
+    });
+  }
+
   async wrap(
     command: string,
     args: string[],
@@ -193,46 +367,46 @@ export class SrtLauncher implements SandboxLauncher {
     policy: SandboxPolicy,
     signal: AbortSignal,
   ): Promise<SandboxedCommand> {
-    await this.initialize();
-    const srt = this.srt!;
-    // One sandboxed process at a time (see the boundary note above).
-    let unlock!: () => void;
-    const previous = this.queue;
-    this.queue = new Promise<void>((resolve) => (unlock = resolve));
-    await previous;
-    if (signal.aborted) {
-      unlock();
-      throw new Fault('cancelled', 'Sandboxed work was cancelled before it started.', 409);
-    }
+    const untagged = !policy.subject;
+    const domainKey = [...new Set(policy.allowedDomains)].sort().join(',');
+    const trustKey = untagged ? '__untagged__' : `${policy.subject}\0${domainKey}`;
+    const { slot, rotate } = await this.acquireSlot(trustKey, untagged, signal);
+    this.activeCount++;
     const commandId = randomBytes(16).toString('base64url');
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
-      srt.unregisterCommandNetworkLists(commandId);
-      unlock();
+      this.activeCount = Math.max(0, this.activeCount - 1);
+      void this.runOnSlot(slot, () => slot.backend.unregister(commandId)).finally(() =>
+        this.releaseSlot(slot),
+      );
     };
     try {
-      if (policy.allowedDomains.length)
-        srt.registerCommandNetworkLists(commandId, { allowedDomains: policy.allowedDomains });
+      if (signal.aborted)
+        throw new Fault('cancelled', 'Sandboxed work was cancelled before it started.', 409);
       const inner = [command, ...args].map(shellQuote).join(' ');
-      const wrapped = await srt.wrapWithSandbox(
-        inner,
-        '/bin/sh',
-        {
-          filesystem: {
-            denyRead: this.deniedReads(),
-            allowRead: [
-              path.resolve(policy.workspace),
-              ...policy.readOnly.map((p) => path.resolve(p)),
-            ],
-            allowWrite: [path.resolve(policy.workspace)],
-            denyWrite: [],
-          },
-        },
-        signal,
-        { commandId, commandText: path.basename(command) },
-      );
+      const { wrapped } = await this.runOnSlot(slot, async () => {
+        if (!slot.initialized) {
+          await slot.backend.init();
+          slot.initialized = true;
+        } else if (rotate) {
+          await slot.backend.rotate();
+        }
+        return slot.backend.wrap({
+          commandId,
+          inner,
+          commandText: path.basename(command),
+          allowRead: [
+            path.resolve(policy.workspace),
+            ...policy.readOnly.map((p) => path.resolve(p)),
+          ],
+          allowWrite: [path.resolve(policy.workspace)],
+          allowedDomains: policy.allowedDomains,
+        });
+      });
+      if (signal.aborted)
+        throw new Fault('cancelled', 'Sandboxed work was cancelled before it started.', 409);
       const cpu = Math.max(1, Math.min(3600, Math.floor(policy.cpuSeconds)));
       return {
         command: '/bin/sh',
@@ -245,11 +419,8 @@ export class SrtLauncher implements SandboxLauncher {
       throw error;
     }
   }
-  /**
-   * Verify the boundary on this host before advertising it: a sandboxed probe must be unable to
-   * read a file outside its workspace, write outside it, or open a direct TCP connection
-   * (loopback or remote), while still writing inside its workspace.
-   */
+
+  /** Verify the OS sandbox boundary on this host before advertising it. */
   async selfCheck(
     nodePath = process.execPath,
     natives: Partial<Record<SandboxNativeEngine, string>> = {},
@@ -280,7 +451,13 @@ const connect=(host)=>new Promise(r=>{const s=net.connect({host,port:9});s.setTi
         { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: workspace, LANG: 'en_US.UTF-8' },
         {
           launcher: this,
-          policy: { workspace, readOnly: runtimeReadPaths(), allowedDomains: [], cpuSeconds: 20 },
+          policy: {
+            workspace,
+            readOnly: runtimeReadPaths(),
+            allowedDomains: [],
+            cpuSeconds: 20,
+            subject: '__selfcheck__',
+          },
         },
       );
       const out = JSON.parse(text) as Record<string, string>;
@@ -294,7 +471,6 @@ const connect=(host)=>new Promise(r=>{const s=net.connect({host,port:9});s.setTi
         denied(out.writeOutside) &&
         !outsideWritten &&
         out.writeInside === 'ok' &&
-        // A sandbox denial fails fast (EPERM/EACCES); a timeout would mean packets could leave.
         ['EPERM', 'EACCES'].includes(out.loopback ?? '') &&
         ['EPERM', 'EACCES'].includes(out.remote ?? '');
       const { createRequire } = await import('node:module');
@@ -310,8 +486,6 @@ const connect=(host)=>new Promise(r=>{const s=net.connect({host,port:9});s.setTi
         this.checked = undefined;
         return undefined;
       }
-      // A native engine is offered only if its CLI actually starts inside the sandbox (no prompt,
-      // no model call: `--version` with an empty HOME and no network).
       const kinds: SandboxReport['kinds'] = ['script'];
       for (const [engine, executable] of Object.entries(natives)) {
         try {
@@ -325,7 +499,13 @@ const connect=(host)=>new Promise(r=>{const s=net.connect({host,port:9});s.setTi
             { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: workspace, LANG: 'en_US.UTF-8' },
             {
               launcher: this,
-              policy: { workspace, readOnly: launch.readOnly, allowedDomains: [], cpuSeconds: 20 },
+              policy: {
+                workspace,
+                readOnly: launch.readOnly,
+                allowedDomains: [],
+                cpuSeconds: 20,
+                subject: '__selfcheck__',
+              },
             },
           );
           if (!printed.trim()) throw new Error('empty version output');
@@ -346,11 +526,14 @@ const connect=(host)=>new Promise(r=>{const s=net.connect({host,port:9});s.setTi
       await rm(path.join(this.options.dataDir, 'sandbox-check'), { recursive: true, force: true });
     }
   }
+
   /** Raw observations of the last self-check (for diagnostics; contains no secrets). */
   lastCheck?: Record<string, string>;
+
   async close(): Promise<void> {
-    if (this.srt) await this.srt.reset();
-    this.srt = undefined;
-    this.initializing = undefined;
+    for (const waiter of this.waiters.splice(0))
+      waiter.reject(new Fault('cancelled', 'Sandbox launcher closed.', 409));
+    const slots = this.slots.splice(0);
+    await Promise.all(slots.map((s) => s.backend.close()));
   }
 }

@@ -2,19 +2,69 @@ import { LEGACY_SUBJECT, type Run } from '../core/contracts.js';
 import type { Store } from '../store/store.js';
 import { Fault } from '../core/util.js';
 import { projects } from '../store/projects.js';
+import { memoryFts } from '../store/project-fts.js';
 import { projectPrincipal } from './project-memory.js';
 
 /**
- * 内建的跨会话记忆工具（`memory_read` / `memory_write`）。
- * 记忆按 owner 和调用方身份隔离；不指定命名空间时用智能体自己的 id。
+ * 内建的跨会话记忆工具（`memory_read` / `memory_write` / `memory_search`）。
+ * 记忆按 owner 和调用方身份隔离；不指定命名空间时用智能体自己的 id（`memory_search` 未指定命名空间时跨自身可读命名空间检索）。
  * 这里只负责读写并返回给模型的结果；步骤记录和检查点由内核处理。
  */
 export function runMemoryTool(
   store: Store,
   run: Run,
-  name: 'memory_read' | 'memory_write',
+  name: 'memory_read' | 'memory_write' | 'memory_search',
   args: Record<string, unknown>,
 ): unknown {
+  if (name === 'memory_search') {
+    const query = typeof args.query === 'string' ? args.query.trim() : '';
+    if (!query)
+      throw new Fault('invalid_tool_arguments', 'memory_search requires a non-empty query.');
+    const rawLimit =
+      typeof args.limit === 'number' && Number.isFinite(args.limit) ? args.limit : 20;
+    const limit = Math.max(1, Math.min(50, Math.trunc(rawLimit)));
+    const explicitNs =
+      typeof args.namespace === 'string' && args.namespace.trim()
+        ? args.namespace.trim()
+        : undefined;
+    if (args.scope === 'project') {
+      if (!run.checkpoint.project)
+        throw new Fault('scope_denied', 'No shared project was selected for this task.', 403);
+      const hits = projects(store).search(projectPrincipal(run), run.checkpoint.project.id, query, {
+        namespace: explicitNs,
+        limit,
+      });
+      return {
+        scope: 'project',
+        project: run.checkpoint.project.id,
+        namespace: explicitNs ?? null,
+        count: hits.length,
+        entries: hits.map((h) => ({
+          namespace: h.namespace,
+          key: h.key,
+          value: h.value,
+          score: h.score,
+          updated_at: h.updatedAt,
+        })),
+      };
+    }
+    const hits = memoryFts(store).searchPrivate(run.owner, run.subject ?? LEGACY_SUBJECT, query, {
+      namespace: explicitNs,
+      limit,
+    });
+    return {
+      scope: 'private',
+      namespace: explicitNs ?? null,
+      count: hits.length,
+      entries: hits.map((h) => ({
+        namespace: h.namespace,
+        key: h.key,
+        value: h.value,
+        score: h.score,
+        updated_at: h.updatedAt,
+      })),
+    };
+  }
   if (args.scope === 'project') {
     if (!run.checkpoint.project)
       throw new Fault('scope_denied', 'No shared project was selected for this task.', 403);

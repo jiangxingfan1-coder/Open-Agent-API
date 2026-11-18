@@ -42,16 +42,16 @@ For discovery, model selection and multi-model execution see [models.md](models.
 | `bridge` | The outer tools are projected to the inner agent; when the inner agent calls one, the run parks and returns it to the caller as standard `tool_calls`; the caller runs it and sends the result back, and the same run carries on | The caller (initiated by the inner agent) | The tool must run on the caller's machine (for example editing files in the caller's workspace) |
 | `reject` | Any request that passes tools fails with `client_tools_unsupported`, with no fallback | — | Callers that need strict semantics and do not accept tools being ignored |
 
-> **Bridge is available for built-in kernel agents and ACP external agents, and supports Chat Completions, Responses, Claude Messages, and Gemini `generateContent`.** Requesting `bridge` for an external agent that cannot bridge returns `client_tools_bridge_unsupported` (400), and UAP/1 does not accept a `tools` field; in these cases no run is created.
+> **Bridge is available for built-in kernel agents, Codex and Claude Code native engines, Antigravity (via ACP), and ACP external agents, across Chat Completions, Responses, Claude Messages, and Gemini `generateContent`.** Requesting `bridge` for an external agent that cannot bridge (such as DSH, A2A or HTTP adapters) returns `client_tools_bridge_unsupported` (400), and UAP/1 does not accept a `tools` field; in these cases no run is created.
 
 ## What auto does
 
 A request that declares tools and chooses no mode gets `auto` (the gateway configuration `clientTools.default` can change that default to `managed`, `bridge` or `reject`; an explicit `auto` in the header beats the configuration). The rule, with the agent known at submit time:
 
-1. The agent can take the tools over (kernel agent, or an ACP agent with an online execution machine that declared `client-tools-v1` for it), the tools are plain functions with names that do not collide with the agent's own, and no tool choice is forced: the request is handled as `bridge`. The response carries `X-OAA-Client-Tools: bridge`; the agent's calls come back as `tool_calls` / `function_call` / `tool_use` / `functionCall`.
-2. Anything else gets what the entry did before. OpenAI's default endpoints (`/v1/chat/completions`, `/v1/responses` without `X-OAA-Compat`) refuse with 400 `unsupported_parameter` (`error.param` `tools`): the message says this agent cannot take the tools over, gives the reason (a native engine that runs its own tool loop, no execution machine for client tools, a name collision, tools that are not functions, a forced tool choice), and names the three ways out: the Base URL `<origin>/v1/compat`, `X-OAA-Compat: true`, `X-OAA-Client-Tools: managed`. The compatibility endpoints, Claude Messages and Gemini continue as `managed` (the agent finishes with its own tools; `X-OAA-Client-Tools: ignored`).
+1. The agent can take the tools over (kernel agent, or an enabled Codex, Claude Code, Antigravity ACP, or ACP adapter with an online execution machine that declared `client-tools-v1` for it), and the tools are plain functions with names that do not collide with the agent's own: the request is handled as `bridge` (`tool_choice: "none"` withholds caller tools for that turn; forced `tool_choice` is pushed down to kernel model drivers or enforced on bridged external agents via prompt constraint plus up to 1 continuation repair round, failing with 422 `tool_choice_unmet` if still unmet). The response carries `X-OAA-Client-Tools: bridge`; the agent's calls come back as `tool_calls` / `function_call` / `tool_use` / `functionCall`.
+2. Anything else gets what the entry did before. If a forced `tool_choice` (`required` / `any` or a named function) cannot be bridged (or `managed` was chosen), submission fails with 400 `client_tools_unsupported`. Otherwise OpenAI's default endpoints (`/v1/chat/completions`, `/v1/responses` without `X-OAA-Compat`) refuse with 400 `unsupported_parameter` (`error.param` `tools`): the message says this agent cannot take the tools over, gives the reason (an engine without bridge support, no execution machine for client tools, a name collision, tools that are not functions), and names the three ways out: the Base URL `<origin>/v1/compat`, `X-OAA-Compat: true`, `X-OAA-Client-Tools: managed`. The compatibility endpoints, Claude Messages and Gemini continue as `managed` (the agent finishes with its own tools; `X-OAA-Client-Tools: ignored`).
 
-Legacy integrations retain this auto-selection rule. Codex, Claude Code, A2A and HTTP native/adapter entries remain managed-only; Antigravity additionally supports its capability-checked ACP path. Forced tool choices are not guaranteed by external agents. Selecting auto never grants additional approval authority. New publication and key policies take precedence as described above.
+Legacy integrations retain this auto-selection rule. DSH, A2A and HTTP native/adapter entries remain managed-only; Codex, Claude Code, ACP adapters, and Antigravity's capability-checked ACP path support `bridge`. Selecting auto never grants additional approval authority. New publication and key policies take precedence as described above.
 
 Modes apply only when `tools` in the request is a **non-empty array**. With no `tools`, or with `tools: []`, behavior is exactly as before and the mode header has no effect.
 
@@ -59,7 +59,7 @@ Modes apply only when `tools` in the request is a **non-empty array**. With no `
 
 - When in doubt, keep the default `auto`: an agent that can use your tools gets them, any other agent works as it did before, and the response header (`bridge` or `ignored`) says which happened.
 - When the caller must know that "the tools were not run" and change its behavior accordingly (for example switch to another model), use `reject` and branch on the error code.
-- When the agent must call tools on your machine to finish the task, and what is behind it is a kernel agent or an ACP external agent, use `bridge`. For other external agents, you can first publish those tools as the OAA agent's own tools (MCP import or node tools) and then use `managed`.
+- When the agent must call tools on your machine to finish the task, and what is behind it is a kernel agent, Codex, Claude Code, Antigravity (ACP), or an ACP external agent, use `bridge`. For other external agents, you can first publish those tools as the OAA agent's own tools (MCP import or node tools) and then use `managed`.
 
 ## How to pass it
 
@@ -112,27 +112,28 @@ The run record's `metadata` also shows the mode that was used: `oaa.client_tools
 
 ## Current support matrix
 
-Agent connection type × mode (the agent profile's `conversion.client_tools` gives each agent's value: `bridge` for kernel and ACP, `managed` for the rest; `auto` picks the one in that column):
+Agent connection type × mode (the agent profile's `conversion.client_tools` gives each agent's value: `bridge` for kernel, Codex, Claude Code, and ACP, `managed` for the rest; `auto` picks the one in that column):
 
 | Agent connection type | `managed` | `reject` | `bridge` |
 | --- | --- | --- | --- |
-| Built-in kernel agent (`engine: kernel`) | Supported | Supported | Supported ✓ (Chat, Responses, Claude Messages) |
+| Built-in kernel agent (`engine: kernel`) | Supported | Supported | Supported ✓ (Chat, Responses, Claude Messages, Gemini) |
+| Codex / Claude Code native entries (`codex`, `claude`) | Supported | Supported | Supported ✓ (through the per-run `oaa-caller` MCP relay) |
 | ACP external agent (`adapter/<name>`, `transport: "acp"`) | Supported | Supported | Supported ✓ (through an MCP relay; see "How bridging works for external agents" below) |
 | Antigravity with confirmed `agy acp` support | Supported | Supported | Hybrid caller-tool bridge through ACP |
-| Codex / Claude Code / DSH native entries | Supported | Supported | Managed only: returns `client_tools_bridge_unsupported` |
+| DSH native entry | Supported | Supported | Managed only: returns `client_tools_bridge_unsupported` |
 | A2A / oaa-1 HTTP adapters | Supported | Supported | Managed only: returns `client_tools_bridge_unsupported` |
 
-A bridged run is placed only on an execution machine that declared `client-tools-v1` in the handshake and declared support for this engine (the built-in execution machine always declares `kernel` and the enabled ACP adapters). When there is no such machine, submission returns `client_tools_bridge_unsupported` (400) and no run is created. Legacy 0.2.0 remote execution machines do not declare this feature, so they never receive bridged tasks (previously this surfaced only at execution time as `manifest_mismatch`).
+A bridged run is placed only on an execution machine that declared `client-tools-v1` in the handshake and declared support for this engine (the built-in execution machine declares `kernel` plus the enabled `codex`, `claude`, Antigravity ACP, and ACP adapters). When there is no such machine, submission returns `client_tools_bridge_unsupported` (400) and no run is created. Legacy 0.2.0 remote execution machines do not declare this feature, so they never receive bridged tasks (previously this surfaced only at execution time as `manifest_mismatch`).
 
 External protocol × mode:
 
 | Endpoint | `managed` | `reject` | `bridge` |
 | --- | --- | --- | --- |
-| Chat Completions (`X-OAA-Compat: true` or `/v1/compat/chat/completions`) | Supported | Supported | Supported (kernel and ACP agents) |
-| Responses (`X-OAA-Compat: true` or `/v1/compat/responses`) | Supported | Supported | Supported (kernel and ACP agents; only `type: "function"` tools are accepted) |
-| Claude Messages (`/v1/messages`, `/v1/compat/messages`) | Supported | Supported | Supported (kernel and ACP agents; server tools that carry a `type` are rejected) |
-| Gemini `generateContent` / `streamGenerateContent` (`/v1beta` and `/v1`) | Supported | Supported | Supported (kernel and ACP agents; only `functionDeclarations` are accepted, and built-in tools such as `googleSearch` are rejected) |
-| Strict endpoints (`/v1/chat/completions` and `/v1/responses` without `X-OAA-Compat`) | Supported (explicit header) | Supported (explicit header) | Supported (kernel and ACP agents); with no mode chosen an agent that cannot bridge is refused (see "What auto does") |
+| Chat Completions (`X-OAA-Compat: true` or `/v1/compat/chat/completions`) | Supported | Supported | Supported (kernel, Codex, Claude Code, and ACP agents) |
+| Responses (`X-OAA-Compat: true` or `/v1/compat/responses`) | Supported | Supported | Supported (kernel, Codex, Claude Code, and ACP agents; only `type: "function"` tools are accepted) |
+| Claude Messages (`/v1/messages`, `/v1/compat/messages`) | Supported | Supported | Supported (kernel, Codex, Claude Code, and ACP agents; server tools that carry a `type` are rejected) |
+| Gemini `generateContent` / `streamGenerateContent` (`/v1beta` and `/v1`) | Supported | Supported | Supported (kernel, Codex, Claude Code, and ACP agents; only `functionDeclarations` are accepted, and built-in tools such as `googleSearch` are rejected) |
+| Strict endpoints (`/v1/chat/completions` and `/v1/responses` without `X-OAA-Compat`) | Supported (explicit header) | Supported (explicit header) | Supported (kernel, Codex, Claude Code, and ACP agents); with no mode chosen an agent that cannot bridge is refused (see "What auto does") |
 | UAP/1 (`/v1/uap`) | — | — | — |
 
 The strict endpoints take part in the modes like the others; what is different is only the fallback of `auto` (a refusal instead of `managed`). `functions` / `function_call` (legacy) stay refused there, and an empty `tools: []` is accepted as no tools. UAP/1 does not take part: it returns `invalid_request` for a `tools` field.
@@ -210,7 +211,7 @@ Parked response: `stop_reason: "tool_use"`, and `content` is first a text block 
 
 Streaming: when the run parks, `message_start` is sent first (if it has not been sent yet); a text block that is already open gets `content_block_stop`; each call then gets `content_block_start` (tool_use, `input: {}`), one `input_json_delta` (the complete JSON), and `content_block_stop`, with the index increasing; finally `message_delta` (`stop_reason: "tool_use"`) and `message_stop`, and the stream closes.
 
-**Gemini** (`/v1beta/models/{agent}:generateContent` and `:streamGenerateContent`, and the same under `/v1/models/...`): `tools[].functionDeclarations[]` are caller tools, and the parameters are taken from `parametersJsonSchema` (JSON Schema, as is) or `parameters` (Gemini's OpenAPI subset: uppercase types such as `type: "OBJECT"` are converted to lowercase, and `nullable: true` is merged into the type). Built-in tools such as `googleSearch`, `codeExecution`, and `urlContext` (or ones written in the same entry as `functionDeclarations`) return `client_tools_unsupported` under bridge and are still ignored under managed. `toolConfig` (including the `mode` and `allowedFunctionNames` of `functionCallingConfig`) is not forwarded, just like `tool_choice` in other protocols, and is listed in `X-OAA-Ignored-Params`.
+**Gemini** (`/v1beta/models/{agent}:generateContent` and `:streamGenerateContent`, and the same under `/v1/models/...`): `tools[].functionDeclarations[]` are caller tools, and the parameters are taken from `parametersJsonSchema` (JSON Schema, as is) or `parameters` (Gemini's OpenAPI subset: uppercase types such as `type: "OBJECT"` are converted to lowercase, and `nullable: true` is merged into the type). Built-in tools such as `googleSearch`, `codeExecution`, and `urlContext` (or ones written in the same entry as `functionDeclarations`) return `client_tools_unsupported` under bridge and are still ignored under managed. `toolConfig.functionCallingConfig` (`mode` `AUTO` / `NONE` / `ANY` and `allowedFunctionNames`) is parsed and enforced just like `tool_choice` in OpenAI and Claude (`NONE` withholds caller tools for the turn; `ANY` or `allowedFunctionNames` requires a declared function call and is not listed in `X-OAA-Ignored-Params`).
 
 ```json
 { "contents": [{ "role": "user", "parts": [{ "text": "Fix the error on the login page" }] }],
@@ -263,11 +264,11 @@ What users need to know:
 - The agent's own MCP call timeout (for example the MCP SDK's default of 60 seconds) may be shorter than `approvalTimeoutMs`: if the caller returns results too slowly, the agent may give up on the call first.
   - **Keep-alive**: while waiting for the caller, the relay sends a `notifications/progress` every 15 seconds for a `tools/call` whose request carries `_meta.progressToken` (`progress` increases, and `message` says it is waiting for the caller; the interval can be changed with `oaa mcp-relay --progress-interval-ms` or the environment variable `OAA_MCP_RELAY_PROGRESS_MS`). Without a token, nothing is sent. This does **not** guarantee a longer timeout: the agent's MCP client must have enabled "reset the timeout on progress" (the MCP SDK's `resetTimeoutOnProgress`), and it must actually have provided a progressToken. We recommend aligning the gateway's `approvalTimeoutMs` with the agent's MCP request timeout (not longer than the latter), or raising the agent's MCP timeout.
   - **Cleanup after abandonment**: if the agent closes the relay when it gives up on the call (shuts down the MCP server, or restarts it after a timeout), the socket from the relay to the execution machine disconnects, and the call still waiting ends with `client_tool_abandoned`: the corresponding step fails, the pending item is marked expired, and the run does not fail because of it (the agent is still going); when there are no other pending items, the status goes back to `in_progress`. Returning that `call_id` afterwards does not continue anything and is treated as a new request. If the agent merely lets the request time out without closing the relay, the call still hangs until `approvalTimeoutMs` and the run ends with `client_tool_timeout`.
-- Bridging uses ACP, including the verified ACP path of the Antigravity native entry. Codex, Claude Code, DSH, A2A, and oaa-1 native/adapter entries remain managed only unless a separately supported ACP adapter is used.
+- Bridging uses the `oaa-caller` MCP relay across ACP adapters, Antigravity's verified ACP path, Claude Code (`options.mcpServers` + `canUseTool` auto-allow for `mcp__oaa-caller__<name>`), and Codex (`-c mcp_servers.oaa-caller.*` per-process overrides + MCP approval / elicitation auto-allow, never modifying `~/.codex/config.toml`). DSH, A2A, and oaa-1 HTTP adapters remain managed only.
 
 ## Roadmap
 
-- Available: `bridge` for built-in kernel agents and ACP external agents over Chat Completions, Responses, Claude Messages, and Gemini (`features` in `/health` contains `harness-bridge-v1` and `harness-bridge-acp-v1`). UAP/1 has no bridging. The wire-format tests for Gemini bridging used only kernel agents; ACP agents go through the same protocol-independent parking and continuation, and have not been tested separately through the Gemini endpoint.
-- Later: other external agents (the in-process MCP server of the Claude Agent SDK, the MCP configuration of Codex) must be tested engine by engine.
+- Available: `bridge` for built-in kernel agents, Codex and Claude Code native engines, Antigravity ACP, and ACP external agents over Chat Completions, Responses, Claude Messages, and Gemini (`features` in `/health` contains `harness-bridge-v1` and `harness-bridge-acp-v1`), including `tool_choice` / `toolConfig.functionCallingConfig` pushdown and external-agent continuation repair (`422 tool_choice_unmet` if unmet). UAP/1 has no bridging.
+- Later: other external adapters without stdio MCP hooks continue to be evaluated engine by engine.
 
 When `features` in `/health` contains `client-tools-policy-v1`, the managed and reject modes described on this page are available. For error codes see the "Error codes" chapter of [protocol.md](protocol.md).

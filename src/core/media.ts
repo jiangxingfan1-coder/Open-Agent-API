@@ -31,9 +31,10 @@ export function mediaPolicy(metadata: Record<string, string>): MediaPolicy | und
     throw new Fault('invalid_request', 'Unsupported output format for this media kind.');
   return { kind: kind as MediaKind, format, mime: formats[format]! };
 }
-export function mediaInstruction(policy?: MediaPolicy): string {
+export function mediaInstruction(policy?: MediaPolicy, maxBytes = 64 * 1024 * 1024): string {
+  const limitMb = Math.max(1, Math.floor(maxBytes / (1024 * 1024)));
   return policy
-    ? `\n\nRequired downloadable deliverable: a real ${policy.kind} file in ${policy.format} format. Use the runtime's downloadable outputs directory and name the file result.${policy.format}. Use only tools already available to this agent; if the required capability is unavailable, report that limitation instead of fabricating a file or embedding base64 in the answer. Keep exported files within the gateway's 8MB total artifact limit. Format signatures are checked; creative quality and full codec/container validity require independent review.`
+    ? `\n\nRequired downloadable deliverable: a real ${policy.kind} file in ${policy.format} format. Use the runtime's downloadable outputs directory and name the file result.${policy.format}. Use only tools already available to this agent; if the required capability is unavailable, report that limitation instead of fabricating a file or embedding base64 in the answer. Keep exported files within the gateway's ${limitMb}MB total artifact limit. Format signatures are checked; creative quality and full codec/container validity require independent review.`
     : '';
 }
 /** Conservative signatures only, not a decoder or a document/codec correctness claim. */

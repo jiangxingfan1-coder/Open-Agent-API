@@ -214,15 +214,24 @@ test('auto: a tool that collides with one of the agent, built-in tools or a forc
       tools: [CLAUDE_TOOL],
       tool_choice: { type: 'any' },
     });
-    assert.equal(forced.headers['x-oaa-client-tools'], 'ignored');
+    assert.equal(forced.headers['x-oaa-client-tools'], 'bridge');
     const forcedStrict = await post(s, '/v1/chat/completions', {
       model: 'agent/bridge',
       messages: [{ role: 'user', content: 'x' }],
       tools: [CHAT_TOOL],
       tool_choice: 'required',
     });
-    assert.equal(forcedStrict.statusCode, 400);
-    assert.equal(forcedStrict.json().error.param, 'tool_choice');
+    assert.equal(forcedStrict.statusCode, 200);
+    assert.equal(forcedStrict.headers['x-oaa-client-tools'], 'bridge');
+    const forcedUnbridgeable = await post(s, '/v1/messages', {
+      model: 'agent/native',
+      max_tokens: 8,
+      messages: [{ role: 'user', content: 'x' }],
+      tools: [CLAUDE_TOOL],
+      tool_choice: { type: 'any' },
+    });
+    assert.equal(forcedUnbridgeable.statusCode, 400);
+    assert.equal(forcedUnbridgeable.json().error.code, 'client_tools_unsupported');
   } finally {
     await s.cleanup();
   }

@@ -1,12 +1,45 @@
-import type { AgentDefinition, Usage, WorkEvent } from '../core/contracts.js';
+import type { AgentDefinition, ClientTool, Usage, WorkEvent } from '../core/contracts.js';
 import type { SandboxLauncher } from './sandbox.js';
 import { sandboxPlan } from './native-sandbox.js';
 import { codexInput } from './image-blocks.js';
 import { ownedProcess, spawnSandboxed, jsonLines, terminateOwned } from './process.js';
-import { Fault, redact } from '../core/util.js';
+import { checkAbort, Fault, redact } from '../core/util.js';
 import { record, type Emit, type NativeResult } from './shared.js';
 import { CODEX_TOOL_ITEMS } from './native-signals.js';
+import { REASONING_ONLY } from './reasoning-policy.js';
+import {
+  codexCallerArgs,
+  codexCallerTool,
+  codexDecisionPayload,
+  codexReasoningArgs,
+  type AcpStdioMcpServer,
+} from './native-bridge.js';
 import { PRODUCT_VERSION } from '../core/version.js';
+
+export type CodexTurnOptions = {
+  clientTools?: ClientTool[];
+  relay?: AcpStdioMcpServer;
+  toolsDisabled?: boolean;
+  interruptGraceMs?: number;
+};
+
+const APPROVAL_METHODS = new Set([
+  'item/commandExecution/requestApproval',
+  'item/fileChange/requestApproval',
+  'item/permissions/requestApproval',
+  'item/mcpToolCall/requestApproval',
+  'mcpServer/requestApproval',
+  'item/tool/requestApproval',
+  'item/tool/requestUserInput',
+  'tool/requestUserInput',
+  'mcpServer/elicitation/request',
+]);
+
+const THREAD_SCOPED_METHODS = new Set([
+  'mcpServer/elicitation/request',
+  'item/mcpToolCall/requestApproval',
+  'mcpServer/requestApproval',
+]);
 
 export async function codex(
   command: string,
@@ -22,8 +55,17 @@ export async function codex(
     launcher: SandboxLauncher;
     plan: Awaited<ReturnType<typeof sandboxPlan>>;
   },
+  options?: CodexTurnOptions,
 ): Promise<NativeResult> {
-  const serverArgs = [...args, 'app-server', '--listen', 'stdio://'];
+  checkAbort(signal);
+  const toolsDisabled = options?.toolsDisabled === true;
+  const extraArgs = toolsDisabled
+    ? codexReasoningArgs(Boolean(sandboxed))
+    : options?.relay
+      ? codexCallerArgs(options.relay)
+      : [];
+  const serverArgs = [...args, ...extraArgs, 'app-server', '--listen', 'stdio://'];
+  const life = new AbortController();
   const child = sandboxed
     ? await spawnSandboxed(
         sandboxed.plan.launch.command,
@@ -33,16 +75,17 @@ export async function codex(
           ...sandboxed.plan.launch.prefix,
           ...args,
           ...sandboxed.plan.profile.args,
+          ...extraArgs,
           'app-server',
           '--listen',
           'stdio://',
         ],
         cwd,
-        signal,
+        life.signal,
         env,
         { launcher: sandboxed.launcher, policy: sandboxed.plan.policy },
       )
-    : ownedProcess(command, serverArgs, cwd, signal, env);
+    : ownedProcess(command, serverArgs, cwd, life.signal, env);
   let seq = 0;
   let text = '';
   let threadId = '';
@@ -58,7 +101,9 @@ export async function codex(
     number,
     { method: string; resolve: (v: Record<string, unknown>) => void; reject: (e: Error) => void }
   >();
-  const send = (value: unknown) => child.stdin.write(JSON.stringify(value) + '\n');
+  const send = (value: unknown) => {
+    if (child.stdin.writable) child.stdin.write(JSON.stringify(value) + '\n');
+  };
   const request = (method: string, params: unknown) =>
     new Promise<Record<string, unknown>>((resolve, reject) => {
       const n = ++seq;
@@ -70,6 +115,9 @@ export async function codex(
     let closed = false;
     let stderr = '';
     let exitTimer: ReturnType<typeof setTimeout> | undefined;
+    let interruptTimer: ReturnType<typeof setTimeout> | undefined;
+    let interruptId: number | undefined;
+    const interruptGraceMs = options?.interruptGraceMs ?? 2_500;
     const handshakeTimer = setTimeout(
       () => fail(new Fault('adapter_timeout', 'Codex initialization timed out.', 504)),
       15_000,
@@ -86,6 +134,24 @@ export async function codex(
       clearTimeout(handshakeTimer);
       terminateOwned(child);
     };
+    const onAbort = () => {
+      clearTimeout(handshakeTimer);
+      if (closed) return;
+      if (threadId && turnId && !finishing && child.stdin.writable) {
+        interruptId = ++seq;
+        send({ id: interruptId, method: 'turn/interrupt', params: { threadId, turnId } });
+        interruptTimer ??= setTimeout(() => {
+          child.stdin.end();
+          terminateOwned(child);
+        }, interruptGraceMs);
+        interruptTimer.unref();
+      } else {
+        child.stdin.end();
+        terminateOwned(child);
+      }
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
     // A delta or progress event the gateway cannot accept ends the turn, as on every other engine.
     let reporting = Promise.resolve();
     const report = (event: WorkEvent) => {
@@ -98,6 +164,10 @@ export async function codex(
       child,
       (msg) => {
         if (typeof msg.id === 'number' && !msg.method) {
+          if (msg.id === interruptId) {
+            if (!closed) child.stdin.end();
+            return;
+          }
           const p = pending.get(msg.id);
           pending.delete(msg.id);
           if (p) {
@@ -147,25 +217,14 @@ export async function codex(
         if (msg.method && msg.id !== undefined) {
           void (async () => {
             const method = String(msg.method);
-            // MCP elicitation may be thread-scoped in the published app-server schema.
-            const threadElicitation =
-              method === 'mcpServer/elicitation/request' &&
+            // MCP elicitation and MCP tool approvals may be thread-scoped in the app-server schema.
+            const threadScoped =
+              THREAD_SCOPED_METHODS.has(method) &&
               !!threadId &&
               params.threadId === threadId &&
               !!turnId &&
               params.turnId == null;
-            if (
-              (!scoped && !threadElicitation) ||
-              finishing ||
-              ![
-                'item/commandExecution/requestApproval',
-                'item/fileChange/requestApproval',
-                'item/permissions/requestApproval',
-                'item/tool/requestUserInput',
-                'tool/requestUserInput',
-                'mcpServer/elicitation/request',
-              ].includes(method)
-            ) {
+            if ((!scoped && !threadScoped) || finishing || !APPROVAL_METHODS.has(method)) {
               send({
                 id: msg.id,
                 error: {
@@ -175,26 +234,32 @@ export async function codex(
               });
               return;
             }
+            if (toolsDisabled) {
+              denied = true;
+              report({
+                type: 'progress',
+                data: { native: 'codex', event: 'permission_denied', reason: 'tools_disabled' },
+              });
+              send({ id: msg.id, result: codexDecisionPayload(method, params, false) });
+              return;
+            }
+            const callerTool = codexCallerTool(method, params, options?.clientTools);
+            if (callerTool !== null) {
+              report({
+                type: 'progress',
+                data: { native: 'codex', event: 'permission_auto_allowed', tool: callerTool },
+              });
+              send({ id: msg.id, result: codexDecisionPayload(method, params, true) });
+              return;
+            }
             const answer = await emit({
               type: 'approval',
               data: { native: 'codex', method, params },
             });
-            let result: unknown = {
-              decision: answer?.decision === 'approve' ? 'accept' : 'decline',
-            };
-            if (method.includes('requestUserInput'))
-              result = answer?.answers ? { answers: answer.answers } : { answers: {} };
-            if (method.includes('elicitation'))
-              result = {
-                action: answer?.decision === 'approve' ? 'accept' : 'decline',
-                content: answer?.content ?? null,
-              };
-            if (method === 'item/permissions/requestApproval')
-              result = {
-                permissions: answer?.decision === 'approve' ? (params.permissions ?? {}) : {},
-                scope: 'turn',
-              };
-            send({ id: msg.id, result });
+            send({
+              id: msg.id,
+              result: codexDecisionPayload(method, params, answer?.decision === 'approve', answer),
+            });
           })().catch(fail);
         }
         if (!scoped || finishing) return;
@@ -244,6 +309,10 @@ export async function codex(
             });
         }
         if (msg.method === 'turn/completed') {
+          if (signal.aborted) {
+            if (!closed) child.stdin.end();
+            return;
+          }
           const turn = params.turn as Record<string, unknown>;
           // Same rule as every other engine: an operation the owner declined fails the run.
           if (denied) {
@@ -274,11 +343,21 @@ export async function codex(
       stderr = (stderr + c.toString('utf8')).slice(-8192);
     });
     child.stdin.on('error', () => {});
-    child.once('error', reject);
-    child.once('close', () => {
-      closed = true;
+    child.once('error', (error) => {
+      signal.removeEventListener('abort', onAbort);
       clearTimeout(handshakeTimer);
       clearTimeout(exitTimer);
+      clearTimeout(interruptTimer);
+      life.abort();
+      reject(error);
+    });
+    child.once('close', () => {
+      closed = true;
+      signal.removeEventListener('abort', onAbort);
+      clearTimeout(handshakeTimer);
+      clearTimeout(exitTimer);
+      clearTimeout(interruptTimer);
+      life.abort();
       for (const p of pending.values())
         p.reject(new Fault('native_closed', 'Codex process closed.', 502));
       pending.clear();
@@ -309,14 +388,24 @@ export async function codex(
         capabilities: {},
       });
       send({ method: 'initialized', params: {} });
+      const autoApprove =
+        !toolsDisabled &&
+        (agent.access?.approval === 'auto' || (!agent.access && agent.approvals === 'auto'));
+      const instructions = toolsDisabled
+        ? agent.instructions
+          ? `${agent.instructions}\n\n${REASONING_ONLY}`
+          : REASONING_ONLY
+        : agent.instructions;
       const params = {
         cwd,
         allowProviderModelFallback: false,
-        ...(agent.access?.approval === 'auto' || (!agent.access && agent.approvals === 'auto')
-          ? { approvalPolicy: 'never', sandbox: 'danger-full-access' }
-          : {}),
+        ...(toolsDisabled
+          ? { approvalPolicy: 'on-request', ...(sandboxed ? {} : { sandbox: 'read-only' }) }
+          : autoApprove
+            ? { approvalPolicy: 'never', sandbox: 'danger-full-access' }
+            : {}),
         ...(agent.model !== 'default' ? { model: agent.model } : {}),
-        ...(agent.instructions ? { developerInstructions: agent.instructions } : {}),
+        ...(instructions ? { developerInstructions: instructions } : {}),
       };
       const start =
         typeof state?.threadId === 'string'
@@ -332,7 +421,10 @@ export async function codex(
       if (agent.model !== 'default' && observedModel !== agent.model)
         throw new Fault('model_not_supported', 'Codex did not confirm the requested model.', 400);
       await request('turn/start', { threadId, input });
-    })().catch(fail);
+    })().catch((e: unknown) => {
+      if (!signal.aborted || !interruptTimer)
+        fail(e instanceof Error ? e : new Fault('native_protocol_error', String(e), 502));
+    });
   });
 }
 

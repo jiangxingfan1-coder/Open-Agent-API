@@ -2,7 +2,7 @@
 
 English · [简体中文](zh-CN/local-connections.md)
 
-Local Connections lists local clients as searchable cards. Click a card to open its configuration dialog. The managed receiver is DeepSeek Harness (DSH): select an already published source agent, preview the changes, and confirm. OAA creates a dedicated key and adds a provider to DSH. It does not replace an existing provider, change the current conversation, publish an agent automatically, or alter the original API-key workflow.
+Local Connections lists local clients as searchable cards. Click a card to open its configuration dialog. Managed receivers support two transactional channels: **API Setup** (`dsh`, `opencode`, `codex`) and **MCP Bridge** (`claude-desktop`, `cursor`, `windsurf`, `claude-code`). Select a published source agent (or all published agents for an MCP bridge), preview the diff, and confirm. OAA mints a minimal-scope dedicated key (`read`, `invoke`, `files` only—never `approve` or `admin`), stores it in a private `0600` file under `local-connections/keys/` (or DSH's private credential store), backs up the original client file, and atomically merges only its owned entry without replacing unrelated providers, MCP servers or conversations.
 
 ## Client Discovery
 
@@ -41,10 +41,10 @@ The connection check sends only a direct loopback model-metadata request, bypass
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/v1/local/connections` | Target availability, source choices and connection state |
-| POST | `/v1/local/connections/preview` | `{agent, model, tool_mode?}`; default model is `auto` |
-| POST | `/v1/local/connections/apply` | `{plan_id}` from the same administrator's unexpired preview |
-| POST | `/v1/local/connections/{id}/check` | Endpoint/key/model-metadata check without generation |
-| DELETE | `/v1/local/connections/{id}` | Revoke and conditionally remove owned entries |
+| GET | `/v1/local/connections` | Target availability (`target` + `targets`), source choices and connection state |
+| POST | `/v1/local/connections/preview` | `{target?, channel?, agent?, model?, tool_mode?}`; defaults to `target: "dsh"`, `model: "auto"` |
+| POST | `/v1/local/connections/apply` | `{plan_id, target?, channel?}` from the same administrator's unexpired preview |
+| POST | `/v1/local/connections/{id}/check` | Endpoint/key/metadata check without generation |
+| DELETE | `/v1/local/connections/{id}` | Revoke dedicated key, remove private key file and conditionally clean up owned entries |
 
-The first implementation does not automatically configure Codex or Claude clients. Publications requiring sandbox execution of host tools require a separately verified connection and are not automatically configured. It does not upgrade third-party packages or make closed-source tool isolation guarantees.
+Managed API targets merge `provider["open-agent-api"]` into OpenCode (`{file:<private_key_path>}`) and `[model_providers.oaa]` into Codex (`env_key = "OAA_CODEX_API_KEY"` with a private `0600` key file), refusing self-loops (`dsh`, `opencode`, `codex`) and complex conflicting TOML syntax. Managed MCP targets inject `mcpServers["open-agent-api"]` invoking `oaa mcp --url <origin> --token-file <private_key_path>` so no raw token ever appears in client JSON files. Publications requiring sandbox execution of host tools require a separately verified connection and are not automatically configured.

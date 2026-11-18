@@ -12,7 +12,8 @@
  * - gateway configuration `clientTools.default` replaces `auto` for requests that chose no mode.
  * - an explicit `managed`, `bridge` or `reject` is never overridden.
  */
-import type { Principal, Run } from '../core/contracts.js';
+import type { Principal, Run, TraceContext } from '../core/contracts.js';
+import { isForcedToolChoice } from '../core/tool-choice.js';
 import { Fault } from '../core/util.js';
 import { CLIENT_TOOLS_MANAGED_NOTE, type ClientToolsMode } from '../kernel/harness.js';
 import type { Invocation } from '../kernel/invocation.js';
@@ -20,7 +21,13 @@ import { CompatFault } from './compat-errors.js';
 import { flattenClientResults } from './client-tools.js';
 
 type Submitter = {
-  submit(principal: Principal, invocation: Invocation, idem?: string, providerKey?: string): Run;
+  submit(
+    principal: Principal,
+    invocation: Invocation,
+    idem?: string,
+    providerKey?: string,
+    trace?: TraceContext,
+  ): Run;
 };
 
 /** Submit failures that mean "this agent cannot bridge these tools" (all raised before a run exists). */
@@ -68,9 +75,10 @@ export function submitClientTools(
   idem: string | undefined,
   providerKey: string | undefined,
   configured: ClientToolsMode,
+  trace?: TraceContext,
 ): Run {
   const plain = flattenClientResults(invocation);
-  const submit = (inv: Invocation) => kernel.submit(principal, inv, idem, providerKey);
+  const submit = (inv: Invocation) => kernel.submit(principal, inv, idem, providerKey, trace);
   const meta = invocation.metadata;
   const requested = meta['oaa.client_tools'];
   if (requested !== 'default' && requested !== 'auto') {
@@ -84,7 +92,15 @@ export function submitClientTools(
         : meta['oaa.connection_tools'] === 'bridge'
           ? 'bridge'
           : configured;
-  if (effective === 'managed') return submit(managed(plain));
+  const forced = isForcedToolChoice(plain.tool_choice);
+  if (effective === 'managed') {
+    if (forced)
+      throw new Fault(
+        'client_tools_unsupported',
+        'A forced tool_choice cannot be satisfied when clientTools mode is managed. Use X-OAA-Client-Tools: bridge or set tool_choice to auto.',
+      );
+    return submit(managed(plain));
+  }
   if (effective === 'reject')
     throw new Fault(
       'client_tools_unsupported',
@@ -92,18 +108,23 @@ export function submitClientTools(
     );
   const cause = meta['oaa.client_tools_unbridgeable']
     ? `${meta['oaa.client_tools_unbridgeable']}`
-    : meta['oaa.tool_choice_forced']
-      ? 'a forced tool_choice cannot be honoured: the agent decides which tool to call.'
-      : undefined;
+    : undefined;
   if (effective === 'bridge') {
     if (cause) throw new Fault('client_tools_unsupported', cause);
     return submit(withMode(plain, 'bridge'));
   }
-  const fallback = (why: string) =>
-    meta['oaa.client_tools_fallback'] === 'reject' ? refusal(why) : managed(plain);
+  const fallback = (why: string) => {
+    if (meta['oaa.client_tools_fallback'] === 'reject') return refusal(why);
+    if (forced)
+      return new Fault(
+        'client_tools_unsupported',
+        `A forced tool_choice requires bridge support, which is unavailable for this request: ${why}`,
+      );
+    return managed(plain);
+  };
   if (cause) {
     const next = fallback(cause);
-    if (next instanceof CompatFault) throw next;
+    if (next instanceof Fault) throw next;
     return submit(next);
   }
   try {
@@ -111,7 +132,7 @@ export function submitClientTools(
   } catch (error) {
     if (!(error instanceof Fault) || !CANNOT_BRIDGE.has(error.code)) throw error;
     const next = fallback(error.message);
-    if (next instanceof CompatFault) throw next;
+    if (next instanceof Fault) throw next;
     return submit(next);
   }
 }

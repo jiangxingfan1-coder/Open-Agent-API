@@ -23,6 +23,12 @@ import type { KernelRuntime } from './runtime.js';
 import type { ExecutionSlice } from './types.js';
 import * as clientTools from './client-tools.js';
 import { imageDemand, messageImages } from './images.js';
+import { isForcedToolChoice, type ToolChoicePolicy } from '../core/tool-choice.js';
+import {
+  canNativeStreamStructured,
+  type NativeTurnControls,
+} from '../providers/structured-wire.js';
+import { localWorkerConfig } from '../fabric/runnability.js';
 
 export async function context(rt: KernelRuntime, run: Run): Promise<WorkContext> {
   const files = [];
@@ -45,6 +51,8 @@ export async function context(rt: KernelRuntime, run: Run): Promise<WorkContext>
     digest: run.digest,
     files,
     ...(images.length ? { images } : {}),
+    ...(run.subject ? { subject: run.subject } : {}),
+    ...(run.trace ? { trace: run.trace } : {}),
   };
 }
 export function instructions(
@@ -169,6 +177,62 @@ export async function runModelTurn(
         'Context exceeds 2 MB (2,000,000 bytes). Start a new session with selected artifacts.',
         409,
       );
+    const rawChoice = run.checkpoint.toolChoice;
+    const callerToolCompleted =
+      !!run.checkpoint.bridge?.tools.length &&
+      rt.store
+        .steps(run.id)
+        .some(
+          (s) =>
+            s.status === 'completed' && run.checkpoint.bridge!.tools.some((t) => t.name === s.name),
+        );
+    const forceFirstCallerTurn =
+      isForcedToolChoice(rawChoice) && !callerToolCompleted && run.checkpoint.turn === 0;
+    const bridgeForTurn = rawChoice?.mode === 'none' ? undefined : run.checkpoint.bridge;
+    const offeredForTurn =
+      forceFirstCallerTurn && rawChoice.mode === 'required' && bridgeForTurn?.tools.length
+        ? []
+        : run.checkpoint.offeredTools;
+    const bound = clientTools.withClientBindings(agent, offeredForTurn, bridgeForTurn);
+    let effectiveToolChoice: ToolChoicePolicy | undefined;
+    if (forceFirstCallerTurn) {
+      effectiveToolChoice =
+        rawChoice.mode === 'tool'
+          ? { mode: 'tool', name: clientTools.clientToolAlias(rawChoice.name) }
+          : { mode: 'required' };
+    } else if (isForcedToolChoice(rawChoice)) {
+      effectiveToolChoice = { mode: 'auto' };
+    } else if (rawChoice?.mode === 'auto') {
+      effectiveToolChoice = { mode: 'auto' };
+    } else if (
+      rawChoice?.mode === 'none' &&
+      (bound.toolNames.length === 0 || run.metadata['oaa.tool_boundary'] === 'client')
+    ) {
+      effectiveToolChoice = { mode: 'none' };
+    }
+    const pureContract = run.checkpoint.outputContract
+      ? (() => {
+          const { repairs: _r, used: _u, ...rest } = run.checkpoint.outputContract;
+          return rest;
+        })()
+      : undefined;
+    const controls: NativeTurnControls | undefined =
+      effectiveToolChoice || pureContract
+        ? {
+            ...(pureContract ? { outputContract: pureContract } : {}),
+            ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
+          }
+        : undefined;
+    if (
+      run.checkpoint.outputContract &&
+      run.checkpoint.outputContract.repairs === 0 &&
+      !run.checkpoint.orchestration &&
+      !session.writer.open
+    ) {
+      const providerKind = localWorkerConfig(rt.hub)?.providers[agent.provider]?.kind;
+      const hasActiveTools = bound.toolNames.length > 0 && effectiveToolChoice?.mode !== 'none';
+      session.writer.hold(!canNativeStreamStructured(providerKind, pureContract!, hasActiveTools));
+    }
     const modelStarted = Date.now();
     session.pending(true);
     rt.router.beginProbe(run.owner, run.digest, run.route.id);
@@ -177,16 +241,13 @@ export async function runModelTurn(
       work = await rt.hub.execute(
         {
           kind: 'model',
-          ...clientTools.withClientBindings(
-            agent,
-            run.checkpoint.offeredTools,
-            run.checkpoint.bridge,
-          ),
+          ...bound,
           ...(run.metadata['oaa.tool_boundary'] === 'client' ||
           run.metadata['oaa.tools_disabled'] === 'true'
             ? { toolBoundary: 'client' as const }
             : {}),
           ...(outputCap < agent.limits.maxOutputTokens ? { maxOutputTokens: outputCap } : {}),
+          ...(controls ? { controls } : {}),
           messages,
           context,
           ...(callerKey !== undefined ? { credential: { apiKey: callerKey } } : {}),

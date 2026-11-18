@@ -41,6 +41,7 @@ if (kind === 'dsh') {
 } else if (kind === 'codex') {
   let threadId = '';
   let seq = 1_000;
+  let hangTimer = undefined;
   const waiting = new Map();
   const ask = (method, params) =>
     new Promise((resolve) => {
@@ -60,7 +61,11 @@ if (kind === 'dsh') {
   const turn = async (params) => {
     const text = (params.input ?? []).map((part) => part.text ?? '').join('');
     if (text.includes('MODE:fail')) return done('failed');
-    if (text.includes('MODE:hang')) return delta('working...');
+    if (text.includes('MODE:hang')) {
+      delta('working...');
+      hangTimer = setInterval(() => {}, 1_000);
+      return;
+    }
     if (text.includes('MODE:approval')) {
       item('item/started', 'fc1', 'fileChange', 'inProgress');
       const answer = await ask('item/fileChange/requestApproval', {
@@ -125,9 +130,17 @@ if (kind === 'dsh') {
       void turn(msg.params);
       return;
     }
+    if (msg.method === 'turn/interrupt') {
+      clearInterval(hangTimer);
+      log(`interrupt:${msg.params?.threadId}:${msg.params?.turnId}`);
+      if (msg.id !== undefined) output({ id: msg.id, result: {} });
+      done('interrupted');
+      return;
+    }
     if (msg.id !== undefined)
       output({ id: msg.id, error: { code: -32601, message: `unsupported ${msg.method}` } });
   });
+  process.stdin.on('end', () => clearInterval(hangTimer));
 } else {
   const at = argv.indexOf('--conversation');
   const conversation = at >= 0 ? argv[at + 1] : `agy-conversation-${process.pid}-${Date.now()}`;

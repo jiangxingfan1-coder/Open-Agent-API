@@ -43,7 +43,7 @@ When a caller asks for structure, a successful response means the answer **is** 
 
 ## Streaming
 
-A stream with a structured format cannot send text while the agent generates it, because a piece that has gone out may turn out to belong to a wrong answer. The gateway holds the answer until it is checked and then sends the final JSON as **one** text chunk, in that protocol's normal event sequence (Chat: the role chunk, one content chunk, the finish chunk, the usage chunk when asked, `[DONE]`; Responses, Claude and Gemini likewise). While it waits, the heartbeat frames (`: heartbeat`, every 15 seconds) keep the connection from timing out. A failed answer ends the stream in the protocol's error, with no content before it. Use a non-streaming call when you cannot hold a connection open for the agent's whole run, or run in the background (`background: true`) and fetch the response.
+By default (when `structuredOutput.maxRepairs > 0` or the schema is not pushed down as a strict provider-native schema), a stream holds the answer while the agent generates it so that a piece from an invalid attempt is never emitted before silent repair: the gateway validates the final JSON and sends it as **one** text chunk in that protocol's normal event sequence (while waiting, `: heartbeat` frames every 15 seconds keep the connection alive; a failed answer ends the stream with the protocol's error and no content before it). When a kernel route pushes a compatible strict `json_schema` down natively to the model driver and `structuredOutput.maxRepairs === 0`, token deltas stream straight through and Ajv still asserts the completed output before closing. Use a non-streaming call or `background: true` when you cannot hold a connection open.
 
 ## Next to other features
 
@@ -54,12 +54,12 @@ A stream with a structured format cannot send text while the agent generates it,
 * **Fallback agents** (`oaa.agent_fallback`) work as before; they apply before any output exists.
 * **Published `outputSchema`** of an agent still applies after the caller's contract; failing it is `output_contract` as before.
 
-## What is not done
+## Native pushdown and boundaries
 
-* The schema is **not** passed to the model provider's own structured-output feature (`response_format` of OpenAI, `output_config.format` of Anthropic, `responseSchema` of Gemini). The agent is told the shape in its input, and the gateway validates; a provider-native format would raise the first-try pass rate but needs per-provider handling and can make a provider reject a request it used to accept. The guarantee does not depend on it.
+* **Native schema pushdown with graceful fallback**: for kernel agents, compatible contracts are pushed down to all four model drivers (`response_format` on OpenAI Chat, `text.format` on OpenAI Responses, `output_config.format` on Anthropic Messages, `generationConfig.responseMimeType = "application/json"` plus `responseSchema` / `responseJsonSchema` on Gemini) during the final answer turn (when caller tools are forced first, `toolChoice` runs in the tool turn and `outputContract` activates for the final answer). Schemas outside a provider's strict subset (such as free-form objects rejected by strict mode) automatically degrade to prompt guidance plus gateway Ajv validation instead of failing with an upstream 400.
 * `json_object` accepts objects only; a top-level array needs `json_schema` (or Gemini's plain JSON mime type).
-* `strict` has no effect of its own (see above); `description` fields are passed along inside the schema only.
-* Callers that need a **forced tool call** as the way to get structure (for example `with_structured_output(method="function_calling")` of LangChain, or `@ai-sdk/anthropic` in its default `jsonTool` mode) are not served: the gateway cannot honour a forced tool choice (see [harness.md](harness.md)). Use the JSON-schema method instead (`method="json_schema"`; `structuredOutputMode: "outputFormat"` for `@ai-sdk/anthropic`).
+* `strict` is forwarded on compatible native `json_schema` pushdown and echoed; gateway validation always enforces the schema itself.
+* **Forced tool calls (`tool_choice`)**: callers that extract structure via a forced tool call (such as LangChain `with_structured_output(method="function_calling")` or `@ai-sdk/anthropic` in `jsonTool` mode) are supported on bridged agents (`kernel`, `codex`, `claude`, Antigravity ACP, and ACP adapters; see [harness.md](harness.md)): kernel drivers push `tool_choice` down natively on the first turn and converge back to `auto` on continuation, while external bridged agents enforce a prompt constraint plus up to 1 continuation repair round (returning 422 `tool_choice_unmet` if still unmet).
 
 ## Example
 

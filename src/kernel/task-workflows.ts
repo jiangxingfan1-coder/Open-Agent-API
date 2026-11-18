@@ -9,6 +9,7 @@ import {
   type WorkflowRecord as StoredWorkflow,
 } from '../store/task-workflows.js';
 import { validateTaskWorkflow, workflowAgents, type TaskWorkflow } from '../lang/task-workflow.js';
+import { cronMatchesMinute, cronMinuteSlot } from '../lang/cron.js';
 import { executeGraph, projectGraphOutput } from '../lang/graph.js';
 import { invocationSchema } from './invocation.js';
 import { projects } from '../store/projects.js';
@@ -82,7 +83,7 @@ export class WorkflowRunner {
     store.events.on('summary', this.observe);
   }
   start() {
-    this.timer ??= setInterval(() => this.tick(), 30000).unref();
+    this.timer ??= setInterval(() => this.tick(), 15000).unref();
     setImmediate(() => this.tick());
   }
   authorize(p: Principal, record: WorkflowRecord) {
@@ -105,12 +106,22 @@ export class WorkflowRunner {
       trigger_status: record.triggerStatus,
     };
   }
-  private tick() {
+  tick(now = Date.now()) {
     if (this.closed) return;
     for (const record of this.records.list()) {
       const trigger = record.definition.trigger;
-      if (record.archivedAt || !record.definition.enabled || trigger.kind !== 'interval') continue;
-      const slot = Math.floor(Date.now() / (trigger.minutes * 60000));
+      if (record.archivedAt || !record.definition.enabled) continue;
+      if (trigger.kind !== 'interval' && trigger.kind !== 'cron') continue;
+      let receiptKey: string;
+      if (trigger.kind === 'interval') {
+        const slot = Math.floor(now / (trigger.minutes * 60000));
+        receiptKey = `time:${record.revision}:${slot}`;
+      } else {
+        const slot = cronMinuteSlot(now);
+        if (!cronMatchesMinute(trigger.expression, trigger.timezone ?? 'UTC', slot * 60000))
+          continue;
+        receiptKey = `cron:${record.revision}:${slot}`;
+      }
       try {
         if (
           this.records
@@ -118,13 +129,7 @@ export class WorkflowRunner {
             .some((e) => e.definition.id === record.definition.id)
         )
           continue;
-        if (
-          this.records.receipt(
-            record.authority.owner,
-            record.definition.id,
-            `time:${record.revision}:${slot}`,
-          )
-        ) {
+        if (this.records.receipt(record.authority.owner, record.definition.id, receiptKey)) {
           this.launch(record.authority, record, trigger.input, []);
           this.records.noteTrigger(record.authority.owner, record.definition.id, record.revision);
         }

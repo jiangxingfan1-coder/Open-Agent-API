@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { toolChoicePolicySchema } from '../core/tool-choice.js';
 
 /** Structured output the caller asked for; checked when the run finishes (kernel/output-contract.ts). */
 export const outputContractSchema = z
@@ -81,6 +82,7 @@ export const invocationSchema = z
       .max(64)
       .optional(),
     output_contract: outputContractSchema.optional(),
+    tool_choice: toolChoicePolicySchema.optional(),
   })
   .strict();
 export type Invocation = z.infer<typeof invocationSchema>;

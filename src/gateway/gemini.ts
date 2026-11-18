@@ -45,6 +45,8 @@ const SNAKE_TO_CAMEL: Record<string, string> = {
   inline_data: 'inlineData',
   file_data: 'fileData',
   tool_config: 'toolConfig',
+  function_calling_config: 'functionCallingConfig',
+  allowed_function_names: 'allowedFunctionNames',
   safety_settings: 'safetySettings',
   cached_content: 'cachedContent',
   code_execution: 'codeExecution',

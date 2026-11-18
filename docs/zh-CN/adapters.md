@@ -6,7 +6,7 @@
 
 ## AgentAPI 转换契约（2026-11-08）
 
-当前 Codex 适配器只接受自身会话和轮次的事件及审批，保留脱敏后的上游错误，兼容完整消息快照且不重复流式文本，并限制初始化和退出等待时间。模型目录可能包含模型与思考强度的组合；统一的资源安全上限为 1,024 个模型/路由。超限目录会明确携带 `truncated: true`，界面也会标记列表不完整。模型发现或握手通过**不等于**真实生成或禁止工具验证通过。Codex、Qoder 和通用 ACP 后端仍不能用于强制禁用工具的规划阶段。下表 Antigravity 一行描述旧 stream-json 路径；新策略或混合工具发布使用 ACP，见 [Harness](harness.md)。
+当前 Codex 适配器只接受自身会话和轮次的事件及审批，取消时先发送协议级 `turn/interrupt` 并在宽限期后再终止顽固进程，保留脱敏后的上游错误，兼容完整消息快照且不重复流式文本，并限制初始化和退出等待时间。模型目录可能包含模型与思考强度的组合；统一的资源安全上限为 1,024 个模型/路由。超限目录会明确携带 `truncated: true`，界面也会标记列表不完整。模型发现或握手通过**不等于**真实生成验证通过。Codex 与全部 ACP 后端现已支持强制禁用工具的无工具推理轮次（`toolsDisabled`），不透明外部引擎也可显式绑定专职 `orchestration.planner` 智能体参与自动编排。下表 Antigravity 一行描述旧 stream-json 路径；新策略或混合工具发布使用 ACP，见 [Harness](harness.md)。
 
 > 本节为新增内容。回答两个问题：一个智能体经由哪条链路变成 AgentAPI；每条链路在流式、运行中审批、取消、续接、工具可见性上**实际**能保证什么。表中结论由 `test/conformance.test.ts` 用协议级假智能体逐类验证（不调用任何真实模型或智能体，不监听端口）；未经测试的条目明确标注。
 
@@ -29,8 +29,8 @@
 | 接入方式 | 流式文本 | 运行中审批 | 取消 | 续接 | 工具可见 | 用量 | 产物 | 模型选择 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 内核 `kernel` | ✅ token | ✅ 工具 `requiresApproval` 停车等待 | ✅ 协作式（中止模型调用） | ✅ 回放会话历史 | ✅ 步骤与 `tool.*` | ✅ 每轮 | ✅ `write_file` | 路由（多路由、故障转移） |
-| 原生 `codex`（app-server JSON-RPC） | ✅ token | ✅ 命令/文件/权限/提问/MCP elicitation 全部桥接 | ⚠️ 终止进程组（未发送协议级中断） | ✅ `thread/resume` | ✅ item 进度 | ⚠️ 累计用量增量；旧会话无基线时为未知 | ✅ `outputs/` | 发出提示前确认模型，拒绝静默回退 |
-| 原生 `claude`（Agent SDK） | ⚠️ 按消息，不是 token | ✅ `canUseTool` 桥接 | ⚠️ abort 后终止 | ✅ `--resume` | ✅ 工具名（不含参数） | ✅ | ✅ | 声明式 |
+| 原生 `codex`（app-server JSON-RPC） | ✅ token | ✅ 命令/文件/权限/提问/MCP elicitation 全部桥接 | ✅ `turn/interrupt` + 2.5 秒宽限后终止 | ✅ `thread/resume` | ✅ item 进度 | ✅ 累计用量增量（`thread/tokenUsage/updated`）；旧会话无基线时为未知 | ✅ `outputs/` | 发出提示前确认模型，拒绝静默回退 |
+| 原生 `claude`（Agent SDK） | ✅ token（`includePartialMessages` `stream_event` 增量，与末尾整包去重） | ✅ `canUseTool` 桥接 | ⚠️ abort 后终止 | ✅ `--resume` | ✅ 工具名（不含参数） | ✅ | ✅ | 声明式 |
 | 原生 `antigravity`（stream-json） | ✅ token | ⚠️ 不桥接：智能体自身拒绝时以 `permission_denied` 失败 | ⚠️ 终止 | ✅ `--conversation` | ✅ step 工具 | ⚠️ 仅首轮（会话累计值不当作每轮用量） | ✅ | 智能体确认（init 回报的模型不符即失败，不发送任务） |
 | 原生 `dsh`（headless） | ❌ 仅最终结果 | ❌ | ⚠️ 终止 | ❌ `native_resume_unsupported` | ❌ | ❌ | ✅ | 白名单（owner 模型映射） |
 | ACP stdio | ✅ token | ✅ 只选 `allow_once` | ✅ `session/cancel` + 宽限后终止 | ⚠️ 取决于智能体声明 `loadSession`/`resume`（握手检查可确认） | ✅ `tool_call`/`plan` | ⚠️ 智能体上报（ACP 不稳定字段；三项全为 0 按未知处理） | ✅ | 智能体确认（`configOptions`） |
@@ -62,7 +62,7 @@ MCP 不提供批准/拒绝工具是有意的安全边界：调用方往往本身
 1. **四类接入方式都能把智能体变成 AgentAPI**：内置原生、ACP、`oaa/1`（stdio / 流式 / HTTP）、A2A。10 种具体路径在同一套假智能体测试里通过了基本回合、续接（或诚实拒绝）、审批、产物、失败、取消六类检查，6 种外部协议加 MCP 桥渲染同一条运行。
 2. **差异在「交互深度」，不在「能不能接入」**：现在由 `conversion` 画像显式说明，调用方不必靠试错。分三级：`basic`（最终结果 + 稳定错误 + 取消）、`streaming`（再加增量文本）、`interactive`（再加运行中审批）。当前 `interactive`：内核、Codex、Claude、ACP、`oaa/1-stream`；`streaming`：Antigravity、A2A；`basic`：DSH、`oaa/1` stdio / HTTP。
 3. **已修正的不一致**：Codex 中被 owner 拒绝的操作原来报 `native_incomplete`，现在与其它引擎一致报 `permission_denied`；Claude 的工具调用原来不可见，现在记为进度（只记工具名）；`oaa/1` 适配器返回的错误文本原来原样写入运行记录，现在脱敏；流式 Responses 在等待审批时原来完全静默，现在报告待审批状态；自定义适配器原来只能交付最终结果，现在可选 `oaa/1-stream` 获得流式、审批与协作式取消；新增 A2A 远程接入。
-4. **仍然存在的缺口**（未修改，需要真实环境验证或协议协商）：Codex 取消没有发送协议级中断（`turn/interrupt`，待验证后再接入）；Claude 只有消息级流式（Agent SDK 的部分消息模式待验证）；Antigravity 的审批没有无头桥接通道（待验证）；Chat / Claude / Gemini 无法续接会话、看不到工具事件，这是这些协议本身无状态决定的；远程节点上的 `adapter/<名称>` 画像在网关侧为 `unknown`（需要在节点广告里协商新字段，属于后续协议版本工作）；所有结论都基于协议级假智能体，**没有对任何真实智能体做联调**。
+4. **已补齐的缺口与保留边界**：Codex 取消现已先发协议级 `turn/interrupt` 并在有界宽限期后再终止进程；Claude 已支持 token 级增量流式（`includePartialMessages: true`）且与末尾快照严格去重；Codex 与 Claude 原生引擎均已通过 `oaa-caller` MCP 支持调用方工具桥接（`permission_auto_allowed`）；协商了 `conversion-profiles-v1` 的远程节点会同步自定义 `adapter/<名称>` 的静态 `ConversionProfile` 画像，网关侧不再显示为 `unknown`。保留边界：Antigravity 旧版 stream-json 路径没有无头审批桥接（混合桥接请走其 `agy acp` 路径）；Chat / Claude / Gemini 因协议本身无状态，无法原生续接会话或展示 OAA 工具事件。真机端到端实测记录见 [evidence.md](evidence.md)。
 
 ### 转换能力画像（`conversion`）
 
@@ -70,7 +70,7 @@ MCP 不提供批准/拒绝工具是有意的安全边界：调用方往往本身
 
 | 字段 | 取值 |
 | --- | --- |
-| `access` | `kernel`、`native`、`acp`、`oaa-adapter`、`a2a`、`unknown`（网关本机未配置该适配器，例如只由远程节点通告） |
+| `access` | `kernel`、`native`、`acp`、`oaa-adapter`、`a2a`、`unknown`（网关本机未配置该适配器，且没有远程节点经 `conversion-profiles-v1` 通告其画像） |
 | `transport` | 具体线协议：`oaa-kernel`、`codex-app-server`、`claude-agent-sdk`、`antigravity-stream-json`、`dsh-headless`、`acp-stdio`、`oaa/1`、`oaa/1-stream`、`oaa/1-http`、`a2a-jsonrpc` |
 | `tier` | `basic`、`streaming`、`interactive`（见上文结论 2） |
 | `streaming` | `token`、`message`、`final` |
@@ -81,7 +81,7 @@ MCP 不提供批准/拒绝工具是有意的安全边界：调用方往往本身
 | `usage` | `reported`、`agent-reported`、`partial`、`none` |
 | `artifacts` | `outputs/` 下的文件是否导出为产物 |
 | `model_selection` | `route`、`declared`、`agent-confirmed`、`allowlist` |
-| `client_tools` | 调用方在兼容接口里传入的工具怎么处理（见 [harness.md](harness.md)）：`managed`（智能体用自己的工具完成，调用方工具不执行）、`bridge`（调用方工具交回调用方执行）。内核与 ACP 智能体为 `bridge`（Chat Completions、Responses、Claude Messages 与 Gemini 均可），其余外部智能体为 `managed` |
+| `client_tools` | 调用方在兼容接口里传入的工具怎么处理（见 [harness.md](harness.md)）：`managed`（智能体用自己的工具完成，调用方工具不执行）、`bridge`（调用方工具交回调用方执行）。内核、Codex、Claude Code 与 ACP 智能体为 `bridge`（Chat Completions、Responses、Claude Messages 与 Gemini 均可），其余外部智能体为 `managed` |
 | `image_input` | 图片怎样到达智能体（[images.md](images.md)）：`route`（内核；按模型线路，`providers.*.imageInput`）、`native`（Codex 的 `localImage`、Claude Code 的图片块、握手声明了 `promptCapabilities.image` 的 ACP 智能体）、`agent-declared`（握手检查之前的 ACP：声明了就发图片块，否则用工作目录文件）、`workspace-file`（图片文件放在 `inputs/` 下并在输入里写明路径：Antigravity、DSH、stdio `oaa/1` 适配器、不支持图片的 ACP）、`none`（拒绝：A2A、HTTP 适配器、`imageFiles: false`） |
 
 画像只由静态配置推导，同一进程内不变，所以不会让概览 ETag 失效。owner 触发的握手检查只细化 `/v1/local/backends` 中的条目：ACP 握手若声明了 `loadSession` 或 `resume`，`resume` 变为 `native`，都未声明则为 `none`。同理，握手声明了 `promptCapabilities.image` 时 `image_input` 变为 `native`，未声明时为 `workspace-file`（设了 `imageFiles: false` 则为 `none`）。
@@ -99,8 +99,8 @@ MCP 不提供批准/拒绝工具是有意的安全边界：调用方往往本身
 
 | 接入方式 | `native` | `event` | 其它字段 |
 | --- | --- | --- | --- |
-| 原生 `claude` | `claude` | `tool` | `tool`（工具名，不含参数） |
-| 原生 `codex` | `codex` | `item` | `itemType`（Codex 的 item 类型，保留）、`status`、`kind`（`commandExecution` `fileChange` `mcpToolCall` `dynamicToolCall` `collabAgentToolCall` `webSearch` `imageView` 为 `tool`，其它为 `status`） |
+| 原生 `claude` | `claude` | `tool`；`permission_auto_allowed`；`permission_denied` | `tool`（工具名，不含参数）；`permission_auto_allowed`：`tool`（桥接回合自动放行的调用方工具）；`permission_denied`：`reason` |
+| 原生 `codex` | `codex` | `item`；`permission_auto_allowed`；`permission_denied` | `itemType`（Codex 的 item 类型，保留）、`status`、`kind`（`commandExecution` `fileChange` `mcpToolCall` `dynamicToolCall` `collabAgentToolCall` `webSearch` `imageView` 为 `tool`，其它为 `status`）；`permission_auto_allowed`：`tool`；`permission_denied`：`reason` |
 | 原生 `antigravity` | `antigravity` | `initialized`；`tool` | `initialized`：`model` `tool_count` `permission_mode`；`tool`：`tool`（工具名）、`state` |
 | 原生 `dsh` | — | — | 不发进度 |
 | ACP stdio | `acp` | `initialized` `thinking` `tool` `plan` `content_skipped` `permission_denied` `permission_auto_allowed` | `adapter`；`initialized`：`agent` `version` `load_session` `resume_session`；`tool`：`tool_call_id` `title` `kind` `status`；`plan`：`entries`（条数）；`content_skipped`：`content_type`；`permission_denied`：`reason`；`permission_auto_allowed`：`tool`（桥接回合里自动放行的调用方工具名） |

@@ -158,3 +158,61 @@ test(
     });
   },
 );
+
+test(
+  'distinct caller subjects run concurrently on separate srt proxy slots without domain cross-use',
+  { skip: skipReason || false },
+  async () => {
+    await withLauncher(async (launcher, root) => {
+      const wsA = path.join(root, 'ws-alice');
+      const wsB = path.join(root, 'ws-bob');
+      const holdA = await launcher.wrap(
+        '/bin/sleep',
+        ['5'],
+        {},
+        {
+          workspace: root,
+          readOnly: [],
+          allowedDomains: ['alice-only.example'],
+          cpuSeconds: 5,
+          subject: 'key:alice',
+        },
+        new AbortController().signal,
+      );
+      try {
+        // While Alice's slot is held open, Bob acquires a separate OS sandbox slot immediately
+        // and cannot tunnel to Alice's `alice-only.example` domain.
+        await import('node:fs/promises').then((fs) => fs.mkdir(wsB, { recursive: true }));
+        const probe = `
+const http=require('node:http');const p=new URL(process.env.HTTPS_PROXY);
+const req=http.request({host:p.hostname,port:p.port,method:'CONNECT',path:'alice-only.example:443',headers:p.username?{'proxy-authorization':'Basic '+Buffer.from(decodeURIComponent(p.username)+':'+decodeURIComponent(p.password)).toString('base64')}:{}});
+req.on('connect',(res,s)=>{s.destroy();process.stdout.write(JSON.stringify({port:p.port,status:res.statusCode}))});
+req.on('response',res=>process.stdout.write(JSON.stringify({port:p.port,status:res.statusCode})));
+req.on('error',e=>process.stdout.write(JSON.stringify({port:p.port,error:e.code})));req.end();`;
+        const text = await collectProcess(
+          process.execPath,
+          ['-e', probe],
+          wsB,
+          '',
+          AbortSignal.timeout(15_000),
+          { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: wsB, LANG: 'en_US.UTF-8' },
+          {
+            launcher,
+            policy: {
+              workspace: wsB,
+              readOnly: runtimeReadPaths(),
+              allowedDomains: ['bob-only.example'],
+              cpuSeconds: 10,
+              subject: 'key:bob',
+            },
+          },
+        );
+        const out = JSON.parse(text) as { port?: string; status?: number; error?: string };
+        assert.notEqual(out.status, 200, `Bob must not reach Alice's domain: ${text}`);
+        void wsA;
+      } finally {
+        holdA.release();
+      }
+    });
+  },
+);

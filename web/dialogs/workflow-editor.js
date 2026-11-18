@@ -65,7 +65,9 @@ export async function editWorkflow(record, saved) {
   const triggerNames = {
     manual: t('workflow.manual'),
     interval: t('workflow.interval'),
+    cron: t('workflow.cron'),
     event: t('workflow.event'),
+    webhook: t('workflow.webhook'),
   };
   for (const kind of Object.keys(triggerNames)) trigger.add(new Option(triggerNames[kind], kind));
   trigger.value = draft.trigger.kind;
@@ -74,12 +76,25 @@ export async function editWorkflow(record, saved) {
   const minutes = field(settings, t('workflow.minutes'), draft.trigger.minutes ?? 60, 'number');
   minutes.min = '1';
   minutes.max = '10080';
+  const cronExpr = field(
+    settings,
+    t('workflow.cron_expr'),
+    draft.trigger.expression ?? '0 * * * *',
+  );
+  cronExpr.maxLength = 120;
+  const timezone = field(settings, t('workflow.timezone'), draft.trigger.timezone ?? 'UTC');
+  timezone.maxLength = 120;
   const sourceLabel = el('label', undefined, 'field'),
     source = el('select');
   for (const agent of state.data.agents) source.add(new Option(agent.id, agent.id));
   source.value = draft.trigger.agent ?? state.data.agents[0]?.id ?? '';
   sourceLabel.append(el('span', t('workflow.source')), source);
   settings.append(sourceLabel);
+  const rotateLabel = el('label', undefined, 'inline-check'),
+    rotateWebhook = el('input');
+  rotateWebhook.type = 'checkbox';
+  rotateLabel.append(rotateWebhook, el('span', t('workflow.webhook_rotate')));
+  settings.append(rotateLabel);
   const enabledLabel = el('label', undefined, 'inline-check'),
     enabled = el('input');
   enabled.type = 'checkbox';
@@ -88,7 +103,11 @@ export async function editWorkflow(record, saved) {
   settings.append(enabledLabel);
   const updateTrigger = () => {
     minutes.closest('label').hidden = trigger.value !== 'interval';
+    cronExpr.closest('label').hidden = trigger.value !== 'cron';
+    timezone.closest('label').hidden = trigger.value !== 'cron';
     sourceLabel.hidden = trigger.value !== 'event';
+    rotateLabel.hidden =
+      trigger.value !== 'webhook' || record?.definition?.trigger?.kind !== 'webhook';
     enabledLabel.hidden = trigger.value === 'manual';
   };
   trigger.onchange = updateTrigger;
@@ -110,13 +129,29 @@ export async function editWorkflow(record, saved) {
     draft.trigger =
       trigger.value === 'interval'
         ? { kind: 'interval', minutes: Number(minutes.value), input: draft.trigger.input ?? {} }
-        : trigger.value === 'event'
+        : trigger.value === 'cron'
           ? {
-              kind: 'event',
-              agent: source.value,
-              ...(draft.trigger.subject ? { subject: draft.trigger.subject } : {}),
+              kind: 'cron',
+              expression: cronExpr.value.trim(),
+              timezone: timezone.value.trim() || 'UTC',
+              input: draft.trigger.input ?? {},
             }
-          : { kind: 'manual' };
+          : trigger.value === 'event'
+            ? {
+                kind: 'event',
+                agent: source.value,
+                ...(draft.trigger.subject ? { subject: draft.trigger.subject } : {}),
+              }
+            : trigger.value === 'webhook'
+              ? {
+                  kind: 'webhook',
+                  ...(record?.definition?.trigger?.kind === 'webhook' &&
+                  record.definition.trigger.secretHash &&
+                  !rotateWebhook.checked
+                    ? { secretHash: record.definition.trigger.secretHash }
+                    : {}),
+                }
+              : { kind: 'manual' };
     return structuredClone(draft);
   };
   const validate = () => {
@@ -343,6 +378,8 @@ export async function editWorkflow(record, saved) {
         enabled.checked = !!draft.enabled;
         project.value = draft.project ?? '';
         minutes.value = draft.trigger?.minutes ?? 60;
+        cronExpr.value = draft.trigger?.expression ?? '0 * * * *';
+        timezone.value = draft.trigger?.timezone ?? 'UTC';
         source.value = draft.trigger?.agent ?? source.value;
         updateTrigger();
         selected = draft.graph.steps[0]?.id;
@@ -427,9 +464,34 @@ export async function editWorkflow(record, saved) {
           const result = await api('POST', '/v1/workflows', {
             definition: collect(),
             revision: record?.revision ?? 'new',
+            ...(trigger.value === 'webhook' && rotateWebhook.checked
+              ? { rotate_webhook_token: true }
+              : {}),
           });
           if (token !== state.token) return;
           dialog.close();
+          if (result.webhook_token) {
+            const secretModal = el('dialog', undefined, 'modal');
+            const top = el('header', undefined, 'dialog-heading');
+            top.append(
+              el('h2', t('workflow.webhook')),
+              iconButton(t('common.close'), 'x', () => secretModal.close()),
+            );
+            const content = el('div', undefined, 'inspector-body');
+            content.append(
+              el('p', t('workflow.webhook_issued')),
+              el(
+                'pre',
+                `POST /v1/webhooks/workflows/${result.definition.id}\nX-OAA-Webhook-Token: ${result.webhook_token}`,
+                'code',
+              ),
+            );
+            secretModal.append(top, content);
+            document.body.append(secretModal);
+            secretModal.showModal();
+            secretModal.addEventListener('close', () => secretModal.remove(), { once: true });
+            icons();
+          }
           await saved(result);
         });
       } catch (e) {
@@ -453,7 +515,19 @@ export async function editWorkflow(record, saved) {
     },
     { once: true },
   );
-  for (const input of [id, name, concurrency, project, trigger, minutes, source, enabled])
+  for (const input of [
+    id,
+    name,
+    concurrency,
+    project,
+    trigger,
+    minutes,
+    cronExpr,
+    timezone,
+    source,
+    rotateWebhook,
+    enabled,
+  ])
     input.addEventListener('change', validate);
   draw();
   editNode();

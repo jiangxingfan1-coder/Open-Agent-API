@@ -5,6 +5,7 @@ import { principalSubject, visibleSubject } from '../core/contracts.js';
 import { Fault, relativeName } from '../core/util.js';
 import type { Kernel } from '../kernel/kernel.js';
 import type { Store } from '../store/store.js';
+import { openVerifiedFileStream } from '../store/large-artifacts.js';
 import type { Auth } from './auth.js';
 import { assertUploadRoom } from './upload-quota.js';
 
@@ -98,11 +99,13 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
     const visible = visibleSubject(req.principal);
     const file = store.file((req.params as { id: string }).id, req.principal.owner, visible);
     if (file.runId) kernel.authorize(req.principal, store.run(file.runId).agentId, 'read');
-    const payload = await store.filePayload(file.id, req.principal.owner, visible);
-    reply.header(
-      'Content-Disposition',
-      `attachment; filename="download"; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-    );
-    return reply.type('application/octet-stream').send(Buffer.from(payload.content, 'base64'));
+    const { stream, bytes } = await openVerifiedFileStream(store, file);
+    reply
+      .header(
+        'Content-Disposition',
+        `attachment; filename="download"; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+      )
+      .header('Content-Length', String(bytes));
+    return reply.type('application/octet-stream').send(stream);
   });
 }

@@ -15,10 +15,11 @@
 | `GET /v1/projects/{id}/members` | 管理员查看授权 |
 | `POST /v1/projects/{id}/members` | `{subject,access}`，权限为 `read`、`write` 或 `none` |
 | `GET /v1/projects/{id}/memory` | 读取共享条目 |
+| `GET /v1/projects/{id}/memory/search` | BM25 全文检索（`?q=...&namespace=...&limit=...`） |
 | `PUT /v1/projects/{id}/memory` | `{namespace,key,value,revision?}`；`"new"` 要求条目不存在 |
 | `DELETE /v1/projects/{id}/memory` | `{namespace,key,revision}`，拒绝过期删除 |
 
-用 `metadata["oaa.project"]` 选择项目。已发布 `memory_read` / `memory_write` 的内核智能体可传 `scope:"project"`，默认仍是私人记忆。其他智能体获得有长度上限的参考快照。调用方有写权限时，完成的根任务输出会保存为**智能体陈述**，不是已经验证的事实；可用 `oaa.project.remember=false` 关闭。项目会话不能在下一轮移动到另一个项目。私人记忆、系统指令和原生会话句柄不会被复制给其他调用方。
+用 `metadata["oaa.project"]` 选择项目。已发布 `memory_read` / `memory_write` / `memory_search` 的内核智能体可传 `scope:"project"`，默认仍是私人记忆。其他智能体获得按 SQLite FTS5 BM25 与当前任务输入动态排序的相关记忆参考快照（无匹配时回退至最近更新条目）。调用方有写权限时，完成的根任务输出会保存为**智能体陈述**，不是已经验证的事实；可用 `oaa.project.remember=false` 关闭。项目会话不能在下一轮移动到另一个项目。私人记忆、系统指令和原生会话句柄不会被复制给其他调用方。
 
 ## 持久任务
 
@@ -55,7 +56,7 @@ HTTP 调用方断开不会取消已接受任务，退出桌面也不会停止后
 
 用 `POST /v1/workflows` 发布，`POST /v1/workflows/{id}/run` 以 `{input,file_ids?}` 启动。通过 `/v1/workflow-runs`、`/v1/workflow-runs/{id}` 查看检查点；`/cancel` 取消活跃子调用，`/resume` 在子运行结果解决后重新挂接阻塞执行。原有副作用核对规则仍然生效。
 
-手动和 API 触发始终可用。显式开启的定时间隔为 1-10080 分钟，错过的时间槽不会形成补跑洪峰。完成事件指定来源智能体，默认限于创建者 subject，工作流子运行不会递归触发其他工作流。调度时重新验证原密钥，不保存 Bearer 凭据，并在触发状态中显示准入错误。不会为定时任务持久化调用方提供的模型凭据。
+手动和 API 触发始终可用。显式开启的定时间隔为 1-10080 分钟，错过的时间槽不会形成补跑洪峰。标准 5 段 Cron 触发器（`{kind:"cron",expression,timezone?}`，默认 `UTC`）按 IANA 时区分钟槽去重执行，停机重启后自动跳过已错过窗口。入站 Webhook 触发器（`{kind:"webhook"}`）在启用或轮换（`POST /v1/workflows/{id}/webhook-token`）时生成一次性高熵 `webhook_token` 且数据库仅存 SHA-256 哈希；公开入站端点 `POST /v1/webhooks/workflows/{id}` 通过 `Authorization: Bearer <webhook_token>` 或 `X-OAA-Webhook-Token` 常数时间校验，实施限流与 64 KiB JSON 负载上限，重验创建者密钥权限，并在归档（409）或停用（403）时拒绝触发。完成事件指定来源智能体，默认限于创建者 subject，工作流子运行不会递归触发其他工作流。调度时重新验证原密钥，不保存 Bearer 凭据，并在触发状态中显示准入错误。不会为定时任务持久化调用方提供的模型凭据。
 
 `POST /v1/workflows/{id}/archive` 与 `/restore` 需要 `{revision}` 及所有者管理员权限。归档会停用触发器并从默认列表隐藏定义，不会取消已接受的执行或删除历史；`GET /v1/workflows?archived=true` 查看归档项。恢复后触发器仍保持关闭，归档定义须恢复后才能编辑或新建执行。未归档定义即使停用自动触发器，仍可手动／API 执行。
 
@@ -65,7 +66,7 @@ HTTP 调用方断开不会取消已接受任务，退出桌面也不会停止后
 
 任务弹窗可选择图片、文档、音频或视频文件。`GET /v1/media/formats` 列出格式签名；`POST /v1/media/jobs` 接受 `{agent,model?,input,kind,format?,file_ids?,metadata?}` 并建立普通持久任务，`GET /v1/media/jobs/{id}` 返回实际产物。现有兼容接口也可传 `oaa.output_kind`、`oaa.output_format` 元数据。工作流阶段支持 `output_kind`、`format` 参数。
 
-它使用所选智能体已安装的工具，不是 OAA 新增了一套图片、语音或视频模型。没有新的匹配产物时输出契约失败。格式签名检查不能证明文档结构、编解码完整性、创意质量或事实正确性；原有 8 MiB 产物导出上限仍然明确保留。图片、文本、音频、视频预览通过鉴权下载及临时本地 Blob URL 展示，不把密钥放入媒体 URL，也不自动播放声音。
+它使用所选智能体已安装的工具，不是 OAA 新增了一套图片、语音或视频模型。没有新的匹配产物时输出契约失败。格式签名检查不能证明文档结构、编解码完整性、创意质量或事实正确性；产物落盘与下载采用分块 SHA-256 流式校验，默认上限提升至 64 MiB（可通过 `maxArtifactBytes` 配置至最高 256 MiB），普通上传仍保持 8 MiB 上限。图片、文本、音频、视频预览通过鉴权下载及临时本地 Blob URL 展示，不把密钥放入媒体 URL，也不自动播放声音。
 
 2026-11-17 的真实 Codex 任务生成并下载了一秒 PCM WAV 和 H.264 MP4，独立 `ffprobe` 识别成功。它们是技术测试信号与画面，不是艺术性 AI 生成质量的证明。
 
@@ -79,7 +80,7 @@ HTTP 调用方断开不会取消已接受任务，退出桌面也不会停止后
 
 ## 跨平台桌面
 
-独立 Electron 外壳位于 `desktop/cross-platform`，原 macOS Swift 外壳和命令行包保留。它只启动或连接匹配的私人回环网关，只向自己的顶层窗口注入本地密钥，关闭渲染进程 Node 集成并开启上下文隔离、进程沙箱，参照 [Electron 安全指南](https://www.electronjs.org/docs/latest/tutorial/security)。
+跨平台统一 Electron 外壳位于 `desktop/cross-platform`，已完整吸收原归档 macOS Swift 外壳的全部体验（52pt `hiddenInset` 内嵌红绿灯顶栏、Dock 与托盘实时角标、双语审批通知、端口归属三态诊断与自家孤儿网关接管、`.seeded` 首次启动引导），并新增沙箱化系统托盘快捷审批小窗与开机自启开关，统一承载 macOS（`arm64` / `x64`）、Windows（`x64`）与 Linux 三端构建。它只启动或连接匹配的私人回环网关，只向自己的顶层窗口注入本地密钥，关闭渲染进程 Node 集成并开启上下文隔离、进程沙箱，参照 [Electron 安全指南](https://www.electronjs.org/docs/latest/tutorial/security)。
 
 ```sh
 npm install --prefix desktop/cross-platform

@@ -9,8 +9,10 @@ import * as img from './image-capabilities.js';
 import { Fault } from '../core/util.js';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { readBounded, sha } from '../core/util.js';
+import { readBounded, safePath, sha } from '../core/util.js';
 import type { ArtifactPayload } from '../core/contracts.js';
+import { LIMITS } from '../core/limits.js';
+import { hashFileStreaming } from '../store/large-artifacts.js';
 
 export async function executeNative(
   work: Extract<Work, { kind: 'native' }>,
@@ -35,7 +37,22 @@ export async function executeNative(
   const name = agent.engine.startsWith('adapter/') ? agent.engine.slice(8) : undefined;
   const transport = name ? config.adapters[name]?.transport : undefined;
   if (work.toolsDisabled) {
-    if (agent.engine !== 'antigravity' && agent.engine !== 'claude')
+    if (transport === 'acp')
+      return runAcp(
+        agent,
+        config,
+        root,
+        nativeInput,
+        signal,
+        emit,
+        work.nativeState,
+        timings,
+        undefined,
+        work.context.images,
+        root,
+        true,
+      );
+    if (agent.engine !== 'antigravity' && agent.engine !== 'claude' && agent.engine !== 'codex')
       throw new Fault(
         'capability_unavailable',
         'This engine does not offer enforced tool-free reasoning.',
@@ -116,6 +133,7 @@ export async function executeNative(
       work.clientTools,
       work.context.images,
       root,
+      Boolean(work.toolsDisabled),
     );
   if (name)
     return runAdapter(
@@ -139,10 +157,15 @@ export async function executeNative(
     sandbox,
     work.context.images,
     root,
+    false,
+    work.clientTools,
   );
 }
 
-export async function collectNativeArtifacts(outputRoot: string): Promise<ArtifactPayload[]> {
+export async function collectNativeArtifacts(
+  outputRoot: string,
+  maxBytes: number = LIMITS.artifactExportBytes,
+): Promise<ArtifactPayload[]> {
   const artifacts: ArtifactPayload[] = [];
   let total = 0;
   const collect = async (rel: string): Promise<void> => {
@@ -156,11 +179,32 @@ export async function collectNativeArtifacts(outputRoot: string): Promise<Artifa
         );
       if (entry.isDirectory()) await collect(name);
       else if (entry.isFile()) {
-        const data = await readBounded(outputRoot, name);
-        total += data.length;
-        if (total > 8 * 1024 * 1024 || artifacts.length >= 100)
+        if (artifacts.length >= 100)
           throw new Fault('artifacts_too_large', 'Native output export exceeds its limit.', 413);
-        artifacts.push({ name, content: data.toString('base64'), sha256: sha(data) });
+        const fullPath = await safePath(outputRoot, name);
+        const info = await hashFileStreaming(fullPath, maxBytes - total);
+        total += info.bytes;
+        if (total > maxBytes)
+          throw new Fault('artifacts_too_large', 'Native output export exceeds its limit.', 413);
+        if (info.bytes <= LIMITS.fileBytes) {
+          const data = await readBounded(outputRoot, name, LIMITS.fileBytes);
+          if (sha(data) !== info.sha256)
+            throw new Fault('artifact_integrity', 'Native artifact changed while reading.', 502);
+          artifacts.push({
+            name,
+            content: data.toString('base64'),
+            sha256: info.sha256,
+            bytes: info.bytes,
+          });
+        } else {
+          artifacts.push({
+            name,
+            content: '',
+            sha256: info.sha256,
+            localPath: fullPath,
+            bytes: info.bytes,
+          });
+        }
       }
     }
   };

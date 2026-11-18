@@ -22,11 +22,23 @@ import { ERROR_CATALOG } from '../src/core/errors.js';
 const PENDING_NEW_DOCS: string[] = [];
 
 /** Directories that never hold project documentation. */
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'release', 'output', '.claude']);
+const SKIP_DIRS = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  'release',
+  'output',
+  'site-dist',
+  'coverage',
+  '.claude',
+  '.playwright-cli',
+  '.venv',
+  'venv',
+]);
 
 async function walk(dir: string, out: string[] = []): Promise<string[]> {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
-    if (SKIP_DIRS.has(entry.name)) continue;
+    if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('.oaa')) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) await walk(full, out);
     else if (entry.name.endsWith('.md')) out.push(full);

@@ -18,6 +18,7 @@ import {
 } from '../core/suspension.js';
 import { stepIdFor } from './run-state.js';
 import { runMemoryTool } from './memory-tools.js';
+import { persistWorkerArtifact } from '../store/large-artifacts.js';
 import { callDelegate } from './delegate.js';
 import type { KernelRuntime } from './runtime.js';
 import type { ExecutionSlice } from './types.js';
@@ -340,7 +341,9 @@ export async function callTool(
   }
   if (
     binding.handler.kind === 'builtin' &&
-    (binding.handler.name === 'memory_read' || binding.handler.name === 'memory_write')
+    (binding.handler.name === 'memory_read' ||
+      binding.handler.name === 'memory_write' ||
+      binding.handler.name === 'memory_search')
   ) {
     if (binding.capability.effect !== 'read') rt.cache.invalidate();
     step.status = 'running';
@@ -407,11 +410,8 @@ export async function callTool(
         throw new Fault('invalid_tool_result', 'Worker returned an invalid tool result.', 502);
       const refs = [];
       for (const artifact of answer.artifacts ?? []) {
-        const bytes = Buffer.from(artifact.content, 'base64');
-        if (sha(bytes) !== artifact.sha256)
-          throw new Fault('artifact_integrity', 'Artifact digest does not match.', 502);
         const allowed = bundle.agent.allowedNodes;
-        const file = await rt.store.addFile(run.owner, artifact.name, bytes, allowed, run.id);
+        const file = await persistWorkerArtifact(rt.store, run.owner, run.id, artifact, allowed);
         refs.push({
           id: file.id,
           name: file.name,

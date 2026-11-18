@@ -16,6 +16,8 @@ export type LocalClient = {
   icon: string;
   installed: boolean;
   connection: 'managed' | 'manual' | 'unavailable' | 'provider';
+  channels?: ('api' | 'mcp')[];
+  targets?: { api?: string; mcp?: string };
   runtime?: {
     preset: string;
     base_url: string;
@@ -82,16 +84,25 @@ function catalog(): Definition[] {
     items.set(id, { ...item, ...changes });
   };
   extend('codex', {
-    connection: 'manual',
+    connection: 'managed',
+    channels: ['api'],
+    targets: { api: 'codex' },
     protocol: 'responses',
     guide: 'https://developers.openai.com/codex/config-advanced/',
   });
   extend('claude', {
-    connection: 'manual',
+    connection: 'managed',
+    channels: ['mcp'],
+    targets: { mcp: 'claude-code' },
     protocol: 'messages',
     guide: 'https://code.claude.com/docs/en/llm-gateway',
   });
-  extend('dsh', { apps: ['DeepSeek Harness.app'], protocol: 'chat-completions' });
+  extend('dsh', {
+    apps: ['DeepSeek Harness.app'],
+    protocol: 'chat-completions',
+    channels: ['api'],
+    targets: { api: 'dsh' },
+  });
   extend('antigravity', { apps: ['Antigravity.app'] });
   extend('qoder', {
     name: 'Qoder',
@@ -102,17 +113,38 @@ function catalog(): Definition[] {
   extend('opencode-acp', {
     name: 'OpenCode',
     apps: ['OpenCode.app'],
-    connection: 'manual',
+    connection: 'managed',
+    channels: ['api'],
+    targets: { api: 'opencode' },
     protocol: 'chat-completions',
     guide: 'https://opencode.ai/docs/providers/',
   });
-  extend('cursor', { name: 'Cursor', apps: ['Cursor.app'] });
+  extend('cursor', {
+    name: 'Cursor',
+    apps: ['Cursor.app'],
+    connection: 'managed',
+    channels: ['mcp'],
+    targets: { mcp: 'cursor' },
+  });
   extend('kiro', { name: 'Kiro', apps: ['Kiro.app'] });
   extend('trae-cli', { name: 'Trae', apps: ['Trae.app'] });
-  extend('windsurf', { name: 'Windsurf', apps: ['Windsurf.app'] });
+  extend('windsurf', {
+    name: 'Windsurf',
+    apps: ['Windsurf.app'],
+    connection: 'managed',
+    channels: ['mcp'],
+    targets: { mcp: 'windsurf' },
+  });
   // Desktop subscription apps are not the CLI; never infer a CLI receiver from these bundles.
   extend('codex-desktop', { name: 'Codex Desktop', icon: 'codex', apps: ['Codex.app'] });
-  extend('claude-desktop', { name: 'Claude Desktop', icon: 'claude', apps: ['Claude.app'] });
+  extend('claude-desktop', {
+    name: 'Claude Desktop',
+    icon: 'claude',
+    apps: ['Claude.app'],
+    connection: 'managed',
+    channels: ['mcp'],
+    targets: { mcp: 'claude-desktop' },
+  });
   extend('cline', { extension: 'saoudrizwan.claude-dev-' });
   extend('roo-code', { name: 'Roo Code', extension: 'rooveterinaryinc.roo-cline-' });
   extend('continue', { name: 'Continue', extension: 'continue.continue-' });
@@ -300,6 +332,8 @@ export async function discoverLocalClients(
         icon: item.icon,
         installed: unique.length > 0,
         connection: item.id === 'qoder' && !qoderDesktop ? 'unavailable' : item.connection,
+        ...(item.channels ? { channels: item.channels } : {}),
+        ...(item.targets ? { targets: item.targets } : {}),
         ...(item.protocol ? { protocol: item.protocol } : {}),
         ...(item.guide
           ? { guide: qoderDesktop ? 'https://docs.qoder.com/qoder/custom-models' : item.guide }

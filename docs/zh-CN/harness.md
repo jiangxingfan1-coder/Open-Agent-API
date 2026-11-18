@@ -42,16 +42,16 @@ OAA 内核（准入、身份、持久化、审批、事件）
 | `bridge` 桥接 | 外层的工具投射给内层智能体；内层调用时运行停车，以标准 `tool_calls` 返回给调用方，调用方执行后回传结果，同一个运行接着做 | 调用方（由内层发起） | 工具必须在调用方本机执行（例如编辑调用方工作区里的文件） |
 | `reject` 拒绝 | 只要传了工具就报错 `client_tools_unsupported`，不降级 | — | 需要严格语义、不接受工具被忽略的调用方 |
 
-> **桥接已对内置内核智能体与 ACP 外部智能体提供，支持 Chat Completions、Responses、Claude Messages 与 Gemini `generateContent`。** 不支持桥接的外部智能体请求 `bridge` 会得到 `client_tools_bridge_unsupported`（400），UAP/1 不接受 `tools` 字段；这些情况下任何运行都不会创建。
+> **桥接已对内置内核智能体、Codex 与 Claude Code 原生引擎、Antigravity（ACP 路径）及 ACP 外部智能体提供，支持 Chat Completions、Responses、Claude Messages 与 Gemini `generateContent`。** 不支持桥接的外部智能体（如 DSH、A2A 或 HTTP 适配器）请求 `bridge` 会得到 `client_tools_bridge_unsupported`（400），UAP/1 不接受 `tools` 字段；这些情况下任何运行都不会创建。
 
 ## auto 怎么判定
 
 请求声明了工具、又没有选模式，就得到 `auto`（网关配置 `clientTools.default` 可以把这个缺省改成 `managed`、`bridge` 或 `reject`；请求头里显式写的 `auto` 优先于配置）。规则如下，提交时智能体已经知道：
 
-1. 智能体能接管工具（内核智能体，或有在线执行机器为它声明了 `client-tools-v1` 的 ACP 智能体），工具都是普通函数、名字与智能体自己的不重名，且没有强制工具选择：请求按 `bridge` 处理。响应带 `X-OAA-Client-Tools: bridge`；智能体的调用以 `tool_calls` / `function_call` / `tool_use` / `functionCall` 交回。
-2. 其它情况得到该入口原来的行为。OpenAI 默认端点（不带 `X-OAA-Compat` 的 `/v1/chat/completions`、`/v1/responses`）返回 400 `unsupported_parameter`（`error.param` 是 `tools`）：信息说明这个智能体接管不了你的工具、原因是什么（自己跑工具循环的原生引擎、没有为调用方工具声明支持的执行机器、名字重名、工具不是函数、强制了工具选择），并写明三条出路：Base URL 用 `<origin>/v1/compat`、`X-OAA-Compat: true`、`X-OAA-Client-Tools: managed`。兼容端点、Claude Messages 与 Gemini 照旧按 `managed`（智能体用自己的工具完成；`X-OAA-Client-Tools: ignored`）。
+1. 智能体能接管工具（内核智能体，或有在线执行机器为它声明了 `client-tools-v1` 的 Codex、Claude Code、Antigravity ACP 或 ACP 适配器智能体），且工具都是普通函数、名字与智能体自己的不重名：请求按 `bridge` 处理（`tool_choice: "none"` 本轮不暴露调用方工具；强制 `tool_choice` 对内核智能体原生下推至上游模型驱动，对桥接外部智能体注入必调约束并在未命中时执行最多 1 轮会话续接纠正，仍未调用则报 422 `tool_choice_unmet`）。响应带 `X-OAA-Client-Tools: bridge`；智能体的调用以 `tool_calls` / `function_call` / `tool_use` / `functionCall` 交回。
+2. 其它情况得到该入口原来的行为。若请求强制了 `tool_choice`（`required` / `any` 或具名函数）而目标无法桥接（或选了 `managed`），提交直接返回 400 `client_tools_unsupported`。否则 OpenAI 默认端点（不带 `X-OAA-Compat` 的 `/v1/chat/completions`、`/v1/responses`）返回 400 `unsupported_parameter`（`error.param` 是 `tools`）：信息说明这个智能体接管不了你的工具、原因是什么（不支持桥接的引擎、没有为调用方工具声明支持的执行机器、名字重名、工具不是函数），并写明三条出路：Base URL 用 `<origin>/v1/compat`、`X-OAA-Compat: true`、`X-OAA-Client-Tools: managed`。兼容端点、Claude Messages 与 Gemini 照旧按 `managed`（智能体用自己的工具完成；`X-OAA-Client-Tools: ignored`）。
 
-旧接入继续保留上述自动选择规则。Codex、Claude Code、A2A 和 HTTP 原生／适配器入口仍仅托管；Antigravity 另有按能力检查的 ACP 路径。外部智能体不能保证强制工具选择。选择 auto 不会增加审批权限，新发布与密钥策略按前文优先约束。
+旧接入继续保留上述自动选择规则。DSH、A2A 和 HTTP 原生／适配器入口仍仅托管；Codex、Claude Code、ACP 适配器及按能力检查的 Antigravity ACP 路径均支持 `bridge`。选择 auto 不会增加审批权限，新发布与密钥策略按前文优先约束。
 
 只有请求里的 `tools` 是**非空数组**时才会按模式处理。没有 `tools`、或者 `tools: []`，行为与以前完全相同，模式请求头也不起作用。
 
@@ -59,7 +59,7 @@ OAA 内核（准入、身份、持久化、审批、事件）
 
 - 不确定就保持默认的 `auto`：能用你的工具的智能体拿到工具，其它智能体照旧工作，响应头（`bridge` 或 `ignored`）说明发生了哪一种。
 - 调用方必须知道「工具没被执行」并据此改变行为（例如换一个模型）时，用 `reject`，按错误码分支。
-- 智能体必须调用你本机的工具才能完成任务、而且背后是内核智能体或 ACP 外部智能体时，用 `bridge`。其它外部智能体可以先把这些工具发布成 OAA 智能体自己的工具（MCP 导入或节点工具），再用 `managed`。
+- 智能体必须调用你本机的工具才能完成任务、而且背后是内核智能体、Codex、Claude Code、Antigravity（ACP）或 ACP 外部智能体时，用 `bridge`。其它外部智能体可以先把这些工具发布成 OAA 智能体自己的工具（MCP 导入或节点工具），再用 `managed`。
 
 ## 怎么传
 
@@ -112,27 +112,28 @@ Responses（`/v1/compat/responses`）与 Gemini（`tools[].functionDeclarations`
 
 ## 当前支持矩阵
 
-接入方式 × 模式（智能体画像 `conversion.client_tools` 给出每个智能体的取值：内核与 ACP 为 `bridge`，其余为 `managed`；`auto` 取其中那一列）：
+接入方式 × 模式（智能体画像 `conversion.client_tools` 给出每个智能体的取值：内核、Codex、Claude Code 与 ACP 为 `bridge`，其余为 `managed`；`auto` 取其中那一列）：
 
 | 智能体接入方式 | `managed` | `reject` | `bridge` |
 | --- | --- | --- | --- |
-| 内置内核智能体（`engine: kernel`） | 支持 | 支持 | 支持 ✓（Chat、Responses、Claude Messages） |
+| 内置内核智能体（`engine: kernel`） | 支持 | 支持 | 支持 ✓（Chat、Responses、Claude Messages、Gemini） |
+| Codex / Claude Code 原生入口（`codex`、`claude`） | 支持 | 支持 | 支持 ✓（经单次运行隔离的 `oaa-caller` MCP 中继） |
 | ACP 外部智能体（`adapter/<name>`，`transport: "acp"`） | 支持 | 支持 | 支持 ✓（经 MCP 中继，见下文「外部智能体的桥接是怎么工作的」） |
 | 已确认 `agy acp` 能力的 Antigravity | 支持 | 支持 | 经 ACP 混合桥接调用方工具 |
-| Codex / Claude Code / DSH 原生入口 | 支持 | 支持 | 仅托管：报 `client_tools_bridge_unsupported` |
+| DSH 原生入口 | 支持 | 支持 | 仅托管：报 `client_tools_bridge_unsupported` |
 | A2A / oaa-1 HTTP 适配器 | 支持 | 支持 | 仅托管：报 `client_tools_bridge_unsupported` |
 
-桥接运行只会放到在握手里声明了 `client-tools-v1`、且对这个引擎声明了支持的执行机器上（内置执行机器总是声明 `kernel` 与已启用的 ACP 适配器）；没有这样的机器时，提交阶段就报 `client_tools_bridge_unsupported`（400），不会建运行。0.2.0 的旧版远程执行机器不声明这个特性，因此不会收到桥接任务（以前是到执行时才报 `manifest_mismatch`）。
+桥接运行只会放到在握手里声明了 `client-tools-v1`、且对这个引擎声明了支持的执行机器上（内置执行机器声明 `kernel` 以及已启用的 `codex`、`claude`、Antigravity ACP 与 ACP 适配器）；没有这样的机器时，提交阶段就报 `client_tools_bridge_unsupported`（400），不会建运行。0.2.0 的旧版远程执行机器不声明这个特性，因此不会收到桥接任务（以前是到执行时才报 `manifest_mismatch`）。
 
 外部协议 × 模式：
 
 | 接口 | `managed` | `reject` | `bridge` |
 | --- | --- | --- | --- |
-| Chat Completions（`X-OAA-Compat: true` 或 `/v1/compat/chat/completions`） | 支持 | 支持 | 支持（内核与 ACP 智能体） |
-| Responses（`X-OAA-Compat: true` 或 `/v1/compat/responses`） | 支持 | 支持 | 支持（内核与 ACP 智能体；只接受 `type: "function"` 工具） |
-| Claude Messages（`/v1/messages`、`/v1/compat/messages`） | 支持 | 支持 | 支持（内核与 ACP 智能体；带 `type` 的服务端工具被拒） |
-| Gemini `generateContent` / `streamGenerateContent`（`/v1beta` 与 `/v1`） | 支持 | 支持 | 支持（内核与 ACP 智能体；只接受 `functionDeclarations`，`googleSearch` 等内置工具被拒） |
-| 严格接口（不带 `X-OAA-Compat` 的 `/v1/chat/completions`、`/v1/responses`） | 支持（显式写请求头） | 支持（显式写请求头） | 支持（内核与 ACP 智能体）；没选模式时，不能桥接的智能体被拒绝（见「auto 怎么判定」） |
+| Chat Completions（`X-OAA-Compat: true` 或 `/v1/compat/chat/completions`） | 支持 | 支持 | 支持（内核、Codex、Claude Code 与 ACP 智能体） |
+| Responses（`X-OAA-Compat: true` 或 `/v1/compat/responses`） | 支持 | 支持 | 支持（内核、Codex、Claude Code 与 ACP 智能体；只接受 `type: "function"` 工具） |
+| Claude Messages（`/v1/messages`、`/v1/compat/messages`） | 支持 | 支持 | 支持（内核、Codex、Claude Code 与 ACP 智能体；带 `type` 的服务端工具被拒） |
+| Gemini `generateContent` / `streamGenerateContent`（`/v1beta` 与 `/v1`） | 支持 | 支持 | 支持（内核、Codex、Claude Code 与 ACP 智能体；只接受 `functionDeclarations`，`googleSearch` 等内置工具被拒） |
+| 严格接口（不带 `X-OAA-Compat` 的 `/v1/chat/completions`、`/v1/responses`） | 支持（显式写请求头） | 支持（显式写请求头） | 支持（内核、Codex、Claude Code 与 ACP 智能体）；没选模式时，不能桥接的智能体被拒绝（见「auto 怎么判定」） |
 | UAP/1（`/v1/uap`） | — | — | — |
 
 严格接口和其它入口一样参与各模式；不同的只是 `auto` 的回退（拒绝，而不是 `managed`）。旧式的 `functions` / `function_call` 在那里仍被拒绝，空的 `tools: []` 按没有工具接受。UAP/1 不参与：带 `tools` 字段会报 `invalid_request`。
@@ -210,7 +211,7 @@ Responses（`/v1/compat/responses`）与 Gemini（`tools[].functionDeclarations`
 
 流式：停车时（还没发过时）先补发 `message_start`；已打开的 text 块先 `content_block_stop`；每个调用 `content_block_start`（tool_use，`input: {}`）、一个 `input_json_delta`（完整 JSON）、`content_block_stop`，index 依次递增；最后 `message_delta`（`stop_reason: "tool_use"`）与 `message_stop`，然后关闭。
 
-**Gemini**（`/v1beta/models/{agent}:generateContent` 与 `:streamGenerateContent`，`/v1/models/...` 相同）：`tools[].functionDeclarations[]` 是调用方工具，参数取 `parametersJsonSchema`（JSON Schema，原样）或 `parameters`（Gemini 的 OpenAPI 子集：`type: "OBJECT"` 等大写类型转成小写，`nullable: true` 并入类型）。`googleSearch`、`codeExecution`、`urlContext` 等内置工具（或与 `functionDeclarations` 写在同一条里）在 bridge 下报 `client_tools_unsupported`，managed 下照旧忽略。`toolConfig`（含 `functionCallingConfig` 的 `mode`、`allowedFunctionNames`）与其它协议的 `tool_choice` 一样不转发，列在 `X-OAA-Ignored-Params` 里。
+**Gemini**（`/v1beta/models/{agent}:generateContent` 与 `:streamGenerateContent`，`/v1/models/...` 相同）：`tools[].functionDeclarations[]` 是调用方工具，参数取 `parametersJsonSchema`（JSON Schema，原样）或 `parameters`（Gemini 的 OpenAPI 子集：`type: "OBJECT"` 等大写类型转成小写，`nullable: true` 并入类型）。`googleSearch`、`codeExecution`、`urlContext` 等内置工具（或与 `functionDeclarations` 写在同一条里）在 bridge 下报 `client_tools_unsupported`，managed 下照旧忽略。`toolConfig.functionCallingConfig`（`mode` `AUTO` / `NONE` / `ANY` 与 `allowedFunctionNames`）与 OpenAI、Claude 的 `tool_choice` 一致解析并生效（`NONE` 本轮不暴露调用方工具，`ANY` 或 `allowedFunctionNames` 要求触发对应函数调用，不再列入 `X-OAA-Ignored-Params`）。
 
 ```json
 { "contents": [{ "role": "user", "parts": [{ "text": "修复登录页的报错" }] }],
@@ -261,11 +262,11 @@ ACP 外部智能体有自己的工具循环，OAA 插不进去。但 ACP 建会�
 - 智能体自己的 MCP 调用超时（例如 MCP SDK 默认 60 秒）可能比 `approvalTimeoutMs` 短：调用方回传太慢时，智能体可能先放弃这次调用。
   - **保活**：等待调用方期间，中继对请求里带了 `_meta.progressToken` 的 `tools/call` 每 15 秒发一次 `notifications/progress`（`progress` 递增，`message` 说明在等调用方；间隔可用 `oaa mcp-relay --progress-interval-ms` 或环境变量 `OAA_MCP_RELAY_PROGRESS_MS` 调整）。没带令牌时不发。这**不保证**能延长超时：要智能体的 MCP 客户端启用了「收到进度即重置超时」（MCP SDK 的 `resetTimeoutOnProgress`），而且它确实给了 progressToken。建议把网关的 `approvalTimeoutMs` 与智能体的 MCP 请求超时对齐（不长于后者），或把智能体的 MCP 超时调大。
   - **放弃后的收尾**：智能体放弃调用时如果关掉了中继（关闭 MCP 服务，或超时后重启服务），中继到执行机器的套接字会断开；仍在等待的调用随即以 `client_tool_abandoned` 结束：对应步骤失败、待办标为过期，运行不因此失败（智能体还在继续），没有其它待办时状态回到 `in_progress`。之后再回传这个 `call_id` 不会续接，按新请求处理。智能体只是让请求超时、却不关闭中继时，这次调用仍会挂到 `approvalTimeoutMs`，以 `client_tool_timeout` 结束运行。
-- 桥接使用 ACP，包括 Antigravity 原生入口中已验证的 ACP 路径。Codex、Claude Code、DSH、A2A 与 oaa-1 原生／适配器入口仍为托管；单独接入并支持的 ACP 适配器除外。
+- 桥接通过 `oaa-caller` MCP 中继统一覆盖 ACP 适配器、Antigravity 已验证的 ACP 路径、Claude Code（`options.mcpServers` + `canUseTool` 对 `mcp__oaa-caller__<name>` 自动放行）与 Codex（单次进程 `-c mcp_servers.oaa-caller.*` 覆盖 + MCP 审批 / elicitation 自动放行，绝不修改 `~/.codex/config.toml`）。DSH、A2A 与 oaa-1 HTTP 适配器仍仅托管。
 
 ## 路线
 
-- 已提供：内置内核智能体与 ACP 外部智能体在 Chat Completions、Responses、Claude Messages、Gemini 上的 `bridge`（`/health` 的 `features` 含 `harness-bridge-v1`、`harness-bridge-acp-v1`）。UAP/1 不做桥接。Gemini 的桥接线上格式测试只用了内核智能体；ACP 智能体走的是与协议无关的同一套停车与续接，没有单独经 Gemini 入口测试。
-- 后续：其它外部智能体（Claude Agent SDK 的进程内 MCP 服务、Codex 的 MCP 配置）要逐个引擎联调。
+- 已提供：内置内核智能体、Codex 与 Claude Code 原生引擎、Antigravity ACP 及 ACP 外部智能体在 Chat Completions、Responses、Claude Messages、Gemini 上的 `bridge`（`/health` 的 `features` 含 `harness-bridge-v1`、`harness-bridge-acp-v1`），并支持 `tool_choice` / `toolConfig.functionCallingConfig` 下推与外部智能体续接纠正（未满足时报 `422 tool_choice_unmet`）。UAP/1 不做桥接。
+- 后续：无 stdio MCP 挂载点的其它外部适配器继续逐个引擎评估。
 
 `/health` 的 `features` 含 `client-tools-policy-v1` 时，本页描述的托管与拒绝模式可用。错误码见 [protocol.md](protocol.md)「错误码」一章。

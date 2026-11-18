@@ -1,19 +1,102 @@
-import type { AgentDefinition } from '../core/contracts.js';
+import {
+  executionPermits,
+  requiredExecution,
+  sandboxable,
+  type AgentDefinition,
+  type ExecutionLevel,
+} from '../core/contracts.js';
 import { modelCatalogSchema, modelRouteId, MAX_AGENT_MODELS } from '../core/model-catalog.js';
 import { sha } from '../core/util.js';
-import type { NodeHub } from './network.js';
+import type { Store } from '../store/store.js';
+import { permits, type NodeHub } from './network.js';
 import { WorkerRuntime } from './worker.js';
 
 export function supportsReasoning(hub: NodeHub, owner: string, agent: AgentDefinition): boolean {
   return (
     agent.engine === 'kernel' ||
-    hub
-      .inventory(owner)
-      .some((node) =>
-        (
-          node.execution as { toolFreeReasoning?: string[] } | undefined
-        )?.toolFreeReasoning?.includes(agent.engine),
-      )
+    hub.inventory(owner).some((node) => {
+      if (node.accepting === false) return false;
+      const grants = Array.isArray(node.agent_grants) ? node.agent_grants.map(String) : ['*'];
+      if (!permits(grants, agent.id)) return false;
+      return (
+        node.execution as { toolFreeReasoning?: string[] } | undefined
+      )?.toolFreeReasoning?.includes(agent.engine);
+    })
+  );
+}
+
+export type PlannerCheckOptions = {
+  grantedAgents?: readonly string[];
+  externalCaller?: boolean;
+  toolBoundary?: string;
+  execution?: ExecutionLevel;
+  hostAgents?: readonly string[];
+};
+
+export type ResolvedOrchestrationPlanner = {
+  agent: AgentDefinition;
+  digest: string;
+  routeId: string;
+  routes: string[];
+};
+
+/** Resolve an authorized, boundary-compatible planner agent when configured on `agent.orchestration`. */
+export function resolveOrchestrationPlanner(
+  store: Store,
+  hub: NodeHub,
+  owner: string,
+  agent: AgentDefinition,
+  options?: PlannerCheckOptions,
+): ResolvedOrchestrationPlanner | undefined {
+  const spec = agent.orchestration?.planner;
+  if (!spec) return undefined;
+  if (options?.grantedAgents && !permits([...options.grantedAgents], spec.agent)) return undefined;
+  let planner: AgentDefinition;
+  let digest: string;
+  try {
+    const bundle = store.bundle(owner, spec.agent);
+    digest = bundle.digest;
+    planner = discoveredAgent(hub, owner, bundle.agent);
+  } catch {
+    return undefined;
+  }
+  if (!supportsReasoning(hub, owner, planner)) return undefined;
+  if (options?.externalCaller && planner.access?.trust === 'private') return undefined;
+  if (options?.toolBoundary === 'client' && planner.engine !== 'kernel') return undefined;
+  if (options?.execution && options.execution !== 'host') {
+    const required = requiredExecution(planner);
+    const fits =
+      executionPermits(options.execution, required) ||
+      (options.execution === 'sandbox' && sandboxable(planner)) ||
+      !!options.hostAgents?.includes(planner.id);
+    if (!fits) return undefined;
+  }
+  const choices = planner.routes.length
+    ? planner.routes
+    : [{ id: 'default', provider: planner.provider, model: planner.model, priority: 0 }];
+  if (spec.route) {
+    const matched = choices.find((r) => r.id === spec.route || r.model === spec.route);
+    if (!matched) return undefined;
+    return { agent: planner, digest, routeId: matched.id, routes: [matched.id] };
+  }
+  return {
+    agent: planner,
+    digest,
+    routeId: choices[0]!.id,
+    routes: choices.map((r) => r.id),
+  };
+}
+
+export function canOrchestrate(
+  store: Store,
+  hub: NodeHub,
+  owner: string,
+  agent: AgentDefinition,
+  options?: PlannerCheckOptions,
+): boolean {
+  return (
+    supportsReasoning(hub, owner, agent) ||
+    resolveOrchestrationPlanner(store, hub, owner, agent, options) !== undefined
   );
 }
 

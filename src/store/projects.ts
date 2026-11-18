@@ -1,6 +1,7 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { isOwnerWide, principalSubject, type Principal } from '../core/contracts.js';
 import { Fault, sha } from '../core/util.js';
+import { memoryFts, type MemorySearchHit, type MemorySearchOptions } from './project-fts.js';
 
 type Database = { db: DatabaseSync; prepare(sql: string): StatementSync };
 export type ProjectEntry = {
@@ -135,6 +136,7 @@ export class Projects {
         'INSERT INTO project_memories VALUES(?,?,?,?,?,?,?) ON CONFLICT(owner,project,namespace,key) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,updated_at=excluded.updated_at',
       )
       .run(p.owner, id, namespace, key, payload, next, updatedAt);
+    memoryFts(this.store).indexProject(p.owner, id, namespace, key, payload);
     return { namespace, key, value, revision: next, updatedAt };
   }
   get(p: Principal, id: string, namespace: string, key: string): ProjectEntry | undefined {
@@ -154,6 +156,15 @@ export class Projects {
         }
       : undefined;
   }
+  search(
+    p: Principal,
+    id: string,
+    query: string,
+    options: Omit<MemorySearchOptions, 'owner'> = {},
+  ): MemorySearchHit[] {
+    this.require(p, id);
+    return memoryFts(this.store).searchProject(p.owner, id, query, options);
+  }
   delete(p: Principal, id: string, namespace: string, key: string, revision: string) {
     this.require(p, id, true);
     const result = this.store
@@ -163,5 +174,6 @@ export class Projects {
       .run(p.owner, id, namespace, key, revision);
     if (!result.changes)
       throw new Fault('version_conflict', 'The project memory changed or was removed.', 409);
+    memoryFts(this.store).removeProject(p.owner, id, namespace, key);
   }
 }

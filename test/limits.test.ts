@@ -19,6 +19,8 @@ test('limits catalog keeps the established values', () => {
     projectionCacheRuns: 128,
     filePayloadCacheFiles: 128,
     fileBytes: 8 * 1024 * 1024,
+    artifactExportBytes: 64 * 1024 * 1024,
+    maxArtifactExportBytes: 256 * 1024 * 1024,
     memoryEntryBytes: 256_000,
     nodeQueueLength: 1000,
     nodeMessageBytes: 24 * 1024 * 1024,

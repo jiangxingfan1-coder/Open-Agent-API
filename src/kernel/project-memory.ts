@@ -3,11 +3,14 @@ import { Fault } from '../core/util.js';
 import { projects } from '../store/projects.js';
 import type { Store } from '../store/store.js';
 
+type SnapshotItem = { namespace: string; key: string; value: unknown };
+
 export function projectSelection(
   store: Store,
   principal: Principal,
   metadata: Record<string, string>,
   previous?: Run,
+  taskInput = '',
 ) {
   const id = metadata['oaa.project'] ?? previous?.checkpoint.project?.id;
   if (id === undefined) return undefined;
@@ -19,19 +22,39 @@ export function projectSelection(
       'A conversation cannot move its private context between projects.',
       409,
     );
-  projects(store).require(principal, id);
-  const entries = [
-    ...projects(store)
-      .entries(principal, id, undefined, 500)
-      .filter((e) => e.namespace !== 'runs')
-      .slice(0, 16),
-    ...projects(store).entries(principal, id, 'runs', 8),
-  ];
-  const data = entries.map((entry) => ({
-    namespace: entry.namespace,
-    key: entry.key,
-    value: entry.value,
-  }));
+  const storeProjects = projects(store);
+  storeProjects.require(principal, id);
+
+  const seen = new Set<string>();
+  const shared: SnapshotItem[] = [];
+  const runs: SnapshotItem[] = [];
+  const pushUnique = (target: SnapshotItem[], max: number, item: SnapshotItem) => {
+    if (target.length >= max) return;
+    const identity = `${item.namespace}\0${item.key}`;
+    if (seen.has(identity)) return;
+    seen.add(identity);
+    target.push({ namespace: item.namespace, key: item.key, value: item.value });
+  };
+
+  if (taskInput.trim()) {
+    for (const hit of storeProjects.search(principal, id, taskInput, { limit: 32 })) {
+      if (hit.namespace === 'runs') pushUnique(runs, 8, hit);
+      else pushUnique(shared, 16, hit);
+    }
+  }
+  if (shared.length < 16) {
+    for (const entry of storeProjects.entries(principal, id, undefined, 500)) {
+      if (entry.namespace !== 'runs') pushUnique(shared, 16, entry);
+      if (shared.length >= 16) break;
+    }
+  }
+  if (runs.length < 8) {
+    for (const entry of storeProjects.entries(principal, id, 'runs', 8)) {
+      pushUnique(runs, 8, entry);
+    }
+  }
+
+  const data = [...shared, ...runs];
   return {
     id,
     administrator: isOwnerWide(principal),

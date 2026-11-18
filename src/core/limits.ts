@@ -41,6 +41,10 @@ export const LIMITS = {
   filePayloadCacheFiles: 128,
   /** 单个上传文件的字节数（store：超出报 file_too_large）。 */
   fileBytes: 8 * 1024 * 1024,
+  /** 运行导出产物的默认字节数上限（64 MiB，超出报 artifacts_too_large / file_too_large）。 */
+  artifactExportBytes: 64 * 1024 * 1024,
+  /** 网关配置允许调高的运行导出产物字节数上限（256 MiB）。 */
+  maxArtifactExportBytes: 256 * 1024 * 1024,
   /** 单条记忆序列化后的字节数（store：超出报 memory_too_large）。 */
   memoryEntryBytes: 256_000,
   /** 单个节点的待派发队列长度（fabric/network：超出报 queue_full）。 */

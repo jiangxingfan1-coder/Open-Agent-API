@@ -414,6 +414,7 @@ const CASES: Case[] = [
     approval: { native: 'codex', approved: 'Approved and written.', artifact: 'codex.txt' },
     artifact: 'codex.txt',
     started: streamed,
+    acknowledged: logged('.codex-fixture.log', 'interrupt:'),
   },
   {
     name: 'claude',
@@ -1429,6 +1430,18 @@ test('conversion profiles: handshake evidence refines ACP resume; catalog surfac
     ['kernel', 'codex', 'claude', 'antigravity', 'dsh'].map((e) => conversionProfile(e).tier),
     ['interactive', 'interactive', 'interactive', 'streaming', 'basic'],
   );
+  assert.deepEqual(conversionProfile('codex'), {
+    ...conversionProfile('codex'),
+    streaming: 'token',
+    cancel: 'cooperative',
+    client_tools: 'bridge',
+  });
+  assert.deepEqual(conversionProfile('claude'), {
+    ...conversionProfile('claude'),
+    streaming: 'token',
+    cancel: 'terminate',
+    client_tools: 'bridge',
+  });
 
   const s = await setup();
   try {

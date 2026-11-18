@@ -15,6 +15,7 @@ import { usageView, renderUsage } from './usage.js';
 import { platform } from '../dialogs/platform-data.js';
 import { renderProjects } from './projects.js';
 import { renderWorkflows } from './workflows.js';
+import { renderWorkbench } from './workbench.js';
 
 /* ── Chrome ──────────────────────────────────────────── */
 export function render() {
@@ -132,6 +133,7 @@ export function viewSignature() {
   const pick = {
     overview: () => [d, activityData(), activity.supported],
     agents: () => [d?.agents, activityData()?.agents],
+    workbench: () => [state.token, d?.agents?.map((a) => [a.id, a.ready, a.status, a.version])],
     projects: () => [state.token],
     workflows: () => [state.token, d?.metrics],
     requests: () => state.runs || d?.runs,
@@ -155,7 +157,7 @@ export function viewSignature() {
     state.connecting,
     filter,
     state.requestFilter,
-    minute,
+    state.view === 'workbench' ? 0 : minute,
     pick(),
   ]);
 }
@@ -182,9 +184,9 @@ export function renderView(force = false) {
   if (!force && content.querySelector('[aria-haspopup][aria-expanded="true"]')) return;
   if (
     !force &&
-    ['connections', 'usage'].includes(state.view) &&
+    ['connections', 'usage', 'workbench'].includes(state.view) &&
     content.contains(document.activeElement) &&
-    document.activeElement?.matches('input, select')
+    document.activeElement?.matches('input, select, textarea')
   )
     return;
   lastViewSignature = signature;
@@ -205,6 +207,7 @@ export function renderView(force = false) {
     ({
       overview: renderOverview,
       agents: renderAgents,
+      workbench: renderWorkbench,
       projects: renderProjects,
       workflows: renderWorkflows,
       requests: renderRequests,

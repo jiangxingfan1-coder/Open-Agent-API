@@ -8,13 +8,7 @@ import {
   type RoutingStrategy,
 } from './protocol.js';
 import { Fault } from '../core/util.js';
-import {
-  bridgeFieldsOrFallback,
-  forcedToolChoice,
-  geminiBridgeFields,
-  geminiToolCount,
-  withClientTools,
-} from './client-tools.js';
+import { geminiToolInput } from './client-tools.js';
 import { CompatFault, finishOf, geminiFinish, runFailure } from './compat-errors.js';
 import { applyMaxTokens } from './compat-params.js';
 import { camelizeGeminiBody } from './gemini.js';
@@ -382,15 +376,17 @@ export function parseGeminiGenerateContent(
   }
   applyMaxTokens(meta, req.generationConfig?.maxOutputTokens);
 
-  const input = withClientTools(req.tools, headers, meta, directive.cleanedInput, {
-    count: geminiToolCount(req.tools),
-    forced: forcedToolChoice(geminiToolChoice(req)),
-  });
   return invocationSchema.parse({
     agent: resolved.agent,
     model: resolved.model,
-    input,
-    ...bridgeFieldsOrFallback(meta, () => geminiBridgeFields(req.tools, contents, meta)),
+    ...geminiToolInput(
+      req.tools,
+      contents,
+      (req as { toolConfig?: unknown }).toolConfig,
+      headers,
+      meta,
+      directive.cleanedInput,
+    ),
     file_ids: [...new Set(files)],
     ...(images.length ? { images } : {}),
     stream,

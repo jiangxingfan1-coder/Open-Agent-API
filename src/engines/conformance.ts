@@ -62,18 +62,20 @@ export type ConversionProfile = {
 };
 
 /**
- * The kernel bridges caller tools; ACP agents bridge them through the `oaa-caller` MCP relay
- * (session/new `mcpServers`). Other external agents stay `managed`.
+ * The kernel bridges caller tools; ACP agents and the Claude/Codex native engines bridge them
+ * through the `oaa-caller` MCP relay. Other external agents stay `managed`.
  */
 const BRIDGED_ACCESS = new Set(['kernel', 'acp']);
 
-type Profile = Omit<ConversionProfile, 'tier' | 'client_tools'>;
+type Profile = Omit<ConversionProfile, 'tier' | 'client_tools'> & {
+  client_tools?: ConversionProfile['client_tools'];
+};
 const tierOf = (p: Profile): ConversionProfile['tier'] =>
   p.streaming === 'final' ? 'basic' : p.approvals === 'bridged' ? 'interactive' : 'streaming';
 const complete = (p: Profile): ConversionProfile => ({
   ...p,
   tier: tierOf(p),
-  client_tools: BRIDGED_ACCESS.has(p.access) ? 'bridge' : 'managed',
+  client_tools: p.client_tools ?? (BRIDGED_ACCESS.has(p.access) ? 'bridge' : 'managed'),
 });
 
 const NATIVE: Record<NativeEngine, ConversionProfile> = {
@@ -82,18 +84,19 @@ const NATIVE: Record<NativeEngine, ConversionProfile> = {
     transport: 'codex-app-server',
     streaming: 'token',
     approvals: 'bridged',
-    cancel: 'terminate',
+    cancel: 'cooperative',
     resume: 'native',
     tool_events: 'tool',
     usage: 'agent-reported',
     artifacts: true,
     model_selection: 'agent-confirmed',
+    client_tools: 'bridge',
     image_input: 'native',
   }),
   claude: complete({
     access: 'native',
     transport: 'claude-agent-sdk',
-    streaming: 'message',
+    streaming: 'token',
     approvals: 'bridged',
     cancel: 'terminate',
     resume: 'native',
@@ -101,6 +104,7 @@ const NATIVE: Record<NativeEngine, ConversionProfile> = {
     usage: 'reported',
     artifacts: true,
     model_selection: 'declared',
+    client_tools: 'bridge',
     image_input: 'native',
   }),
   antigravity: complete({

@@ -18,11 +18,13 @@ import {
   type AccountRecord,
   type AccountStatus,
 } from './platform-accounts.js';
-import { PlatformBilling, type LedgerRecord, type UsageBucket } from './platform-billing.js';
-import { PlatformCodes, type CodeRecord } from './platform-codes.js';
+import { PlatformBilling } from './platform-billing.js';
+import { PlatformCodes } from './platform-codes.js';
 import {
-  RateLimiter,
+  createPlatformLimiters,
+  displayName,
   ensurePlatformTables,
+  pageSize,
   requireOwnerAdmin,
   toMicro,
   toPoints,
@@ -34,47 +36,32 @@ import { assertUsagePricing } from './platform-access.js';
 import { ListingCatalog } from './platform-catalog.js';
 import { PlatformResets } from './platform-resets.js';
 import { PlatformRuns } from './platform-runs.js';
-import type {
-  AccountView,
-  AdminAccountView,
-  AdminUsageView,
-  CodeInput,
-  CodeView,
-  LedgerEntryView,
-  ListedAgentView,
-  ListingInput,
-  ListingView,
-  Page,
-  PlatformSummary,
-  PortalKeyView,
-  ReconcileResult,
-  ResetCodeView,
-  RunDetailView,
-  RunItemView,
-  SessionView,
-  UsageView,
+import { PlatformVerification } from './platform-verification.js';
+import {
+  checkWindowDays,
+  pointsOf,
+  toAccountView,
+  toCodeView,
+  toEntryView,
+  type AccountView,
+  type AdminAccountView,
+  type AdminUsageView,
+  type CodeInput,
+  type CodeView,
+  type LedgerEntryView,
+  type ListedAgentView,
+  type ListingInput,
+  type ListingView,
+  type Page,
+  type PlatformSummary,
+  type PortalKeyView,
+  type ReconcileResult,
+  type ResetCodeView,
+  type RunDetailView,
+  type RunItemView,
+  type SessionView,
+  type UsageView,
 } from './platform-types.js';
-
-/** Public endpoints: signups per IP per hour; logins per IP and per email per 10 minutes. */
-const SIGNUP_PER_IP = 10;
-const LOGIN_PER_IP = 30;
-const LOGIN_PER_EMAIL = 10;
-const pointsOf = (bucket: UsageBucket): UsageBucket => ({
-  ...bucket,
-  spent: toPoints(bucket.spent),
-});
-function displayName(name: unknown, email: string): string {
-  if (name === undefined || name === null || name === '') return email.split('@')[0]!;
-  if (typeof name !== 'string' || name.trim().length > 100)
-    throw new Fault('invalid_request', 'name must be at most 100 characters.', 400);
-  return name.trim() || email.split('@')[0]!;
-}
-function pageSize(limit: number | undefined, fallback: number): number {
-  const value = limit ?? fallback;
-  if (!Number.isInteger(value) || value < 1 || value > 200)
-    throw new Fault('invalid_request', 'limit must be between 1 and 200.', 400);
-  return value;
-}
 
 export class Platform {
   readonly owner: string;
@@ -83,22 +70,29 @@ export class Platform {
   private readonly catalog: ListingCatalog;
   private readonly codes: PlatformCodes;
   private readonly billing: PlatformBilling;
-  private readonly signupLimit = new RateLimiter(SIGNUP_PER_IP, 3_600_000);
-  private readonly loginIpLimit = new RateLimiter(LOGIN_PER_IP, 600_000);
-  private readonly loginEmailLimit = new RateLimiter(LOGIN_PER_EMAIL, 600_000);
-  private readonly resetIpLimit = new RateLimiter(LOGIN_PER_IP, 600_000);
-  private readonly resetEmailLimit = new RateLimiter(LOGIN_PER_EMAIL, 600_000);
+  private readonly limits: ReturnType<typeof createPlatformLimiters>;
   private readonly resets: PlatformResets;
   private readonly runs: PlatformRuns;
+  readonly verification?: PlatformVerification;
   private reconcileTimer?: NodeJS.Immediate;
   constructor(
     private readonly store: Store,
     private readonly auth: Auth,
     readonly config: PlatformConfig,
     private readonly localWorker?: WorkerConfig,
+    securityProfile: 'local' | 'public' = 'local',
   ) {
     this.owner = config.owner;
     ensurePlatformTables(store.db);
+    this.limits = createPlatformLimiters(store.db, this.owner);
+    if (config.verificationWebhookUrl)
+      this.verification = new PlatformVerification(
+        store.db,
+        this.owner,
+        config.verificationWebhookUrl,
+        config.verificationWebhookSecret,
+        securityProfile,
+      );
     this.accounts = new PlatformAccounts(store.db, this.owner, config.sessionTtlHours * 3_600_000);
     this.listings = new PlatformListings(store.db, this.owner, () =>
       store.authorizationChanged(this.owner),
@@ -166,23 +160,6 @@ export class Platform {
     return { perRun: listing?.perRun ?? 0, per1kTokens: listing?.per1kTokens ?? 0 };
   }
 
-  // ---- views -------------------------------------------------------------------------------
-  private accountView(a: AccountRecord): AccountView {
-    return {
-      id: a.id,
-      email: a.email,
-      name: a.name,
-      status: a.status,
-      balance: toPoints(a.balance),
-      createdAt: a.createdAt,
-    };
-  }
-  private entryView(e: LedgerRecord): LedgerEntryView {
-    return { ...e, amount: toPoints(e.amount), balanceAfter: toPoints(e.balanceAfter) };
-  }
-  private codeView(c: CodeRecord): CodeView {
-    return { ...c, credits: toPoints(c.credits) };
-  }
   // ---- public ------------------------------------------------------------------------------
   site(): { siteName: string; registration: PlatformConfig['registration'] } {
     return { siteName: this.config.siteName, registration: this.config.registration };
@@ -202,26 +179,9 @@ export class Platform {
     if (!view) throw new Fault('agent_not_found', 'Agent or version not found.', 404);
     return view;
   }
-  async signup(
-    input: { email: unknown; password: unknown; name?: unknown; inviteCode?: unknown },
-    ip: string,
-  ): Promise<{ account: AccountView; session: SessionView }> {
-    const mode = this.config.registration;
-    if (mode === 'closed')
-      throw new Fault('registration_closed', 'Self-service signup is closed on this site.', 403);
-    this.signupLimit.hit(ip);
-    const email = normalizeEmail(input.email);
-    const password = checkPassword(input.password);
-    const name = displayName(input.name, email);
-    const hasInvite = typeof input.inviteCode === 'string' && input.inviteCode.trim() !== '';
-    if (mode === 'invite' && !hasInvite)
-      throw new Fault('invite_required', 'Signup on this site needs an invite code.', 403);
-    if (hasInvite) this.codes.check(input.inviteCode, 'invite');
-    if (this.accounts.byEmail(email))
-      throw new Fault('email_taken', 'This email is already registered.', 409);
-    const hash = await hashPassword(password);
+  private commitSignup(email: string, hash: string, name: string, inviteCode?: string) {
     const account = transaction(this.store.db, () => {
-      const invite = hasInvite ? this.codes.check(input.inviteCode, 'invite') : undefined;
+      const invite = inviteCode ? this.codes.check(inviteCode, 'invite') : undefined;
       const created = this.accounts.insert(email, hash, name);
       if (invite) this.codes.consume(invite, created.id);
       const signup = toMicro(this.config.signupCredits, 'signupCredits');
@@ -231,33 +191,111 @@ export class Platform {
       this.accounts.touch(created.id);
       return this.accounts.get(created.id);
     });
-    return { account: this.accountView(account), session: this.accounts.createSession(account.id) };
+    return { account: toAccountView(account), session: this.accounts.createSession(account.id) };
+  }
+  private validateSignup(
+    input: { email: unknown; password: unknown; name?: unknown; inviteCode?: unknown },
+    ip: string,
+  ) {
+    if (this.config.registration === 'closed')
+      throw new Fault('registration_closed', 'Self-service signup is closed on this site.', 403);
+    this.limits.signupIp.hit(ip);
+    const email = normalizeEmail(input.email);
+    const password = checkPassword(input.password);
+    const name = displayName(input.name, email);
+    const inviteCode =
+      typeof input.inviteCode === 'string' && input.inviteCode.trim()
+        ? input.inviteCode
+        : undefined;
+    if (this.config.registration === 'invite' && !inviteCode)
+      throw new Fault('invite_required', 'Signup on this site needs an invite code.', 403);
+    if (inviteCode) this.codes.check(inviteCode, 'invite');
+    return { email, password, name, inviteCode };
+  }
+  async signup(
+    input: { email: unknown; password: unknown; name?: unknown; inviteCode?: unknown },
+    ip: string,
+  ): Promise<{ account: AccountView; session: SessionView }> {
+    const { email, password, name, inviteCode } = this.validateSignup(input, ip);
+    if (this.accounts.byEmail(email))
+      throw new Fault('email_taken', 'This email is already registered.', 409);
+    return this.commitSignup(email, await hashPassword(password), name, inviteCode);
+  }
+  async portalSignup(
+    input: { email: unknown; password: unknown; name?: unknown; inviteCode?: unknown },
+    ip: string,
+  ): Promise<
+    | { kind: 'created'; account: AccountView; session: SessionView }
+    | { kind: 'verification'; message: string }
+  > {
+    if (!this.verification) return { kind: 'created', ...(await this.signup(input, ip)) };
+    const { email, password, name, inviteCode } = this.validateSignup(input, ip);
+    const passwordHash = await hashPassword(password);
+    const existing = this.accounts.byEmail(email);
+    const prompt = existing
+      ? this.verification.notifyExistingSignup(email, existing.id)
+      : this.verification.stageSignup(email, {
+          passwordHash,
+          name,
+          ...(inviteCode ? { inviteCode } : {}),
+        });
+    return { kind: 'verification', message: prompt.message };
+  }
+  verifySignup(input: { email: unknown; code: unknown }, ip: string) {
+    if (!this.verification)
+      throw new Fault('capability_unavailable', 'Email verification is not enabled.', 503);
+    this.limits.loginIp.hit(ip);
+    const email = normalizeEmail(input.email);
+    this.limits.loginEmail.hit(email);
+    const staged = this.verification.consumeSignup(
+      email,
+      typeof input.code === 'string' ? input.code.trim().slice(0, 200) : '',
+    );
+    return this.commitSignup(email, staged.passwordHash, staged.name, staged.inviteCode);
+  }
+  requestPasswordReset(input: { email: unknown }, ip: string): { message: string } {
+    if (!this.verification)
+      throw new Fault('capability_unavailable', 'Self-service reset dispatch is not enabled.', 503);
+    this.limits.resetIp.hit(ip);
+    const email = normalizeEmail(input.email);
+    this.limits.resetEmail.hit(email);
+    const account = this.accounts.byEmail(email);
+    if (account?.status === 'active') {
+      const issued = this.resets.issue(account.id);
+      return this.verification.notifyPasswordReset(
+        email,
+        account.id,
+        issued.code,
+        issued.expiresAt,
+      );
+    }
+    return this.verification.uniformPrompt();
   }
   async login(
     input: { email: unknown; password: unknown },
     ip: string,
   ): Promise<{ account: AccountView; session: SessionView }> {
-    this.loginIpLimit.hit(ip);
+    this.limits.loginIp.hit(ip);
     const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
-    this.loginEmailLimit.hit(email);
+    this.limits.loginEmail.hit(email);
     const password = typeof input.password === 'string' ? input.password.slice(0, 200) : '';
     const account = await this.accounts.verify(email, password);
     if (account.status !== 'active')
       throw new Fault('account_disabled', 'This account has been disabled.', 403);
     this.accounts.touch(account.id);
-    return { account: this.accountView(account), session: this.accounts.createSession(account.id) };
+    return { account: toAccountView(account), session: this.accounts.createSession(account.id) };
   }
 
   // ---- portal session ----------------------------------------------------------------------
   /** Resolves an `oas_…` token: `session_invalid` (401) or `account_disabled` (403). */
   session(token: unknown): AccountView {
-    return this.accountView(this.accounts.session(token));
+    return toAccountView(this.accounts.session(token));
   }
   logout(token: string): void {
     this.accounts.dropSession(token);
   }
   account(accountId: string): AccountView {
-    return this.accountView(this.accounts.get(accountId));
+    return toAccountView(this.accounts.get(accountId));
   }
   /** Every session of the account ends, including the caller's. */
   async changePassword(accountId: string, current: unknown, next: unknown): Promise<void> {
@@ -288,18 +326,25 @@ export class Platform {
     this.auth.revokeAccountKey(this.owner, accountId, keyId);
   }
   redeem(accountId: string, code: unknown): { account: AccountView; credited: number } {
-    return transaction(this.store.db, () => {
-      const record = this.codes.check(code, 'credit', accountId);
-      this.codes.consume(record, accountId);
-      this.billing.post(accountId, 'redeem', record.credits, `code ${record.id}`);
-      return {
-        account: this.accountView(this.accounts.get(accountId)),
-        credited: toPoints(record.credits),
-      };
-    });
+    this.limits.redeem.check(accountId);
+    try {
+      return transaction(this.store.db, () => {
+        const record = this.codes.check(code, 'credit', accountId);
+        this.codes.consume(record, accountId);
+        this.billing.post(accountId, 'redeem', record.credits, `code ${record.id}`);
+        return {
+          account: toAccountView(this.accounts.get(accountId)),
+          credited: toPoints(record.credits),
+        };
+      });
+    } catch (error) {
+      if (error instanceof Fault && error.code === 'invalid_code')
+        this.limits.redeem.hit(accountId);
+      throw error;
+    }
   }
   usage(accountId: string, days = 30): UsageView {
-    const window = this.days(days);
+    const window = checkWindowDays(days);
     const usage = this.billing.usage(window, accountId);
     return {
       balance: toPoints(this.billing.balance(accountId)),
@@ -311,7 +356,7 @@ export class Platform {
   ledger(accountId: string, page: { limit?: number; cursor?: number } = {}): Page<LedgerEntryView> {
     this.accounts.get(accountId);
     const { data, next } = this.billing.ledger(accountId, pageSize(page.limit, 50), page.cursor);
-    return { data: data.map((e) => this.entryView(e)), nextCursor: next };
+    return { data: data.map(toEntryView), nextCursor: next };
   }
   runList(
     accountId: string,
@@ -332,9 +377,9 @@ export class Platform {
     input: { email: unknown; code: unknown; newPassword: unknown },
     ip: string,
   ): Promise<void> {
-    this.resetIpLimit.hit(ip);
+    this.limits.resetIp.hit(ip);
     const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
-    this.resetEmailLimit.hit(email);
+    this.limits.resetEmail.hit(email);
     const password = checkPassword(input.newPassword, 'new_password');
     const code = typeof input.code === 'string' ? input.code.slice(0, 200) : '';
     const account = this.accounts.byEmail(email);
@@ -354,11 +399,6 @@ export class Platform {
     if (!p.accountId) return undefined;
     const account = this.accounts.find(p.accountId);
     return account ? { id: account.id, balance: toPoints(account.balance) } : undefined;
-  }
-  private days(days: number): number {
-    if (!Number.isInteger(days) || days < 1 || days > 90)
-      throw new Fault('invalid_request', 'days must be between 1 and 90.', 400);
-    return days;
   }
 
   // ---- operator (routes require admin scope; see requireOperator) --------------------------
@@ -396,7 +436,7 @@ export class Platform {
     const totals = this.billing.totals(a.id);
     const last = Math.max(a.lastActiveAt ?? 0, totals.lastRunAt ?? 0);
     return {
-      ...this.accountView(a),
+      ...toAccountView(a),
       keys: this.auth.accountKeys(this.owner, a.id).length,
       runs: totals.runs,
       spent: toPoints(totals.spent),
@@ -421,7 +461,7 @@ export class Platform {
     return transaction(this.store.db, () => {
       const created = this.accounts.insert(email, hash, name);
       if (credits > 0) this.billing.post(created.id, 'grant', credits, 'operator');
-      return this.accountView(this.accounts.get(created.id));
+      return toAccountView(this.accounts.get(created.id));
     });
   }
   /** Disabling ends every session; the account's keys are refused at authentication. */
@@ -430,7 +470,7 @@ export class Platform {
       throw new Fault('invalid_request', 'status must be active or disabled.', 400);
     const account = this.accounts.setStatus(accountId, status);
     this.store.authorizationChanged(this.owner);
-    return this.accountView(account);
+    return toAccountView(account);
   }
   /**
    * Who may credit and look accounts up: `operator` (owner-wide admin of the platform owner) or
@@ -463,7 +503,7 @@ export class Platform {
     if (reference !== undefined && (reference.length < 1 || reference.length > 200))
       throw new Fault('invalid_request', 'reference must contain 1-200 characters.', 400);
     const { entry, duplicate } = this.billing.credit(accountId, micro, note, reference);
-    return { account: this.account(accountId), entry: this.entryView(entry), duplicate };
+    return { account: this.account(accountId), entry: toEntryView(entry), duplicate };
   }
   /** A one-time reset code for the account (24 hours); replaces any earlier one. */
   issueResetCode(accountId: string): ResetCodeView {
@@ -513,7 +553,7 @@ export class Platform {
     this.listings.remove(agentId);
   }
   allCodes(): CodeView[] {
-    return this.codes.list().map((c) => this.codeView(c));
+    return this.codes.list().map(toCodeView);
   }
   createCodes(input: CodeInput): (CodeView & { code: string })[] {
     if (input.kind !== 'credit' && input.kind !== 'invite')
@@ -527,13 +567,13 @@ export class Platform {
         expiresAt: input.expiresAt ?? null,
         note: input.note ?? '',
       })
-      .map((c) => ({ ...this.codeView(c), code: c.code }));
+      .map((c) => ({ ...toCodeView(c), code: c.code }));
   }
   revokeCode(codeId: string): void {
     this.codes.revoke(codeId);
   }
   adminUsage(days = 30): AdminUsageView {
-    const usage = this.billing.usage(this.days(days));
+    const usage = this.billing.usage(checkWindowDays(days));
     return {
       balance: toPoints(this.accounts.counts().balance),
       totals: pointsOf(usage.totals),

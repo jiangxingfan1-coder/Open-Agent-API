@@ -1,5 +1,8 @@
 // Console message dictionary: the pages (overview, agents, tasks, machines, access, keys, platform, settings). English text; the other language file must have exactly the same keys.
+import { enWorkbench } from './messages-views-workbench-en.js';
+
 export const en = {
+  ...enWorkbench,
   'breakdown.model': 'Model reasoning',
   'breakdown.tools': 'Tool execution',
   'breakdown.queue': 'Queue wait',
@@ -402,10 +405,10 @@ export const en = {
   'settings.resetMessage': 'Appearance and preferences will go back to their defaults.',
   'webhooks.title': 'Webhooks',
   'webhooks.hint':
-    'Run events (completed, failed, waiting for approval and so on) are pushed to these URLs, signed with HMAC. Add or remove them with oaa webhook or the /v1/webhooks API; see docs/webhooks.md.',
+    'Run events (completed, failed, waiting for approval and so on) are pushed to these URLs, signed with HMAC. Manage them here, or with oaa webhook and the /v1/webhooks API; see docs/webhooks.md.',
   'webhooks.loading': 'Reading webhooks…',
   'webhooks.none': 'No webhooks yet',
-  'webhooks.noneHint': 'oaa webhook add https://example.com/hook adds one.',
+  'webhooks.noneHint': 'Click “Add endpoint” or run oaa webhook add https://example.com/hook.',
   'webhooks.error': 'Could not read webhooks.',
   'webhooks.colUrl': 'URL',
   'webhooks.colEvents': 'Events',

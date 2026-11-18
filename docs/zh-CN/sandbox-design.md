@@ -6,7 +6,7 @@
 > - 已安装 `@anthropic-ai/sandbox-runtime@0.0.82`，安装时用 `--ignore-scripts`。它自带的 zod 3 有一条内存耗尽类的审计告警；srt 只用它校验我们构造的、有长度上限的配置，外部输入到不了这条路径。
 > - 实现位置：`src/engines/sandbox.ts`（`SrtLauncher`、自检）、`src/engines/process.ts`（`collectProcess` 的沙箱参数）、`src/fabric/worker.ts`（`sandbox` 配置项、脚本工具走沙箱）、`src/kernel/kernel.ts` / `src/fabric/placement.ts`（`sandbox` 等级、调度和协商）。
 > - 测试：`test/sandbox-routing.test.ts`（不开端口），`test/sandbox-srt.test.ts`（会启动 srt 代理，**需要授权后才运行**）。
-> - 实现中的取舍：同一个 worker 同一时间只运行一个沙箱进程（§5）；`parentProxy` 默认不启用。
+> - 实现中的取舍与并发模型：`SrtLauncher` 按调用方 `subject` 池化有界 `worker_threads` 沙箱槽位（默认 `maxConcurrentSandboxes = 4`，跨主体复用冷槽位前强制轮换重置代理凭据，无 `subject` 调用保持严格串行，杜绝跨调用方串用 `allowedDomains`），原生画像同步覆盖 `antigravity` 与通用 stdio `acp` 适配器；`parentProxy` 默认不启用。
 > - S2 发现：srt 的 `credentials.envVars`（`mode: "mask"` + `injectHosts`）可以让沙箱里的原生智能体只看到占位符，真正的 BYOK 密钥由宿主侧代理在发往提供方时才替换。
 > - 实施时凡是涉及下载依赖、监听端口、出网规则的步骤，都要逐项单独确认（见 §8）。
 

@@ -220,6 +220,7 @@ export function renderSettings(body) {
       [
         ['overview', t('view.overview.title')],
         ['agents', t('view.agents.title')],
+        ['workbench', t('view.workbench.title')],
         ['requests', t('view.requests.title')],
         ['nodes', t('view.nodes.title')],
       ],

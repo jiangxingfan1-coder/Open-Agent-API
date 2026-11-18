@@ -1,6 +1,6 @@
 import type { Run } from '../core/contracts.js';
-import { artifactMedia } from '../core/media.js';
 import { Fault } from '../core/util.js';
+import { sniffStoredArtifactMedia } from '../store/large-artifacts.js';
 import type { Store } from '../store/store.js';
 
 export async function validateMediaOutput(store: Store, run: Run) {
@@ -8,8 +8,8 @@ export async function validateMediaOutput(store: Store, run: Run) {
   const expected = run.checkpoint.media;
   const previous = run.previousId ? store.run(run.previousId, run.owner).artifactIds : [];
   for (const id of run.artifactIds.filter((id) => !previous.includes(id))) {
-    const file = await store.filePayload(id, run.owner);
-    const actual = artifactMedia(file.name, Buffer.from(file.content, 'base64'));
+    const file = store.file(id, run.owner);
+    const actual = await sniffStoredArtifactMedia(store, file);
     if (actual?.kind === expected.kind && actual.mime === expected.mime) {
       run.metadata['oaa.media_validation'] = 'signature_only';
       return;

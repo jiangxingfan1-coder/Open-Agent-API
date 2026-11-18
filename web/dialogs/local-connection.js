@@ -1,8 +1,25 @@
 import { state } from '../lib/state.js';
 import { api, errorText } from '../lib/api.js';
-import { agentGlyph, button, el, icon, iconButton, icons, openDialog, toast } from '../lib/dom.js';
+import {
+  agentGlyph,
+  button,
+  confirmAction,
+  el,
+  icon,
+  iconButton,
+  icons,
+  openDialog,
+  toast,
+} from '../lib/dom.js';
 import { t } from '../lib/i18n.js';
-import { manualConnection } from './local-connection-manual.js';
+import {
+  manualConnection,
+  protocolName,
+  resolveClientTargets,
+  targetClientMeta,
+} from './local-connection-manual.js';
+
+export { protocolName, resolveClientTargets, targetClientMeta };
 
 export const connectionMode = (client) =>
   t(
@@ -32,6 +49,22 @@ function paths(title, values) {
   details.append(el('summary', title));
   for (const value of values) details.append(el('code', value));
   return details;
+}
+
+function selectField(label, choices, value, changed) {
+  const wrap = el('label');
+  const select = el('select');
+  select.setAttribute('aria-label', label);
+  for (const item of choices) {
+    const option = el('option', item.label);
+    option.value = item.value;
+    option.selected = item.value === value;
+    option.disabled = !!item.disabled;
+    select.append(option);
+  }
+  select.onchange = () => changed(select.value);
+  wrap.append(el('span', label), select);
+  return wrap;
 }
 
 export function openLocalConnection(client, data, refresh, existing) {
@@ -100,161 +133,282 @@ export function openLocalConnection(client, data, refresh, existing) {
         ),
       );
   };
+  const guideLink = () => {
+    if (!client.guide) return;
+    const guide = el('a', undefined, 'local-guide');
+    guide.href = client.guide;
+    guide.target = '_blank';
+    guide.rel = 'noopener noreferrer';
+    guide.append(el('span', t('connections.vendor_guide')), icon('external-link'));
+    body.append(guide);
+  };
 
-  if (client.id !== 'dsh') {
-    body.append(
-      el(
-        'p',
-        t(
-          client.connection === 'manual'
-            ? 'connections.manual_hint'
-            : 'connections.receiver_unavailable',
-        ),
-        'local-notice',
+  const resolved = resolveClientTargets(client);
+  const tabs = [];
+  if (resolved.api)
+    tabs.push({ id: 'api', label: t('connections.tab_api'), target: resolved.api, channel: 'api' });
+  if (resolved.mcp)
+    tabs.push({ id: 'mcp', label: t('connections.tab_mcp'), target: resolved.mcp, channel: 'mcp' });
+  if (resolved.manual && (client.connection === 'manual' || tabs.length > 0))
+    tabs.push({ id: 'manual', label: t('connections.tab_manual') });
+
+  if (!tabs.length) {
+    body.append(el('p', t('connections.receiver_unavailable'), 'local-notice'));
+    if (client.protocol) body.append(el('p', protocolName(client.protocol), 'local-protocol'));
+    metadata();
+    guideLink();
+    actions.append(
+      button(t('common.close'), '', () => dlg.close(), 'subtle'),
+      button(
+        t('connections.backends'),
+        'server',
+        () => {
+          dlg.close();
+          location.hash = 'nodes';
+        },
+        'primary',
       ),
     );
-    if (client.protocol) body.append(el('p', protocolName(client.protocol), 'local-protocol'));
-    if (client.id === 'qoder') body.append(el('p', t('connections.qoder_hint'), 'muted'));
-    metadata();
-    if (client.guide) {
-      const guide = el('a', undefined, 'local-guide');
-      guide.href = client.guide;
-      guide.target = '_blank';
-      guide.rel = 'noopener noreferrer';
-      guide.append(el('span', t('connections.vendor_guide')), icon('external-link'));
-      body.append(guide);
-    }
-    actions.append(button(t('common.close'), '', () => dlg.close(), 'subtle'));
-    if (client.connection === 'manual') manualConnection(body, actions, client, dlg, valid);
-    else
-      actions.append(
-        button(
-          t('connections.backends'),
-          'server',
-          () => {
-            dlg.close();
-            location.hash = 'nodes';
-          },
-          'primary',
-        ),
-      );
     form.onsubmit = (event) => event.preventDefault();
     openDialog(dlg.id);
     return;
   }
 
-  const available = data.sources.filter((s) => s.available);
-  const saved = existing ?? data.data.find((item) => item.agent === available[0]?.id);
-  const draft = {
-    agent: saved?.agent ?? available[0]?.id ?? '',
-    model: saved?.model ?? 'auto',
-    toolMode: saved?.tool_mode,
-  };
+  let activeTab =
+    (existing?.channel && tabs.find((tab) => tab.channel === existing.channel)?.id) ?? tabs[0].id;
   let plan = null;
-  const field = (label, choices, value, changed) => {
-    const wrap = el('label');
-    const select = el('select');
-    select.setAttribute('aria-label', label);
-    for (const item of choices) {
-      const option = el('option', item.label);
-      option.value = item.value;
-      option.selected = item.value === value;
-      option.disabled = !!item.disabled;
-      select.append(option);
-    }
-    select.onchange = () => changed(select.value);
-    wrap.append(el('span', label), select);
-    return wrap;
+  const draft = {
+    agent: existing?.agent ?? '',
+    model: existing?.model ?? 'auto',
+    toolMode: existing?.tool_mode,
   };
-  const renderDraft = () => {
+
+  const renderTabBar = () => {
+    if (tabs.length < 2) return;
+    const bar = el('div', undefined, 'segmented small local-channel-tabs');
+    bar.setAttribute('role', 'tablist');
+    for (const tab of tabs) {
+      const btn = button(tab.label, '', () => {
+        if (busy || activeTab === tab.id) return;
+        activeTab = tab.id;
+        draft.agent = '';
+        renderView();
+      });
+      const selected = activeTab === tab.id;
+      btn.classList.toggle('active', selected);
+      btn.setAttribute('role', 'tab');
+      btn.setAttribute('aria-selected', String(selected));
+      bar.append(btn);
+    }
+    body.append(bar);
+  };
+
+  const eligibleSources = (targetId) =>
+    (data.sources ?? []).filter(
+      (s) => s.available && !(s.blocked_targets ?? []).includes(targetId),
+    );
+
+  const renderManualTab = () => {
+    body.replaceChildren();
+    actions.replaceChildren();
+    failure.textContent = '';
+    renderTabBar();
+    body.append(el('p', t('connections.manual_hint'), 'local-notice'));
+    if (client.protocol) body.append(el('p', protocolName(client.protocol), 'local-protocol'));
+    if (client.id === 'qoder') body.append(el('p', t('connections.qoder_hint'), 'muted'));
+    metadata();
+    guideLink();
+    actions.append(button(t('common.close'), '', () => dlg.close(), 'subtle'));
+    manualConnection(body, actions, client, dlg, valid);
+    icons();
+  };
+
+  const renderManagedDraft = (tab) => {
     plan = null;
     body.replaceChildren();
     actions.replaceChildren();
     failure.textContent = '';
+    renderTabBar();
+
+    const targetId = tab.target;
+    const channel = tab.channel;
+    const targetInfo =
+      data.targets?.[targetId] ??
+      (targetId === 'dsh' ? data.target : { id: targetId, available: true, files: [] });
+    const available = eligibleSources(targetId);
+    const savedForTarget =
+      (existing?.target === targetId ? existing : null) ??
+      (data.data ?? []).find((item) => item.target === targetId);
+
+    if (!draft.agent) {
+      draft.agent = savedForTarget?.agent ?? (channel === 'mcp' ? '*' : (available[0]?.id ?? ''));
+      draft.model = savedForTarget?.model ?? 'auto';
+      draft.toolMode = savedForTarget?.tool_mode;
+    }
+    if (channel === 'api' && !available.some((s) => s.id === draft.agent))
+      draft.agent = available[0]?.id ?? '';
     const source = available.find((s) => s.id === draft.agent);
-    if (!source?.models.some((m) => m.selector === draft.model)) draft.model = 'auto';
-    if (!source?.tool_modes.includes(draft.toolMode)) draft.toolMode = source?.default_tool_mode;
+    if (source) {
+      if (!source.models.some((m) => m.selector === draft.model)) draft.model = 'auto';
+      if (!source.tool_modes.includes(draft.toolMode)) draft.toolMode = source.default_tool_mode;
+    }
+
     const route = el('div', undefined, 'local-route');
     route.append(
       agentGlyph(source?.engine ?? 'kernel', 'small'),
-      el('code', draft.agent || t('connections.source')),
+      el(
+        'code',
+        draft.agent === '*' ? t('connections.all_agents') : draft.agent || t('connections.source'),
+      ),
       icon('arrow-right'),
-      agentGlyph('dsh', 'small'),
-      el('span', 'DSH'),
+      agentGlyph(client.icon, 'small'),
+      el('span', client.name),
+      el(
+        'span',
+        t(channel === 'mcp' ? 'connections.channel_mcp' : 'connections.channel_api'),
+        'local-channel-tag',
+      ),
     );
     body.append(route);
-    if (!data.target.available) body.append(el('p', errorText(data.target.error), 'local-notice'));
-    if (!available.length) body.append(el('p', t('connections.publish_first'), 'local-notice'));
-    if (available.length) {
+
+    if (targetInfo && !targetInfo.available)
+      body.append(el('p', errorText(targetInfo.error), 'local-notice'));
+    if (channel === 'api' && !available.length)
+      body.append(el('p', t('connections.publish_first', { client: client.name }), 'local-notice'));
+
+    if (channel === 'mcp' || available.length) {
       const fields = el('div', undefined, 'local-dialog-fields');
-      fields.append(
-        field(
-          t('connections.source'),
-          data.sources.map((s) => ({
-            value: s.id,
-            label: s.id,
-            disabled: !s.available,
-          })),
-          draft.agent,
-          (value) => {
-            draft.agent = value;
-            const saved = data.data.find((s) => s.agent === value);
-            draft.model = saved?.model ?? 'auto';
-            draft.toolMode = saved?.tool_mode;
-            renderDraft();
-            body.querySelector('select')?.focus();
-          },
-        ),
-      );
-      fields.append(
-        field(
-          t('connections.model'),
-          (source?.models ?? []).map((m) => ({
-            value: m.selector,
-            label: m.selector === 'auto' ? t('connections.auto') : m.name,
-          })),
-          draft.model,
-          (value) => {
-            draft.model = value;
-          },
-        ),
-      );
-      const mode = field(
-        t('connections.tool_boundary'),
-        (source?.tool_modes ?? []).map((m) => ({
-          value: m,
-          label: t(`access.${m}`),
+      const sourceChoices = [
+        ...(channel === 'mcp' ? [{ value: '*', label: t('connections.all_agents') }] : []),
+        ...(data.sources ?? []).map((s) => ({
+          value: s.id,
+          label: s.id,
+          disabled: !s.available || (s.blocked_targets ?? []).includes(targetId),
         })),
-        draft.toolMode,
-        (value) => {
-          draft.toolMode = value;
-        },
+      ];
+      fields.append(
+        selectField(t('connections.source'), sourceChoices, draft.agent, (value) => {
+          draft.agent = value;
+          const matched = (data.data ?? []).find(
+            (item) => item.target === targetId && item.agent === value,
+          );
+          draft.model = matched?.model ?? 'auto';
+          draft.toolMode = matched?.tool_mode;
+          renderManagedDraft(tab);
+          body.querySelector('select')?.focus();
+        }),
       );
-      mode.querySelector('select').disabled = (source?.tool_modes.length ?? 0) < 2;
-      fields.append(mode);
+      if (source) {
+        fields.append(
+          selectField(
+            t('connections.model'),
+            (source.models ?? []).map((m) => ({
+              value: m.selector,
+              label: m.selector === 'auto' ? t('connections.auto') : m.name,
+            })),
+            draft.model,
+            (value) => {
+              draft.model = value;
+            },
+          ),
+        );
+        const mode = selectField(
+          t('connections.tool_boundary'),
+          (source.tool_modes ?? []).map((m) => ({
+            value: m,
+            label: t(`access.${m}`),
+          })),
+          draft.toolMode,
+          (value) => {
+            draft.toolMode = value;
+          },
+        );
+        mode.querySelector('select').disabled = (source.tool_modes.length ?? 0) < 2;
+        fields.append(mode);
+      }
       body.append(fields);
     }
-    if (data.target.files?.length) body.append(paths(t('connections.files'), data.target.files));
+
+    if (targetInfo?.files?.length) body.append(paths(t('connections.files'), targetInfo.files));
     metadata();
+    guideLink();
+
+    actions.append(button(t('common.close'), '', () => dlg.close(), 'subtle'));
+    if (savedForTarget) {
+      actions.append(
+        button(
+          t('connections.disconnect'),
+          'unplug',
+          async () => {
+            if (!valid() || busy) return;
+            const agentName =
+              savedForTarget.agent === '*' ? t('connections.all_agents') : savedForTarget.agent;
+            if (
+              !(await confirmAction({
+                title: t('connections.disconnect'),
+                message: t('connections.disconnect_body', {
+                  agent: agentName,
+                  client: client.name,
+                }),
+                accept: t('connections.disconnect'),
+                danger: true,
+              })) ||
+              !valid()
+            )
+              return;
+            setBusy(true);
+            try {
+              const result = await api('DELETE', `/v1/local/connections/${savedForTarget.id}`);
+              if (!valid()) return;
+              toast(
+                result.configuration_removed
+                  ? t('connections.removed')
+                  : t('connections.preserved'),
+              );
+              state.keys = null;
+              dlg.close();
+              await refresh();
+            } catch (error) {
+              if (valid()) {
+                setBusy(false);
+                failure.textContent = error.message;
+              }
+            }
+          },
+          'subtle',
+        ),
+      );
+    }
     const preview = button(t('connections.review'), 'arrow-right', () => {}, 'primary');
     preview.type = 'submit';
-    preview.disabled = !source || !data.target.available;
-    actions.append(
-      button(t('common.close'), '', () => dlg.close(), 'subtle'),
-      preview,
-    );
+    preview.disabled =
+      !targetInfo?.available || (channel === 'api' ? !source : draft.agent !== '*' && !source);
+    actions.append(preview);
     icons();
   };
-  const renderPlan = () => {
+
+  const renderPlan = (tab) => {
     body.replaceChildren();
     const summary = el('dl', undefined, 'local-review');
-    for (const [label, value] of [
-      [t('connections.source'), draft.agent],
-      [t('connections.model'), draft.model === 'auto' ? t('connections.auto') : draft.model],
-      [t('connections.models'), String(plan.model_count)],
-      [t('connections.tool_boundary'), t(`access.${plan.tool_mode}`)],
-      [t('connections.key_scope'), 'read · invoke · files'],
-    ]) {
+    const rows = [
+      [
+        t('connections.channel'),
+        t(plan.channel === 'mcp' ? 'connections.channel_mcp' : 'connections.channel_api'),
+      ],
+      [t('connections.source'), plan.agent === '*' ? t('connections.all_agents') : plan.agent],
+    ];
+    if (plan.agent !== '*') {
+      rows.push(
+        [t('connections.model'), plan.model === 'auto' ? t('connections.auto') : plan.model],
+        [t('connections.models'), String(plan.model_count)],
+        [t('connections.tool_boundary'), t(`access.${plan.tool_mode}`)],
+      );
+    }
+    rows.push([t('connections.key_scope'), 'read · invoke · files']);
+    if (plan.key_file) rows.push([t('connections.key_file'), plan.key_file]);
+    if (plan.env_key) rows.push([t('connections.env_key'), plan.env_key]);
+
+    for (const [label, value] of rows) {
       const row = el('div');
       row.append(el('dt', label), el('dd', value));
       summary.append(row);
@@ -270,31 +424,36 @@ export function openLocalConnection(client, data, refresh, existing) {
             sync: 'connections.plan_sync',
             repair: 'connections.plan_repair',
           }[plan.action] ?? 'connections.plan_connect',
+          { client: client.name },
         ),
         'local-notice',
       ),
     );
     if (plan.execution === 'host') body.append(el('p', t('connections.host_hint'), 'local-notice'));
-    if (plan.files.length) body.append(paths(t('connections.files'), plan.files));
-    const apply = button(
-      t(
-        plan.action === 'sync'
-          ? 'connections.sync'
-          : plan.action === 'repair'
-            ? 'connections.repair'
-            : 'connections.connect',
-      ),
-      'plug',
-      () => {},
-      'primary',
-    );
+    if (plan.summary) {
+      const previewDetails = el('details', undefined, 'local-paths local-diff-details');
+      previewDetails.open = true;
+      const pre = el('pre', undefined, 'local-plan-diff');
+      pre.append(el('code', plan.summary));
+      previewDetails.append(el('summary', t('connections.diff_preview')), pre);
+      body.append(previewDetails);
+    }
+    if (plan.files?.length) body.append(paths(t('connections.files'), plan.files));
+
+    const applyLabel =
+      plan.action === 'sync'
+        ? t('connections.sync')
+        : plan.action === 'repair'
+          ? t('connections.repair')
+          : t('connections.connect', { client: client.name });
+    const apply = button(applyLabel, 'plug', () => {}, 'primary');
     apply.type = 'submit';
     actions.replaceChildren(
       button(
         t('connections.edit'),
         'arrow-left',
         () => {
-          renderDraft();
+          renderManagedDraft(tab);
           body.querySelector('select')?.focus();
         },
         'subtle',
@@ -304,36 +463,49 @@ export function openLocalConnection(client, data, refresh, existing) {
     icons();
     apply.focus();
   };
+
+  const renderView = () => {
+    const tab = tabs.find((item) => item.id === activeTab) ?? tabs[0];
+    if (tab.id === 'manual') renderManualTab();
+    else renderManagedDraft(tab);
+  };
+
   form.onsubmit = async (event) => {
     event.preventDefault();
-    if (!valid() || busy) return;
+    const tab = tabs.find((item) => item.id === activeTab);
+    if (!tab || tab.id === 'manual' || !valid() || busy) return;
     failure.textContent = '';
     applying = !!plan;
     setBusy(true);
     try {
       if (!plan) {
         const result = await api('POST', '/v1/local/connections/preview', {
+          target: tab.target,
+          channel: tab.channel,
           agent: draft.agent,
           model: draft.model,
-          ...(draft.toolMode ? { tool_mode: draft.toolMode } : {}),
+          ...(draft.agent !== '*' && draft.toolMode ? { tool_mode: draft.toolMode } : {}),
         });
         if (!valid()) return;
         setBusy(false);
         plan = result;
-        renderPlan();
+        renderPlan(tab);
       } else {
-        await api('POST', '/v1/local/connections/apply', { plan_id: plan.plan_id });
+        await api('POST', '/v1/local/connections/apply', {
+          plan_id: plan.plan_id,
+          target: plan.target,
+          channel: plan.channel,
+        });
         if (!valid()) return;
         state.keys = null;
-        toast(t('connections.applied'));
+        toast(t('connections.applied', { client: client.name }));
         dlg.close();
         await refresh();
       }
     } catch (error) {
       if (valid()) {
         setBusy(false);
-        // Re-preview after stale files, expired plans or a failed apply; never retry a stale write.
-        renderDraft();
+        renderManagedDraft(tab);
         failure.textContent = error.message;
       }
     } finally {
@@ -341,16 +513,6 @@ export function openLocalConnection(client, data, refresh, existing) {
       if (dlg.isConnected) setBusy(false);
     }
   };
-  renderDraft();
+  renderView();
   openDialog(dlg.id);
-}
-
-export function protocolName(protocol) {
-  return (
-    {
-      responses: 'OpenAI Responses',
-      messages: 'Anthropic Messages',
-      'chat-completions': 'OpenAI Chat Completions',
-    }[protocol] ?? ''
-  );
 }

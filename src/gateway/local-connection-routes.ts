@@ -11,8 +11,17 @@ import { refreshAgentModels } from '../fabric/model-pool.js';
 import type { Store } from '../store/store.js';
 import type { Auth } from './auth.js';
 import type { VisibleAgent } from './agent-views.js';
-import { connectionSource } from './local-connection-source.js';
+import {
+  blockedTargetsForSource,
+  connectionSource,
+  LOCAL_TARGETS,
+  type LocalTargetId,
+} from './local-connection-source.js';
 import { LocalConnections } from './local-connections.js';
+import type { LocalTargetOptions } from './local-managed-targets.js';
+
+const targetSchema = z.enum(LOCAL_TARGETS);
+const channelSchema = z.enum(['api', 'mcp']);
 
 export async function registerLocalConnectionRoutes(
   app: FastifyInstance,
@@ -22,6 +31,7 @@ export async function registerLocalConnectionRoutes(
     hub: NodeHub;
     config: GatewayConfig;
     dshHome?: string;
+    localTargets?: LocalTargetOptions;
     isLocalRequest: (req: FastifyRequest) => boolean;
     cachedAgents: (p: Principal) => VisibleAgent[];
   },
@@ -34,7 +44,9 @@ export async function registerLocalConnectionRoutes(
     model: string,
     base: string,
     toolMode?: ToolBoundary,
-  ) => connectionSource(store, hub, config, p, cachedAgents(p), agent, model, base, toolMode);
+    target: LocalTargetId = 'dsh',
+  ) =>
+    connectionSource(store, hub, config, p, cachedAgents(p), agent, model, base, toolMode, target);
   const manager = enabled
     ? new LocalConnections(
         auth,
@@ -42,6 +54,7 @@ export async function registerLocalConnectionRoutes(
         new DshClient(deps.dshHome),
         config.localWorker!.owner,
         source,
+        deps.localTargets,
       )
     : undefined;
   await manager?.ready.catch(() => {});
@@ -91,12 +104,15 @@ export async function registerLocalConnectionRoutes(
     const list = await manager.list(req.principal, base);
     const clients = await inventory(query.refresh === '1');
     const sources = cachedAgents(req.principal).map((a) => {
+      const blocked = blockedTargetsForSource(store, config, req.principal.owner, a.id, base);
+      const probeTarget = LOCAL_TARGETS.find((t) => !blocked.includes(t)) ?? 'dsh';
       try {
-        const selected = source(req.principal, a.id, 'auto', base);
+        const selected = source(req.principal, a.id, 'auto', base, undefined, probeTarget);
         return {
           id: a.id,
           engine: a.engine,
-          available: true,
+          available: blocked.length < LOCAL_TARGETS.length,
+          blocked_targets: blocked,
           tool_modes: selected.toolModes,
           default_tool_mode: selected.toolMode,
           models: selected.models.map((m) => ({
@@ -110,6 +126,7 @@ export async function registerLocalConnectionRoutes(
           id: a.id,
           engine: a.engine,
           available: false,
+          blocked_targets: blocked,
           reason: error instanceof Fault ? error.code : 'local_connection_unavailable',
           models: [],
         };
@@ -121,25 +138,46 @@ export async function registerLocalConnectionRoutes(
     const { manager, base } = guard(req);
     const body = z
       .object({
-        agent: z.string().min(1).max(120),
+        target: targetSchema.default('dsh'),
+        channel: channelSchema.optional(),
+        agent: z.string().min(1).max(120).optional(),
         model: z.string().min(1).max(200).default('auto'),
         tool_mode: toolBoundarySchema.optional(),
       })
       .strict()
       .parse(req.body);
-    const published = store.agentDefinition(req.principal.owner, body.agent);
-    if (published.agent.modelPolicy?.mode === 'discover')
-      await refreshAgentModels(hub, req.principal.owner, published.agent.engine);
-    return manager.preview(req.principal, body.agent, body.model, base, body.tool_mode);
+    if (body.agent && body.agent !== '*') {
+      const published = store.agentDefinition(req.principal.owner, body.agent);
+      if (published.agent.modelPolicy?.mode === 'discover')
+        await refreshAgentModels(hub, req.principal.owner, published.agent.engine);
+    }
+    return manager.preview(
+      req.principal,
+      body.agent,
+      body.model,
+      base,
+      body.tool_mode,
+      body.target,
+      body.channel,
+    );
   });
   app.post('/v1/local/connections/apply', async (req) => {
     const { manager, base } = guard(req);
-    const { plan_id } = z
-      .object({ plan_id: z.string().regex(/^[a-f0-9]{48}$/) })
+    const body = z
+      .object({
+        plan_id: z.string().regex(/^[a-f0-9]{48}$/),
+        target: targetSchema.optional(),
+        channel: channelSchema.optional(),
+      })
       .strict()
       .parse(req.body);
-    return manager.apply(req.principal, plan_id, base, () =>
-      auth.revalidate(req.headers.authorization),
+    return manager.apply(
+      req.principal,
+      body.plan_id,
+      base,
+      () => auth.revalidate(req.headers.authorization),
+      body.target,
+      body.channel,
     );
   });
   app.post('/v1/local/connections/:id/check', async (req) => {
@@ -148,7 +186,12 @@ export async function registerLocalConnectionRoutes(
       .string()
       .regex(/^[a-f0-9]{24}$/)
       .parse((req.params as { id: string }).id);
-    return manager.check(req.principal, id, base);
+    const body = z
+      .object({ target: targetSchema.optional(), channel: channelSchema.optional() })
+      .strict()
+      .optional()
+      .parse(req.body === undefined ? undefined : req.body);
+    return manager.check(req.principal, id, base, body?.target, body?.channel);
   });
   app.delete('/v1/local/connections/:id', async (req) => {
     const { manager, base } = guard(req);
@@ -156,8 +199,17 @@ export async function registerLocalConnectionRoutes(
       .string()
       .regex(/^[a-f0-9]{24}$/)
       .parse((req.params as { id: string }).id);
-    return manager.remove(req.principal, id, base, () =>
-      auth.revalidate(req.headers.authorization),
+    const query = z
+      .object({ target: targetSchema.optional(), channel: channelSchema.optional() })
+      .strict()
+      .parse(req.query ?? {});
+    return manager.remove(
+      req.principal,
+      id,
+      base,
+      () => auth.revalidate(req.headers.authorization),
+      query.target,
+      query.channel,
     );
   });
 }

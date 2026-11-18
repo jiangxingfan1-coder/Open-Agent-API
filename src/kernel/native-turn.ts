@@ -15,6 +15,7 @@ import { storeNativeArtifacts } from './agent-events.js';
 import type { KernelRuntime } from './runtime.js';
 import { projectBrief } from './project-memory.js';
 import { mediaInstruction } from '../core/media.js';
+import { callerToolChoiceInstruction } from '../core/tool-choice.js';
 
 /**
  * 运行一个外部智能体（Claude Code、Codex、Antigravity、ACP、A2A、适配器）的一整轮：
@@ -76,7 +77,13 @@ export async function runNativeAgent(
           (session.input ??
             (run.checkpoint.handoffBrief
               ? `${run.checkpoint.handoffBrief}\n\n新要求：\n${run.input}`
-              : run.input)) +
+              : run.input) +
+              (run.checkpoint.bridge?.tools.length
+                ? callerToolChoiceInstruction(
+                    run.checkpoint.toolChoice,
+                    run.checkpoint.bridge.tools.map((t) => t.name),
+                  )
+                : '')) +
           projectBrief(rt.store, run) +
           mediaInstruction(run.checkpoint.media),
         nativeState: run.checkpoint.nativeState,
@@ -150,4 +157,4 @@ export async function runNativeAgent(
 
 /** The step of the external agent's turn: the first round `native_<run>`, each correction round its own. */
 export const nativeStepId = (run: Run): string =>
-  `native_${run.id}${run.checkpoint.orchestration?.activeStage ? `_o${run.checkpoint.orchestration.activeStage}` : ''}${run.checkpoint.outputContract?.used ? `_r${run.checkpoint.outputContract.used}` : ''}`;
+  `native_${run.id}${run.checkpoint.orchestration?.activeStage ? `_o${run.checkpoint.orchestration.activeStage}` : ''}${run.metadata['oaa.tool_choice_retries'] ? `_tc${run.metadata['oaa.tool_choice_retries']}` : ''}${run.checkpoint.outputContract?.used ? `_r${run.checkpoint.outputContract.used}` : ''}`;

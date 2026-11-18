@@ -3,7 +3,11 @@ import { modelPolicySchema, modelRouteSchema, isRoutingModeId } from './model-ca
 import { MAX_AGENT_MODELS } from './model-catalog.js';
 import { agentAccessSchema, type ConnectionDefaults, type ToolBoundary } from './agent-access.js';
 import { orchestrationSchema, type OrchestrationState, type ModelMark } from './orchestration.js';
+import type { ToolChoicePolicy } from './tool-choice.js';
+import type { TraceContext } from './trace-context.js';
 export type { ModelMark } from './orchestration.js';
+export type { ToolChoicePolicy } from './tool-choice.js';
+export type { TraceContext, TraceView } from './trace-context.js';
 
 const key = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,119}$/);
 const jsonObject = z.record(z.string(), z.unknown());
@@ -30,10 +34,7 @@ export const capabilitySchema = z
     cacheTtlMs: z.number().int().min(0).max(3_600_000).default(0),
     resourceKey: z.string().max(200).optional(),
     resultExport: z.boolean().default(true),
-    /**
-     * Domains a sandboxed script may reach (docs/sandbox-design.md). Effective only within the
-     * worker owner's `sandbox.allowDomains`; ignored for host execution.
-     */
+    /** Allowed domains for sandboxed scripts (within sandbox.allowDomains; ignored on host). */
     network: z
       .object({ allowedDomains: z.array(domainPattern).max(50) })
       .strict()
@@ -49,6 +50,7 @@ export const builtinToolNames = [
   'read_skill',
   'memory_read',
   'memory_write',
+  'memory_search',
 ] as const;
 export type BuiltinToolName = (typeof builtinToolNames)[number];
 export const bindingSchema = z
@@ -269,7 +271,8 @@ export type FilePayload = {
   allowedNodes?: string[];
   workspacePath?: string;
 };
-export type ArtifactPayload = { name: string; content: string; sha256: string };
+type ArtifactRef = { localPath?: string; bytes?: number };
+export type ArtifactPayload = Pick<FilePayload, 'name' | 'content' | 'sha256'> & ArtifactRef;
 export type ToolResult = { value: unknown; artifacts?: ArtifactPayload[] };
 export type RunStatus =
   | 'queued'
@@ -327,6 +330,8 @@ export type Checkpoint = {
   bridge?: { tools: ClientTool[]; delivered: number; boundary?: 'client' | 'hybrid' };
   /** Structured output (docs/structured-output.md): `repairs` correction rounds allowed, `used` spent so far. */
   outputContract?: OutputContract & { repairs: number; used?: number };
+  /** Caller-requested tool-calling policy (`auto` | `none` | `required` | `{ mode: 'tool', name }`). */
+  toolChoice?: ToolChoicePolicy;
 };
 /** What `response_format` / `text.format` / `responseSchema` / `output_config.format` asks for. */
 export type OutputContract = {
@@ -371,6 +376,8 @@ export type Run = {
   artifactIds: string[];
   metadata: Record<string, string>;
   route: { id: string; provider: string; model: string; mode: 'auto' | 'explicit' };
+  /** W3C Trace Context (kept off `metadata` so idempotency and compat streams stay unchanged). */
+  trace?: TraceContext;
 };
 export type RunEvent = {
   id: number;
@@ -503,7 +510,11 @@ export type NodeAdvertisement = {
 };
 export {
   executionCapabilitiesSchema,
+  nodePolicySchema,
   type ExecutionCapabilities,
+  type NodeCredential,
+  type NodePolicy,
+  type NodePolicyState,
 } from './execution-capabilities.js';
 export type WorkContext = {
   runId: string;
@@ -513,6 +524,10 @@ export type WorkContext = {
   files: FilePayload[];
   /** This turn's stored image inputs (bytes are in `files`); external engines read them here. */
   images?: { fileId: string; mime: string; workspacePath: string }[];
+  /** Caller trust partition (`trace-context-v1` negotiated on remote workers). */
+  subject?: string;
+  /** W3C Trace Context (`trace-context-v1` negotiated on remote workers). */
+  trace?: TraceContext;
 };
 export type Work =
   | {
@@ -522,18 +537,12 @@ export type Work =
       context: WorkContext;
       toolNames?: string[];
       toolBoundary?: 'client';
-      /**
-       * Output-length cap the caller asked for, below the published `limits.maxOutputTokens`
-       * (compatibility `max_tokens` and friends). The worker applies the smaller of the two; it is
-       * a separate field because the agent itself must stay identical to the published one.
-       * Optional on the wire: a node that does not know it uses the published limit.
-       */
+      /** Caller-requested output cap below `limits.maxOutputTokens`; worker applies the smaller of the two. */
       maxOutputTokens?: number;
-      /**
-       * Caller-supplied provider key (BYOK). Held in gateway memory only, sent to a worker that
-       * advertised BYOK for this provider, used for this one call and never persisted.
-       */
+      /** Caller-supplied provider key (BYOK), held in gateway memory only for this call and never persisted. */
       credential?: { apiKey: string };
+      /** Per-turn native structured-output and `tool_choice` pushdown controls. */
+      controls?: { outputContract?: OutputContract; toolChoice?: ToolChoicePolicy };
     }
   | {
       kind: 'tool';
@@ -577,22 +586,3 @@ export type WorkEvent = {
   type: 'text' | 'progress' | 'approval' | 'client_tool';
   data: Record<string, unknown>;
 };
-export type NodeCredential = {
-  nodeId: string;
-  owner: string;
-  token: string;
-  capabilities: string[];
-  agents: string[];
-};
-export type NodePolicyState = 'active' | 'draining' | 'revoked';
-export const nodePolicySchema = z
-  .object({
-    nodeId: z.string().min(1).max(120),
-    owner: z.string(),
-    state: z.enum(['active', 'draining', 'revoked']),
-    actor: z.string(),
-    reason: z.string().max(1000),
-    updatedAt: z.number().int().nonnegative(),
-  })
-  .strict();
-export type NodePolicy = z.infer<typeof nodePolicySchema>;

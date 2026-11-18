@@ -241,6 +241,33 @@
   overflow-wrap: anywhere;
   margin-top: var(--s-2);
 }
+.local-channel-tabs {
+  margin-bottom: var(--s-4);
+}
+.local-channel-tag {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-elevated);
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+.local-plan-diff {
+  margin: var(--s-2) 0 0;
+  padding: var(--s-3);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  font-size: 11.5px;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow: auto;
+}
+.local-plan-diff code {
+  margin-top: 0;
+  white-space: pre;
+}
 .local-section-heading {
   margin: var(--s-6) 0 var(--s-4);
 }

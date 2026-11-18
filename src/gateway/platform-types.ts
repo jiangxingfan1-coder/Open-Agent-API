@@ -2,10 +2,11 @@
  * 开发者平台门面的出入参类型（camelCase）；蛇形字段由 platform-wire.ts 映射。
  */
 import type { Usage } from '../core/contracts.js';
-import type { AccountStatus } from './platform-accounts.js';
+import { Fault } from '../core/util.js';
+import type { AccountRecord, AccountStatus } from './platform-accounts.js';
 import type { LedgerRecord, UsageBucket } from './platform-billing.js';
 import type { CodeKind, CodeRecord } from './platform-codes.js';
-import type { PlatformConfig } from './platform-db.js';
+import { toPoints, type PlatformConfig } from './platform-db.js';
 import type { ListingAccess } from './platform-access.js';
 import type { Timeline } from './timeline.js';
 
@@ -119,3 +120,27 @@ export type RunDetailView = RunItemView & {
 };
 export type ResetCodeView = { code: string; expiresAt: number };
 export type ReconcileResult = { settled: number; interrupted: number; pending: number };
+
+export const pointsOf = (bucket: UsageBucket): UsageBucket => ({
+  ...bucket,
+  spent: toPoints(bucket.spent),
+});
+export const toAccountView = (a: AccountRecord): AccountView => ({
+  id: a.id,
+  email: a.email,
+  name: a.name,
+  status: a.status,
+  balance: toPoints(a.balance),
+  createdAt: a.createdAt,
+});
+export const toEntryView = (e: LedgerRecord): LedgerEntryView => ({
+  ...e,
+  amount: toPoints(e.amount),
+  balanceAfter: toPoints(e.balanceAfter),
+});
+export const toCodeView = (c: CodeRecord): CodeView => ({ ...c, credits: toPoints(c.credits) });
+export function checkWindowDays(days: number): number {
+  if (!Number.isInteger(days) || days < 1 || days > 90)
+    throw new Fault('invalid_request', 'days must be between 1 and 90.', 400);
+  return days;
+}

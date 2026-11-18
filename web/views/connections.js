@@ -20,6 +20,8 @@ import {
   evidenceLabel,
   openLocalConnection,
   protocolName,
+  resolveClientTargets,
+  targetClientMeta,
 } from '../dialogs/local-connection.js';
 
 export const connections = {
@@ -98,8 +100,15 @@ function clientCatalog(body, data) {
       evidence: [],
     },
   ];
+  const hasSavedBinding = (client) => {
+    const resolved = resolveClientTargets(client);
+    return (data.data ?? []).some(
+      (item) => item.target === resolved.api || item.target === resolved.mcp,
+    );
+  };
   const detected = (client) =>
     client.installed ||
+    hasSavedBinding(client) ||
     !!client.runtime?.providers.length ||
     (client.id === 'dsh' && data.target.available);
   const installed = clients.filter(detected);
@@ -153,7 +162,7 @@ function clientCatalog(body, data) {
         el(
           'span',
           t(
-            client.runtime?.providers.length
+            client.runtime?.providers.length || hasSavedBinding(client)
               ? 'localModels.linked'
               : detected(client)
                 ? 'connections.detected'
@@ -174,7 +183,7 @@ function clientCatalog(body, data) {
         el(
           'span',
           kinds.join(' · ') ||
-            (client.id === 'dsh' && data.target.available
+            (hasSavedBinding(client) || (client.id === 'dsh' && data.target.available)
               ? t('connections.evidence_configured')
               : ''),
           'muted',
@@ -269,13 +278,21 @@ export function renderConnections(body) {
   clientCatalog(body, data);
   const labels = stateLabels();
   const cards = data.data.map((item) => {
+    const targetMeta = targetClientMeta(item.target ?? 'dsh', data.clients ?? []);
+    const isMcp = item.channel === 'mcp';
+    const agentLabel = item.agent === '*' ? t('connections.all_agents') : item.agent;
     const card = el('article', undefined, 'local-binding-card');
-    card.setAttribute('aria-label', item.agent);
+    card.setAttribute('aria-label', `${agentLabel} -> ${targetMeta.name}`);
     const head = el('div', undefined, 'local-card-head');
     const named = el('div', undefined, 'local-source-name');
     named.append(
-      agentGlyph(data.sources.find((s) => s.id === item.agent)?.engine ?? '', 'small'),
-      el('code', item.agent),
+      agentGlyph(
+        item.agent === '*'
+          ? 'kernel'
+          : (data.sources.find((s) => s.id === item.agent)?.engine ?? ''),
+        'small',
+      ),
+      el('code', agentLabel),
     );
     const status = el('span', labels[item.status] ?? item.status, 'local-binding-status');
     status.setAttribute(
@@ -287,14 +304,25 @@ export function renderConnections(body) {
     const destination = el('div', undefined, 'local-destination');
     destination.append(
       icon('arrow-down-right'),
-      agentGlyph('dsh', 'tiny'),
-      el('span', 'DeepSeek Harness'),
+      agentGlyph(targetMeta.icon, 'tiny'),
+      el('span', targetMeta.name),
+      el(
+        'span',
+        t(isMcp ? 'connections.channel_mcp' : 'connections.channel_api'),
+        'local-channel-tag',
+      ),
     );
     const facts = el('dl', undefined, 'local-binding-facts');
-    for (const [label, value] of [
-      [t('connections.models'), String(item.model_count)],
-      [t('connections.tool_boundary'), t(`access.${item.tool_mode}`)],
-    ]) {
+    const factRows = isMcp
+      ? [
+          [t('connections.channel'), t('connections.channel_mcp')],
+          [t('connections.key_scope'), 'read · invoke · files'],
+        ]
+      : [
+          [t('connections.models'), String(item.model_count)],
+          [t('connections.tool_boundary'), t(`access.${item.tool_mode}`)],
+        ];
+    for (const [label, value] of factRows) {
       const fact = el('div');
       fact.append(el('dt', label), el('dd', value));
       facts.append(fact);
@@ -305,7 +333,10 @@ export function renderConnections(body) {
     const check = iconButton(t('connections.check'), 'shield-check', async () => {
       await withBusy(check, '', async () => {
         try {
-          const result = await api('POST', `/v1/local/connections/${item.id}/check`, {});
+          const result = await api('POST', `/v1/local/connections/${item.id}/check`, {
+            target: item.target,
+            channel: item.channel,
+          });
           toast(result.ok ? t('connections.check_ok') : t('connections.check_failed'));
         } catch (error) {
           toast(error.message);
@@ -314,19 +345,17 @@ export function renderConnections(body) {
       });
     });
     const sync = iconButton(t('connections.sync'), 'refresh-cw', () =>
-      openLocalConnection(
-        { id: 'dsh', name: 'DeepSeek Harness', icon: 'deepseek-harness', connection: 'managed' },
-        connections.data,
-        refreshConnections,
-        item,
-      ),
+      openLocalConnection(targetMeta, connections.data, refreshConnections, item),
     );
     const remove = iconButton(t('connections.disconnect'), 'unplug', async () => {
       const token = state.token;
       if (
         !(await confirmAction({
           title: t('connections.disconnect'),
-          message: t('connections.disconnect_body', { agent: item.agent }),
+          message: t('connections.disconnect_body', {
+            agent: agentLabel,
+            client: targetMeta.name,
+          }),
           accept: t('connections.disconnect'),
           danger: true,
         })) ||

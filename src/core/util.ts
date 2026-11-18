@@ -260,7 +260,7 @@ export const redact = (message: string) =>
     .replace(/(?:sk-|Bearer\s+)[A-Za-z0-9_.\-]{8,}|\boaa_[A-Za-z0-9_-]{32,}/gi, '[REDACTED]')
     // Node and portal-session tokens, and common upstream formats (Google, GitHub, Slack, AWS).
     .replace(
-      /\b(?:oa[ns]_[A-Za-z0-9_-]{32,}|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|(?:AKIA|ASIA)[A-Z0-9]{16})/g,
+      /\b(?:oa[nsw]_[A-Za-z0-9_-]{32,}|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|(?:AKIA|ASIA)[A-Z0-9]{16})/g,
       '[REDACTED]',
     )
     .replace(/(api[_-]?key|token|password|secret)(["'\s:=]+)[^\s,;}]+/gi, '$1$2[REDACTED]');

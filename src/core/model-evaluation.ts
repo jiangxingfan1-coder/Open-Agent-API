@@ -1,7 +1,14 @@
 import { z } from 'zod';
-import { sha } from './util.js';
+import { canonical, sha } from './util.js';
 
 export const EVALUATION_SUITE = 'oaa-capabilities-2';
+export const EVALUATION_DIMENSIONS = [
+  'reasoning',
+  'coding',
+  'instructions',
+  'structured',
+  'tool_calling',
+] as const;
 export const evaluationSettingsSchema = z
   .object({
     enabled: z.boolean(),
@@ -10,7 +17,7 @@ export const evaluationSettingsSchema = z
   })
   .strict();
 export type EvaluationSettings = z.infer<typeof evaluationSettingsSchema>;
-export type EvaluationDimension = 'reasoning' | 'coding' | 'instructions' | 'structured' | 'tasks';
+export type EvaluationDimension = (typeof EVALUATION_DIMENSIONS)[number] | 'tasks';
 export type ModelPerformance = {
   sources?: { benchmark: number; feedback: number };
   suite: string;
@@ -44,6 +51,11 @@ export function evaluationCases(seed: string): EvaluationCase[] {
       value: (a * (i + 3) + b) % 101,
       active: i % 3 !== round,
     }));
+    const env = round === 0 ? 'prod' : 'staging';
+    const requestedLimit = 35 + (a % 40);
+    const minDurationMs = b * 10;
+    const tagA = 'api';
+    const tagB = `svc-${hash.slice(18, 22)}`;
     cases.push(
       {
         id: `reasoning-${round}`,
@@ -72,6 +84,25 @@ export function evaluationCases(seed: string): EvaluationCase[] {
           sum: rows.filter((r) => r.active && r.value >= 50).reduce((n, r) => n + r.value, 0),
         },
       },
+      {
+        id: `tool_calling-${round}`,
+        dimension: 'tool_calling',
+        prompt: `Do not execute tools. Return only JSON with keys "tool" and "arguments" selecting the read-only tool and constructing nested arguments that strictly satisfy its contract. Request: search traces in "${env}" with duration at least ${minDurationMs} ms, tagged with "${tagB}", "${tagA}", and "${tagB}" (deduplicate and sort tags ascending), returning up to ${requestedLimit} items in "desc" order (clamp page.limit to the schema bounds 1..50). Candidate tools: 1) "purge_traces" (destructive write, never use for search); 2) "query_traces" with arguments schema {"filter":{"environment":"prod|staging","min_duration_ms":"integer","tags":"string[]"},"page":{"limit":"integer 1..50","order":"asc|desc"}}.`,
+        expected: {
+          tool: 'query_traces',
+          arguments: {
+            filter: {
+              environment: env,
+              min_duration_ms: minDurationMs,
+              tags: [tagA, tagB].sort(),
+            },
+            page: {
+              limit: Math.min(50, Math.max(1, requestedLimit)),
+              order: 'desc',
+            },
+          },
+        },
+      },
     );
   }
   return cases.sort((a, b) => a.id.localeCompare(b.id));
@@ -92,9 +123,9 @@ export function scoreEvaluation(sample: EvaluationCase, text: string): boolean {
       return false;
     return Object.entries(expected).every(
       ([key, value]) =>
-        JSON.stringify(
+        canonical(
           key === 'fix' && typeof actual[key] === 'string' ? actual[key].trim() : actual[key],
-        ) === JSON.stringify(value),
+        ) === canonical(value),
     );
   } catch {
     return false;

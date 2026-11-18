@@ -63,6 +63,9 @@ export const en = {
   'view.agents.title': 'Agents',
   'view.agents.desc':
     'Published agents. Publish once, then call them through the API, MCP or the command line.',
+  'view.workbench.title': 'Workbench',
+  'view.workbench.desc':
+    'Multi-turn streaming chat, caller tool bridge debugging, inline approvals and SDK snippets.',
   'view.requests.title': 'Tasks',
   'view.requests.desc':
     'The task each call leaves behind, with its approvals, execution steps and generated files.',
@@ -155,10 +158,12 @@ export const en = {
   'feature.overview-events-v1': 'Live sync',
   'feature.platform-setup-v1': 'Developer platform setup',
   'feature.platform-v1': 'Developer platform',
+  'feature.prometheus-metrics-v1': 'Prometheus metrics',
   'feature.queue-insight-v1': 'Queue visibility',
   'feature.run-timeline-v1': 'Task timeline',
   'feature.stream-progress-v1': 'Run progress in streams',
   'feature.structured-output-v1': 'Structured output guarantee',
+  'feature.trace-context-v1': 'W3C Trace Context',
   'feature.webhooks-v1': 'Run-event webhooks',
   'feature.workflow-output-v1': 'Workflow result projection',
   'html.nav.console': 'Console navigation',

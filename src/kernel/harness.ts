@@ -51,8 +51,9 @@ export function requestedClientToolsMode(metadata: Record<string, string>): stri
 }
 
 /**
- * 提交前置检查（授权之后、建运行之前）：内核智能体与 `adapter/<name>` 可以请求桥接；后者是否
- * 真的支持（ACP 接入、执行机器声明了 client-tools-v1）由放置阶段按执行机器的声明判断。
+ * 提交前置检查（授权之后、建运行之前）：内核智能体、支持 MCP 中继桥接的原生引擎（Claude、Codex、
+ * Antigravity）与 `adapter/<name>` 可以请求桥接；执行机器是否实际启用并声明了 client-tools-v1
+ * 由放置阶段按执行机器的声明判断。
  */
 export function assertClientToolsSupported(
   agent: Pick<AgentDefinition, 'engine'>,
@@ -61,11 +62,13 @@ export function assertClientToolsSupported(
   if (
     mode === 'bridge' &&
     agent.engine !== 'kernel' &&
+    agent.engine !== 'claude' &&
+    agent.engine !== 'codex' &&
     agent.engine !== 'antigravity' &&
     !agent.engine.startsWith('adapter/')
   )
     throw new Fault(
       'client_tools_bridge_unsupported',
-      'This agent runs its own tool loop; in this version only kernel agents and ACP adapters can bridge caller tools. Use X-OAA-Client-Tools: managed instead.',
+      'This agent runs its own tool loop and cannot bridge caller tools. Use X-OAA-Client-Tools: managed instead.',
     );
 }

@@ -29,6 +29,7 @@ export const ERROR_EN: Readonly<Record<string, readonly [string, string?]>> = {
   client_tool_conflict: ['A client tool has the same name as a published tool, workflow, delegate, or another client tool.', 'Rename the client tool.'],
   client_tools_too_many: ['Published tools plus client tools exceed 100.', 'Declare fewer tools in this request.'],
   invalid_client_tool: ['A client tool has an invalid name or parameter schema.', 'Use letters, digits, _ or - for names (up to 64), and valid JSON Schema for parameters.'],
+  tool_choice_unmet: ['A tool call was forced by tool_choice, but the agent still did not call the required tool after a correction round.', 'Relax tool_choice to auto, or clarify when to use the tool in the prompt.'],
   invalid_json: ['The request body is not valid JSON, or is empty while declared as JSON.'],
   payload_too_large: ['The request body or data exceeds the size limit.'],
   unsupported_media_type: ['Unsupported Content-Type.'],

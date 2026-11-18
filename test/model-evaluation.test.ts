@@ -12,7 +12,8 @@ import { ModelEvaluations } from '../src/store/model-evaluations.js';
 
 test('fresh objective questions accept exact answers and reject extra fields, prose and prompt injection', () => {
   const cases = evaluationCases('first');
-  assert.equal(cases.length, 8);
+  assert.equal(cases.length, 10);
+  assert.ok(cases.some((c) => c.dimension === 'tool_calling'));
   assert.notDeepEqual(cases, evaluationCases('second'));
   for (const c of cases) {
     assert.equal(scoreEvaluation(c, JSON.stringify(c.expected)), true, c.id);

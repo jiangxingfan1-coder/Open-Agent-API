@@ -3,8 +3,9 @@ import { z } from 'zod';
 import type { GatewayConfig } from '../config/config.js';
 import { visibleSubject, type Principal } from '../core/contracts.js';
 import { ERROR_CATALOG, ERROR_CATALOG_REVISION, ERROR_CATEGORIES } from '../core/errors.js';
-import { agentConversionProfile } from '../engines/conformance.js';
+import { resolveConversionProfile } from '../fabric/adapter-profiles.js';
 import { presetForEngine } from '../fabric/local-backends.js';
+import type { NodeHub } from '../fabric/network.js';
 import type { Kernel } from '../kernel/kernel.js';
 import type { Store } from '../store/store.js';
 import {
@@ -34,6 +35,7 @@ export type OverviewRouteDeps = {
   config: GatewayConfig;
   store: Store;
   kernel: Kernel;
+  hub: NodeHub;
   revisions: OverviewRevisions;
   /** 平台模式开启时 /openapi.json 返回含平台接口的版本。 */
   withPlatform: boolean;
@@ -54,6 +56,7 @@ export function registerOverviewRoutes(app: FastifyInstance, deps: OverviewRoute
     config,
     store,
     kernel,
+    hub,
     revisions,
     withPlatform,
     resolvePublicBaseUrl,
@@ -95,7 +98,7 @@ export function registerOverviewRoutes(app: FastifyInstance, deps: OverviewRoute
       // `engine` stays native or `adapter/<name>`; `preset` is the optional icon id for the console.
       agents: agents.map((a) => {
         const preset = presetForEngine(a.engine, config.localWorker);
-        const conversion = agentConversionProfile(a, config.localWorker);
+        const conversion = resolveConversionProfile(a, config.localWorker, hub, p.owner);
         return preset ? { ...a, preset, conversion } : { ...a, conversion };
       }),
       nodes,

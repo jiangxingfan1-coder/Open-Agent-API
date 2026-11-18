@@ -294,17 +294,15 @@ export function callerTools(body: Record<string, unknown> | null): boolean {
 }
 
 /**
- * Why a request cannot be served on the default (strict) endpoints at all: several choices (`n > 1`), a
- * forced tool choice and vendor-specific fields. The default endpoints answer a clear 400
- * `unsupported_parameter` and the compat endpoints serve them.
+ * Why a request cannot be served on the default (strict) endpoints at all: several choices (`n > 1`)
+ * and vendor-specific fields. The default endpoints answer a clear 400 `unsupported_parameter` and
+ * the compat endpoints serve them.
  */
 export function needsCompat(body: Record<string, unknown> | null): string[] {
   if (!body) return [];
   const reasons: string[] = [];
   if (body.format !== undefined) reasons.push('format');
   if (typeof body.n === 'number' && body.n > 1) reasons.push('n > 1');
-  const choice = body.tool_choice;
-  if (choice === 'required' || isObject(choice)) reasons.push('forced tool_choice');
   return reasons;
 }
 

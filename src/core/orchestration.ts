@@ -17,18 +17,25 @@ export type ModelMark = {
   status?: 'completed' | 'failed' | 'cancelled';
   calls?: number;
 };
+const agentKeySchema = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,119}$/);
+export const orchestrationPlannerSchema = z
+  .object({
+    agent: agentKeySchema,
+    route: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+export type OrchestrationPlanner = z.infer<typeof orchestrationPlannerSchema>;
 export const orchestrationSchema = z
   .object({
     enabled: z.boolean(),
     scope: z.enum(['agent', 'helpers']).optional(),
-    helpers: z
-      .array(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,119}$/))
-      .max(16)
-      .default([]),
+    helpers: z.array(agentKeySchema).max(16).default([]),
+    planner: orchestrationPlannerSchema.optional(),
     maxStages: z.number().int().min(1).max(24).optional(),
     timeoutMs: z.number().int().min(1000).max(604_800_000).optional(),
   })
   .strict();
+export type OrchestrationSettings = z.infer<typeof orchestrationSchema>;
 export const orchestrationPlanSchema = z
   .object({
     stages: z
@@ -48,13 +55,24 @@ export const orchestrationPlanSchema = z
   })
   .strict();
 export type OrchestrationStage = z.infer<typeof orchestrationPlanSchema>['stages'][number];
+export type OrchestrationArtifactSummary = {
+  id: string;
+  name: string;
+  sha256?: string;
+};
+export type OrchestrationStageResult = {
+  output: string;
+  runId?: string;
+  agent?: string;
+  artifacts?: OrchestrationArtifactSummary[];
+};
 export type OrchestrationState = {
   mode: OrchestrationMode;
   maxStages: number;
   used: number;
   started?: string[];
   plan?: OrchestrationStage[];
-  results: Record<string, { output: string; runId?: string }>;
+  results: Record<string, OrchestrationStageResult>;
   activeStage?: string;
   finalText?: string;
   recommendation?: boolean;

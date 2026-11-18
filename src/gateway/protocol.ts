@@ -8,7 +8,7 @@ import {
 } from '../kernel/routing.js';
 import { invocationSchema, type ImageInput, type Invocation } from '../kernel/invocation.js';
 import { openAIImage } from './image-parts.js';
-import { compatInput, type ToolsFallback } from './client-tools.js';
+import { compatInput, strictNoToolsChoice, type ToolsFallback } from './client-tools.js';
 import { chatFinish, finishOf, runFailure } from './compat-errors.js';
 import {
   applyMaxTokens,
@@ -212,6 +212,7 @@ export function parseResponse(value: unknown, headers?: Record<string, unknown>)
     agent_version: resolved.agent_version,
     metadata: meta,
     ...(contract ? { output_contract: contract } : {}),
+    ...strictNoToolsChoice('responses', req.tool_choice),
   });
 }
 
@@ -432,6 +433,7 @@ export function parseChat(value: unknown, headers?: Record<string, unknown>): In
     metadata: meta,
     agent_version: resolved.agent_version,
     ...(contract ? { output_contract: contract } : {}),
+    ...strictNoToolsChoice('chat', req.tool_choice),
   });
 }
 

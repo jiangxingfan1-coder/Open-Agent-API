@@ -5,8 +5,16 @@
  * 解析结果与没有这段逻辑时逐字节相同。调用发生在行内指令（`@oaa(...)`）识别之后。
  */
 import { Fault } from '../core/util.js';
+import { isForcedToolChoice, type ToolChoicePolicy } from '../core/tool-choice.js';
 import { CLIENT_TOOLS_MANAGED_NOTE, resolveClientToolsMode } from '../kernel/harness.js';
 import type { Invocation } from '../kernel/invocation.js';
+import {
+  parseChatToolChoice,
+  parseClaudeToolChoice,
+  parseGeminiToolChoice,
+  parseResponsesToolChoice,
+  verifyRequestToolChoice,
+} from './tool-choice.js';
 
 export type ToolsFallback = 'managed' | 'reject';
 
@@ -38,6 +46,11 @@ export function withClientTools(
     return input;
   }
   if (mode === 'managed') {
+    if (options.forced)
+      throw new Fault(
+        'client_tools_unsupported',
+        'A forced tool_choice cannot be satisfied in managed mode because caller tools are not exposed to the agent. Use X-OAA-Client-Tools: bridge or set tool_choice to auto.',
+      );
     meta['oaa.client_tools'] = 'managed';
     meta['oaa.client_tools_ignored'] = count;
     return `${input}\n\n[Harness note] ${CLIENT_TOOLS_MANAGED_NOTE}`;
@@ -54,17 +67,18 @@ const preparesBridge = (meta: Record<string, string>) =>
   ['bridge', 'auto', 'default'].includes(meta['oaa.client_tools'] ?? '');
 
 /**
- * 桥接字段构造失败（内置或服务端工具、不合规的名字或 schema）：显式 bridge 照旧报错；还没定的
- * auto / default 不报错，记下原因、不带桥接字段，提交时直接走回退行为。
+ * 桥接字段构造失败（内置或服务端工具、不合规的名字或 schema）：显式 bridge 或强制 tool_choice 照旧报错；
+ * 还没定的 auto / default 不报错，记下原因、不带桥接字段，提交时直接走回退行为。
  */
 export function bridgeFieldsOrFallback(
   meta: Record<string, string>,
   build: () => Pick<Invocation, 'client_tools' | 'client_results'>,
+  forced = false,
 ): Pick<Invocation, 'client_tools' | 'client_results'> {
   try {
     return build();
   } catch (error) {
-    if (meta['oaa.client_tools'] === 'bridge' || !(error instanceof Fault)) throw error;
+    if (forced || meta['oaa.client_tools'] === 'bridge' || !(error instanceof Fault)) throw error;
     meta['oaa.client_tools_unbridgeable'] = error.message.slice(0, 300);
     return {};
   }
@@ -309,9 +323,31 @@ export function geminiBridgeFields(
   return { client_tools: clientTools, client_results: results };
 }
 
+/** 严格端点未携带 `tools` 时校验 `tool_choice`（强制调用无工具时报 400 `invalid_request`）。 */
+export function strictNoToolsChoice(
+  protocol: 'chat' | 'responses',
+  rawChoice: unknown,
+): { tool_choice?: ToolChoicePolicy } {
+  const policy =
+    protocol === 'chat' ? parseChatToolChoice(rawChoice) : parseResponsesToolChoice(rawChoice);
+  verifyRequestToolChoice(protocol, policy, undefined);
+  return policy ? { tool_choice: policy } : {};
+}
+
+function resultsOnlyWhenNone(
+  build: (probeMeta: Record<string, string>) => Pick<Invocation, 'client_tools' | 'client_results'>,
+): Pick<Invocation, 'client_results'> {
+  try {
+    const built = build({ 'oaa.client_tools': 'bridge' });
+    return built.client_results ? { client_results: built.client_results } : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
- * 三个兼容解析器的输入与桥接字段：先按模式处理（`withClientTools`），bridge 模式下再按协议
- * 解析出 `client_tools` / `client_results`。
+ * 三个兼容解析器的输入与桥接字段：先校验 `tool_choice`，`none` 时本轮不向智能体暴露调用方工具；
+ * 其余按模式处理（`withClientTools`），bridge 模式下再按协议解析出 `client_tools` / `client_results`。
  */
 export function compatInput(
   protocol: 'chat' | 'responses' | 'claude',
@@ -320,19 +356,83 @@ export function compatInput(
   meta: Record<string, string>,
   text: string,
   fallback: ToolsFallback = 'managed',
-): { input: string } & Pick<Invocation, 'client_tools' | 'client_results'> {
+): { input: string } & Pick<Invocation, 'client_tools' | 'client_results' | 'tool_choice'> {
+  const rawPolicy =
+    protocol === 'chat'
+      ? parseChatToolChoice(req.tool_choice)
+      : protocol === 'responses'
+        ? parseResponsesToolChoice(req.tool_choice)
+        : parseClaudeToolChoice(req.tool_choice);
+  const policy = verifyRequestToolChoice(protocol, rawPolicy, req.tools);
+  const buildFor = (m: Record<string, string>) =>
+    protocol === 'chat'
+      ? chatBridgeFields(req.tools ?? [], req.messages as ChatMessage[], m)
+      : protocol === 'responses'
+        ? responsesBridgeFields(req.tools ?? [], req.input, m)
+        : claudeBridgeFields(
+            req.tools ?? [],
+            req.messages as { role: string; content: unknown }[],
+            m,
+          );
+  if (policy?.mode === 'none') {
+    if (
+      Array.isArray(req.tools) &&
+      req.tools.length > 0 &&
+      resolveClientToolsMode(headers, meta) === 'reject'
+    ) {
+      withClientTools(req.tools, headers, meta, text, { fallback });
+    }
+    return { input: text, ...resultsOnlyWhenNone(buildFor), tool_choice: policy };
+  }
+  const forced = isForcedToolChoice(policy);
   const input = withClientTools(req.tools, headers, meta, text, {
-    forced: forcedToolChoice(req.tool_choice),
+    forced,
     fallback,
   });
-  const fields = bridgeFieldsOrFallback(meta, () =>
-    protocol === 'chat'
-      ? chatBridgeFields(req.tools, req.messages as ChatMessage[], meta)
-      : protocol === 'responses'
-        ? responsesBridgeFields(req.tools, req.input, meta)
-        : claudeBridgeFields(req.tools, req.messages as { role: string; content: unknown }[], meta),
+  const fields = bridgeFieldsOrFallback(meta, () => buildFor(meta), forced);
+  return { input, ...fields, ...(policy ? { tool_choice: policy } : {}) };
+}
+
+/** Gemini 入口的 `tools` 与 `toolConfig.functionCallingConfig` 解析。 */
+export function geminiToolInput(
+  tools: unknown,
+  contents: GeminiContent[],
+  toolConfig: unknown,
+  headers: Record<string, unknown> | undefined,
+  meta: Record<string, string>,
+  text: string,
+): { input: string } & Pick<Invocation, 'client_tools' | 'client_results' | 'tool_choice'> {
+  const { policy: rawPolicy, allowedFunctionNames } = parseGeminiToolChoice(toolConfig);
+  const policy = verifyRequestToolChoice('gemini', rawPolicy, tools, allowedFunctionNames);
+  if (policy?.mode === 'none') {
+    if (
+      Array.isArray(tools) &&
+      tools.length > 0 &&
+      resolveClientToolsMode(headers, meta) === 'reject'
+    ) {
+      withClientTools(tools, headers, meta, text, { count: geminiToolCount(tools) });
+    }
+    return {
+      input: text,
+      ...resultsOnlyWhenNone((m) => geminiBridgeFields(tools ?? [], contents, m)),
+      tool_choice: policy,
+    };
+  }
+  const forced = isForcedToolChoice(policy);
+  const input = withClientTools(tools, headers, meta, text, {
+    count: geminiToolCount(tools),
+    forced,
+  });
+  const fields = bridgeFieldsOrFallback(
+    meta,
+    () => geminiBridgeFields(tools, contents, meta),
+    forced,
   );
-  return { input, ...fields };
+  if (allowedFunctionNames && fields.client_tools) {
+    const allow = new Set(allowedFunctionNames);
+    fields.client_tools = fields.client_tools.filter((t) => allow.has(t.name));
+  }
+  return { input, ...fields, ...(policy ? { tool_choice: policy } : {}) };
 }
 
 /** 续接没有命中时：去掉回传结果，当作旧式的新请求（历史已经压平在输入里）。 */

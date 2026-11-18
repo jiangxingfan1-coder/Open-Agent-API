@@ -10,7 +10,8 @@ import {
 } from '../src/core/contracts.js';
 import { gatewaySchema, workerSchema } from '../src/config/config.js';
 import { WorkerRuntime } from '../src/fabric/worker.js';
-import type { ModelDriver } from '../src/providers/models.js';
+import type { ModelDriver, NativeTurnControls } from '../src/providers/models.js';
+import { openAIChatControls } from '../src/providers/structured-wire.js';
 import { createGateway } from '../src/gateway/server.js';
 import { makeBundle, builtin } from '../src/lang/bundle.js';
 import { sleep, sha } from '../src/core/util.js';
@@ -25,11 +26,15 @@ export const principal = {
 };
 export class FixtureModel implements ModelDriver {
   calls = 0;
+  lastControls?: NativeTurnControls;
+  seenControls: (NativeTurnControls | undefined)[] = [];
+  seenWire: Record<string, unknown>[] = [];
   constructor(
     readonly respond: (
       agent: AgentDefinition,
       messages: ModelMessage[],
       signal: AbortSignal,
+      controls?: NativeTurnControls,
     ) => Promise<Partial<ModelResult>> | Partial<ModelResult> = () => ({
       text: 'Fixture response.',
     }),
@@ -39,9 +44,13 @@ export class FixtureModel implements ModelDriver {
     messages: ModelMessage[],
     signal: AbortSignal,
     delta: (s: string) => void,
+    controls?: NativeTurnControls,
   ): Promise<ModelResult> {
     this.calls++;
-    const answer = await this.respond(agent, messages, signal);
+    this.lastControls = controls;
+    this.seenControls.push(controls);
+    this.seenWire.push(openAIChatControls(controls, agent.tools.length > 0));
+    const answer = await this.respond(agent, messages, signal, controls);
     const text = answer.text ?? '';
     for (const part of text.match(/.{1,8}/gs) ?? []) delta(part);
     return {

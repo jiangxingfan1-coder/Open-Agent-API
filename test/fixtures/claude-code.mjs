@@ -34,7 +34,26 @@ const ask = (request) =>
     pending.set(request_id, resolve);
     send({ type: 'control_request', request_id, request });
   });
-const assistant = (text) =>
+const partial = argv.includes('--include-partial-messages');
+const streamText = (text) => {
+  const cut = text.startsWith('working') ? 7 : Math.max(1, Math.floor(text.length / 2));
+  for (const chunk of text.length > 1 ? [text.slice(0, cut), text.slice(cut)] : [text]) {
+    if (!chunk) continue;
+    send({
+      type: 'stream_event',
+      uuid: `uuid-${++seq}`,
+      session_id: sessionId,
+      parent_tool_use_id: null,
+      event: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: chunk },
+      },
+    });
+  }
+};
+const assistant = (text) => {
+  if (partial) streamText(text);
   send({
     type: 'assistant',
     uuid: `uuid-${++seq}`,
@@ -51,6 +70,7 @@ const assistant = (text) =>
       usage: { input_tokens: 1, output_tokens: 1 },
     },
   });
+};
 // A read-only tool call, so tool activity is observable (names only reach OAA progress).
 const assistantToolUse = () =>
   send({

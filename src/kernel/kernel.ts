@@ -1,6 +1,6 @@
 import { JsonSchemas } from '../core/schemas.js';
 import { setMaxListeners } from 'node:events';
-import type { Principal, Run, WorkContext } from '../core/contracts.js';
+import type { Principal, Run, TraceContext, WorkContext } from '../core/contracts.js';
 import { Store } from '../store/store.js';
 import { NodeHub } from '../fabric/network.js';
 import { type Invocation, type PreviewRequest } from './invocation.js';
@@ -108,7 +108,8 @@ export class Kernel {
   /** 委托（delegate.ts）用到的内核能力。 */
   private readonly delegation: DelegateRuntime = {
     store: undefined as unknown as Store, // 构造函数里填上（参数属性晚于字段初始化）
-    submit: (principal, invocation, idem, key) => this.submit(principal, invocation, idem, key),
+    submit: (principal, invocation, idem, key, trace) =>
+      this.submit(principal, invocation, idem, key, trace),
     wait: (runId, includeActions, signal) => this.wait(runId, includeActions, signal),
     cancel: (principal, runId) => this.cancel(principal, runId),
     providerKey: (runId) => this.byokKeys.get(runId),
@@ -136,8 +137,14 @@ export class Kernel {
   preview(principal: Principal, request: PreviewRequest, byok = false) {
     return preview(this.rt, principal, request, byok);
   }
-  submit(principal: Principal, invocation: Invocation, idem?: string, providerKey?: string): Run {
-    return submit(this.rt, principal, invocation, idem, providerKey);
+  submit(
+    principal: Principal,
+    invocation: Invocation,
+    idem?: string,
+    providerKey?: string,
+    trace?: TraceContext,
+  ): Run {
+    return submit(this.rt, principal, invocation, idem, providerKey, trace);
   }
   /** 工作区上下文。保留为实例方法：诊断工具（bench/paired/diagnostics.ts）按名字包装它。 */
   private context(run: Run): Promise<WorkContext> {

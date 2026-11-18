@@ -40,6 +40,23 @@ export function registerProjectRoutes(
     data.grant(req.principal, idOf(req.params), body.subject, body.access);
     return { ok: true };
   });
+  app.get('/v1/projects/:id/memory/search', async (req) => {
+    auth.require(req.principal, 'read');
+    const query = z
+      .object({
+        q: z.string().min(1).max(2000),
+        namespace: z.string().min(1).max(120).optional(),
+        limit: z.coerce.number().int().min(1).max(100).default(20),
+      })
+      .strict()
+      .parse(req.query);
+    return {
+      data: data.search(req.principal, idOf(req.params), query.q, {
+        namespace: query.namespace,
+        limit: query.limit,
+      }),
+    };
+  });
   app.get('/v1/projects/:id/memory', async (req) => {
     auth.require(req.principal, 'read');
     const query = z

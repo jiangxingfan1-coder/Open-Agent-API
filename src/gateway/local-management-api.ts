@@ -75,27 +75,27 @@ export const LOCAL_MANAGEMENT_OPERATIONS = [
   [
     '/v1/local/connections',
     'get',
-    'Direct-loopback owner-admin only: discover local clients and inspect DSH bindings; refresh=1 rescans installation metadata; never returns credentials',
+    'Direct-loopback owner-admin only: discover local clients and inspect managed API/MCP client bindings; refresh=1 rescans installation metadata; never returns credentials',
   ],
   [
     '/v1/local/connections/preview',
     'post',
-    'Preview an additive DSH provider connection for one published agent; no key creation or generation',
+    'Preview an additive API provider (dsh, opencode, codex) or MCP bridge (claude-desktop, cursor, windsurf, claude-code) connection; no key creation or generation',
   ],
   [
     '/v1/local/connections/apply',
     'post',
-    'Apply the revision-checked preview with a dedicated scoped key, private backups and recovery journal',
+    'Apply the revision-checked preview with a dedicated minimal-scope key, private backups and recovery journal',
   ],
   [
     '/v1/local/connections/{id}/check',
     'post',
-    'Check the direct loopback endpoint, scoped key and model entry without generation',
+    'Check the direct loopback endpoint, scoped key and target entry without generation',
   ],
   [
     '/v1/local/connections/{id}',
     'delete',
-    'Revoke the dedicated key and conditionally remove only owned DSH entries; preserve conflicting edits',
+    'Revoke the dedicated key and conditionally remove only owned client entries; preserve conflicting edits',
   ],
   [
     '/v1/local/backends/{engine}/models',

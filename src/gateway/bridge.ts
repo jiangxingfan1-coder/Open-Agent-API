@@ -214,6 +214,10 @@ export function resumeBridged(
       return undefined;
     }
   }
+  if (invocation.tool_choice?.mode === 'none' && prior.checkpoint.toolChoice?.mode !== 'none') {
+    prior.checkpoint.toolChoice = { mode: 'none' };
+    store.save(prior);
+  }
   return kernel.resolveClientTools(principal, results);
 }
 

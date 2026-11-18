@@ -42,13 +42,29 @@ exec "$NODE" "$CLI" "$@"
 `;
 }
 
+export function desktopLauncher() {
+  return `#!/bin/sh
+# Open Agent API unified Electron desktop launcher (Linux).
+TARGET="$0"
+while [ -L "$TARGET" ]; do
+  TARGET_DIR="$(cd "$(dirname "$TARGET")" && pwd)"
+  TARGET="$(readlink "$TARGET")"
+  case "$TARGET" in
+    /*) ;;
+    *) TARGET="$TARGET_DIR/$TARGET" ;;
+  esac
+done
+ROOT="$(cd "$(dirname "$TARGET")" && pwd)"
+exec "$ROOT/desktop/open-agent-api" "$@"
+`;
+}
+
 export function readme(version, arch, req) {
   return `Open Agent API v${version} - Linux (${arch})
 ========================================================================
 
-This package ships its own ${req.text} runtime (runtime/bin/node); no separate Node.js is needed.
-It has no desktop shell: you use the oaa command line and the web console in a browser.
-本安装包自带 ${req.text} 运行时（runtime/bin/node），不需要另装 Node.js；没有桌面外壳，用 oaa 命令行与浏览器里的控制台。
+This package ships its own ${req.text} runtime (runtime/bin/node) and the unified Electron desktop shell (./open-agent-api-desktop); no separate Node.js is needed.
+本安装包自带 ${req.text} 运行时（runtime/bin/node）与统一跨平台桌面端（./open-agent-api-desktop），不需要另装 Node.js；服务器无头环境也可直接用 oaa 命令行与浏览器控制台。
 
 Install / 安装
   sh install.sh                      installs to ~/.local/share/open-agent-api and links ~/.local/bin/oaa

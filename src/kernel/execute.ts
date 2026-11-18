@@ -22,7 +22,12 @@ import { nativeStepId } from './native-turn.js';
 import { runAgentPass } from './agent-pass.js';
 import { orchestrationMode, runOrchestration } from './orchestration.js';
 import { ORCHESTRATION_PROFILES } from '../core/orchestration.js';
-import { settleStructuredOutput } from './structured-output.js';
+import { resumableSession, settleStructuredOutput } from './structured-output.js';
+import {
+  callerToolChoiceRepairPrompt,
+  isForcedToolChoice,
+  satisfiesToolChoice,
+} from '../core/tool-choice.js';
 import { imageDemand } from './images.js';
 import { releaseRun } from './lifecycle.js';
 
@@ -86,12 +91,30 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
   // Structured output: the answer is checked before any of it is written (structured-output.ts).
   if (run.checkpoint.outputContract) writer.hold(true);
   const external = agent.engine !== 'kernel';
+  const forcedExternalChoice =
+    external &&
+    !!run.checkpoint.bridge?.tools.length &&
+    isForcedToolChoice(run.checkpoint.toolChoice);
+  let forcedChoiceMet = false;
+  let forcedChoiceRetried = false;
+  let pendingPreToolText = '';
+  if (forcedExternalChoice) writer.hold(true);
   // 外部智能体调用了调用方工具：之前的文本已作为一条输出消息结束，结束时不再整段补发。
   let callerSplit = false;
   const emit = async (event: WorkEvent): Promise<Record<string, unknown> | void> => {
     if (event.type === 'text') {
       try {
-        writer.emit(String(event.data.delta ?? ''));
+        const delta = String(event.data.delta ?? '');
+        if (
+          forcedExternalChoice &&
+          !forcedChoiceMet &&
+          !run.checkpoint.outputContract &&
+          !orchestration
+        ) {
+          pendingPreToolText += delta;
+        } else {
+          writer.emit(delta);
+        }
       } catch {
         eventError = new Fault(
           'persistence_failed',
@@ -131,6 +154,20 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
       if (event.data.abandoned === true) {
         abandonCallerTool(rt.store, run, event.data.relay_call_id);
         return {};
+      }
+      if (forcedExternalChoice && !forcedChoiceMet) {
+        const calledName = typeof event.data.name === 'string' ? event.data.name : '';
+        const known = run.checkpoint.bridge!.tools.some((t) => t.name === calledName);
+        if (known && satisfiesToolChoice(run.checkpoint.toolChoice, [calledName])) {
+          forcedChoiceMet = true;
+          if (!run.checkpoint.outputContract && !orchestration) {
+            writer.hold(false);
+            if (pendingPreToolText) {
+              writer.emit(pendingPreToolText);
+              pendingPreToolText = '';
+            }
+          }
+        }
       }
       // 调用前的文本结束成一条输出消息：续接后的新文本开出新消息，`delivered` 按条推进。
       const finished = writer.finish('completed');
@@ -196,6 +233,41 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
         }
       } else answer = await pass(nativeInput);
       checkAbort(controller.signal);
+      if (forcedExternalChoice) {
+        const calledNames = rt.store
+          .approvals(run.id)
+          .filter((a) => a.kind === 'client_tool')
+          .map((a) => String(a.detail.tool ?? ''));
+        if (!satisfiesToolChoice(run.checkpoint.toolChoice, calledNames)) {
+          pendingPreToolText = '';
+          forcedChoiceMet = false;
+          writer.hold(true);
+          if (!forcedChoiceRetried) {
+            forcedChoiceRetried = true;
+            run.metadata['oaa.tool_choice_retries'] = '1';
+            rt.store.emit(run.id, 'tool.progress', {
+              source: 'gateway',
+              event: 'tool_choice_repair',
+              round: 1,
+            });
+            if (!resumableSession(run.checkpoint.nativeState)) {
+              delete run.checkpoint.nativeState;
+            }
+            nativeInput = callerToolChoiceRepairPrompt(
+              run.checkpoint.toolChoice!,
+              run.checkpoint.bridge!.tools.map((t) => t.name),
+            );
+            continue;
+          }
+          throw new Fault(
+            'tool_choice_unmet',
+            run.checkpoint.toolChoice?.mode === 'tool'
+              ? `The agent did not invoke the required caller tool '${run.checkpoint.toolChoice.name}' even after a correction round.`
+              : 'The agent did not invoke any required caller tool even after a correction round.',
+            422,
+          );
+        }
+      }
       const settled = settleStructuredOutput(rt, run, agent, writer, answer);
       if (!settled.again) break;
       nativeInput = settled.nativeInput;

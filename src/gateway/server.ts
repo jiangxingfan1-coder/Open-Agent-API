@@ -6,6 +6,7 @@ import type { GatewayConfig } from '../config/config.js';
 import type { Executor } from '../fabric/worker.js';
 import { WorkerRuntime } from '../fabric/worker.js';
 import { Store } from '../store/store.js';
+import { setArtifactByteLimit } from '../store/large-artifacts.js';
 import { Auth } from './auth.js';
 import { Kernel } from '../kernel/kernel.js';
 import { NodeHub } from '../fabric/network.js';
@@ -23,11 +24,13 @@ import { registerOverviewRoutes } from './overview-routes.js';
 import { registerProtocolRoutes } from './protocol-routes.js';
 import { registerLocalBackendRoutes } from './local-backend-routes.js';
 import { registerLocalConnectionRoutes } from './local-connection-routes.js';
+import type { LocalTargetOptions } from './local-managed-targets.js';
 import { registerLocalModelRoutes, restoreLocalModelProviders } from './local-model-routes.js';
 import { registerUsageRoutes } from './usage-routes.js';
 import { registerEvaluationRoutes } from './evaluation-routes.js';
 import { restoreEverythingAcp, registerEverythingAcpRoutes } from './everything-acp-routes.js';
 import { registerOwnerRoutes } from './shutdown-route.js';
+import { registerMetricsRoutes } from './metrics-routes.js';
 import { registerConsoleAssets } from './console-assets.js';
 import { geminiQueryKey, sendError, zodFault } from './compat-errors.js';
 import * as http from './compat-http.js';
@@ -49,9 +52,10 @@ export async function createGateway(
   config: GatewayConfig,
   localExecutor?: Executor,
   /** `configFile`：网关配置文件路径。提供后，控制台里「启用已安装的智能体」会把新条目写回该文件。 */
-  options: { configFile?: string; dshHome?: string } = {},
+  options: { configFile?: string; dshHome?: string; localTargets?: LocalTargetOptions } = {},
 ) {
   const store = new Store(config.dataDir);
+  setArtifactByteLimit(store, config.maxArtifactBytes);
   let cleanupHub = async () => {};
   let cleanupCatalog = () => {};
   try {
@@ -79,7 +83,13 @@ export async function createGateway(
           agents: ['*'],
           capabilities: ['*'],
         },
-        (localExecutor ??= new WorkerRuntime(config.localWorker)),
+        (localExecutor ??= new WorkerRuntime({
+          ...config.localWorker,
+          ...(config.localWorker.maxArtifactBytes === undefined &&
+          config.maxArtifactBytes !== undefined
+            ? { maxArtifactBytes: config.maxArtifactBytes }
+            : {}),
+        })),
       );
     }
     const kernel = new Kernel(store, hub, {
@@ -92,7 +102,9 @@ export async function createGateway(
     });
     kernel.setAuth(auth);
     const running = runningPlatform(config, store.db);
-    const platform = running && new Platform(store, auth, running.config, config.localWorker);
+    const platform =
+      running &&
+      new Platform(store, auth, running.config, config.localWorker, config.security.profile);
     // Per-owner overview revision, advanced by committed run summaries, publications, node/route
     // state and cooldown expiry; drives ETag/304 and GET /v1/overview/events.
     const revisions = new OverviewRevisions();
@@ -323,6 +335,7 @@ export async function createGateway(
       }
       const pathname = req.url.split('?')[0]!;
       if (pathname === '/health' || pathname === '/healthz') return;
+      if (req.method === 'POST' && /^\/v1\/webhooks\/workflows\/[^/]+$/.test(pathname)) return;
       if (platform && portalGate(req, reply, pathname, onConsoleHost(req.headers.host))) return;
       if (
         [
@@ -501,6 +514,7 @@ export async function createGateway(
       hub,
       cachedAgents,
       dshHome: options.dshHome,
+      localTargets: options.localTargets,
       isLocalRequest: isLocalProbe,
     });
     registerLocalModelRoutes(app, {
@@ -511,7 +525,17 @@ export async function createGateway(
       localExecutor,
       isLocalRequest: isLocalProbe,
     });
-    registerOwnerRoutes(app, { auth, audit, config, store, kernel, providerKeyOf });
+    registerOwnerRoutes(app, { auth, audit, config, store, kernel, hub, providerKeyOf });
+    registerMetricsRoutes(app, {
+      auth,
+      store,
+      kernel,
+      hub,
+      cachedMetrics,
+      activityCache,
+      timelines,
+      summaryWindows,
+    });
     app.get('/v1/me', async (req) => {
       const usage = req.principal.keyId
         ? auth.keyUsage(req.principal.keyId)
@@ -569,6 +593,7 @@ export async function createGateway(
       config,
       store,
       kernel,
+      hub,
       revisions,
       withPlatform: !!platform,
       resolvePublicBaseUrl,

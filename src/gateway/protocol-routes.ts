@@ -34,6 +34,7 @@ import { applyConnectionDefaults } from './connection-defaults.js';
 import { refreshAgentModels } from '../fabric/model-pool.js';
 import type { NodeHub } from '../fabric/network.js';
 import { checkAccessPolicy } from '../kernel/access-policy.js';
+import { parseTraceHeaders } from '../core/trace-context.js';
 import { geminiMethod, registerGeminiModelRoutes } from './gemini.js';
 
 // 协议入口：OAA Responses / Invoke、OpenAI Chat、Claude Messages、Gemini、UAP 与 /v1/universal 的
@@ -78,6 +79,7 @@ export function registerProtocolRoutes(app: FastifyInstance, deps: ProtocolRoute
         await refreshAgentModels(hub, req.principal.owner, publication.engine);
       invocation = await materializeImages(store, config, req.principal, invocation);
       resumed = resumeBridged(kernel, store, req.principal, invocation);
+      const trace = parseTraceHeaders(req.headers as Record<string, unknown>);
       run =
         resumed?.run ??
         submitClientTools(
@@ -87,6 +89,7 @@ export function registerProtocolRoutes(app: FastifyInstance, deps: ProtocolRoute
           req.headers['idempotency-key'] as string | undefined,
           providerKeyOf(req),
           config.clientTools.default,
+          trace,
         );
     } catch (error) {
       release?.();
@@ -100,6 +103,7 @@ export function registerProtocolRoutes(app: FastifyInstance, deps: ProtocolRoute
     const ignored = ignoredParamsHeader(
       paramFamily(req.url.split('?')[0]!, responseDialect),
       req.body,
+      Boolean(run.metadata['oaa.client_tools_ignored']),
     );
     if (ignored) reply.header('X-OAA-Ignored-Params', ignored);
     if (invocation.stream) {

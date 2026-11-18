@@ -18,7 +18,7 @@ import type { KernelRuntime } from './runtime.js';
 import type { RunTextSink } from './text-sink.js';
 
 /** Can the external agent's session be continued with another prompt? Anything else would redo the work. */
-function resumable(state: Record<string, unknown> | undefined): boolean {
+export function resumableSession(state: Record<string, unknown> | undefined): boolean {
   if (!state || state.oneShot === true) return false;
   if (state.transport === 'acp') return state.resumable === true;
   if (state.transport === 'a2a') return false;
@@ -48,6 +48,9 @@ export function settleStructuredOutput(
     }
     const last = run.checkpoint.messages.findLast((m) => m.role === 'assistant');
     if (last) last.content = verdict.text;
+    if (!writer.held && run.output.length > 0) {
+      return { again: false };
+    }
     writer.hold(false);
     writer.emit(verdict.text);
     writer.flush(true);
@@ -64,13 +67,13 @@ export function settleStructuredOutput(
     );
   const external = agent.engine !== 'kernel';
   const repairable =
-    used < contract.repairs && (!external || resumable(run.checkpoint.nativeState));
+    used < contract.repairs && (!external || resumableSession(run.checkpoint.nativeState));
   if (!repairable)
     throw new Fault(
       'structured_output_invalid',
       `The agent's answer is not valid structured output: ${verdict.problem}.` +
         (used > 0 ? ` It was sent back for correction ${used} time${used === 1 ? '' : 's'}.` : '') +
-        (external && !resumable(run.checkpoint.nativeState) && contract.repairs > 0
+        (external && !resumableSession(run.checkpoint.nativeState) && contract.repairs > 0
           ? ' This agent cannot continue its session, so it was not asked again.'
           : ''),
       422,

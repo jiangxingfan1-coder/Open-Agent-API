@@ -33,8 +33,20 @@ try {
   window.setDefaultTimeout(10000);
   await window.waitForFunction(() => !!sessionStorage.getItem('oaa-token'));
   assert.equal(await window.evaluate(() => typeof require), 'undefined');
+  assert.equal(
+    await window.evaluate(() => localStorage.getItem('oaa-token')),
+    null,
+    'Admin token must never persist in localStorage.',
+  );
   const preferences = await application.evaluate(({ BrowserWindow }) => {
-    const value = BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
+    const windows = BrowserWindow.getAllWindows();
+    for (const win of windows) {
+      const pref = win.webContents.getLastWebPreferences();
+      if (!pref.sandbox || !pref.contextIsolation || pref.nodeIntegration) {
+        throw new Error('Every desktop window must enforce sandbox + contextIsolation.');
+      }
+    }
+    const value = windows[0].webContents.getLastWebPreferences();
     return {
       sandbox: value.sandbox,
       contextIsolation: value.contextIsolation,
@@ -42,6 +54,7 @@ try {
     };
   });
   assert.deepEqual(preferences, { sandbox: true, contextIsolation: true, nodeIntegration: false });
+  await fs.access(path.join(data, '.seeded'));
   await window.locator('a[data-view="projects"]').click();
   await window.getByRole('button', { name: /New project|新建项目/ }).click();
   await window
@@ -109,6 +122,8 @@ try {
     arch: process.arch,
     packaged: !!values.executable,
     automaticConnection: true,
+    firstRunSeeded: true,
+    noPersistentTokenLeak: true,
     renderer: preferences,
     projectCreated: true,
     workflowArgumentsValidated: true,

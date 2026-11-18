@@ -32,20 +32,20 @@ export const en = {
   'connections.saved': 'Client connections',
   'connections.tool_boundary': 'Tool execution',
   'connections.auto': 'Automatic routing',
-  'connections.connect': 'Connect to DSH',
+  'connections.connect': 'Connect to {client}',
   'connections.confirm_title': 'Confirm local connection',
   'connections.plan_sync':
-    'Sync models with the existing dedicated key. Other providers and conversations stay unchanged.',
+    'Sync configuration with the existing dedicated key. Other client entries and conversations stay unchanged.',
   'connections.plan_repair':
-    'Revoke the old dedicated key and reconnect. Older conversation resources may require the original key. Other providers stay unchanged.',
+    'Revoke the old dedicated key and reconnect. Older conversation resources may require the original key. Other entries stay unchanged.',
   'connections.plan_connect':
-    'Create a dedicated key for this source only, without administration. Add a DSH provider and preserve existing configuration and conversations.',
+    'Create a minimal-scope dedicated key (no admin or approval rights) and atomically merge into {client}, preserving unrelated settings.',
   'connections.host_hint':
     'The source uses its published host tools and approval policy; this connection is not a sandbox.',
   'connections.repair': 'Repair connection',
-  'connections.applied': 'DSH connection configured; generation has not been tested',
+  'connections.applied': '{client} connection configured; generation has not been tested',
   'connections.publish_first':
-    'No eligible published source agent is available. DSH cannot be connected back into itself.',
+    'No eligible published source agent is available. {client} cannot be connected back into itself.',
   'connections.files': 'Configuration locations',
   'connections.models': 'Models',
   'connections.status': 'Status',
@@ -62,12 +62,12 @@ export const en = {
   'connections.removed': 'Disconnected',
   'connections.sync': 'Sync / repair',
   'connections.check': 'Check connection without generation',
-  'connections.check_ok': 'Endpoint, key and model entry verified; no generation request was sent',
+  'connections.check_ok': 'Endpoint, key and target entry verified; no generation request was sent',
   'connections.check_failed':
     'Connection check failed; refresh the status and inspect the source or key',
   'connections.disconnect': 'Disconnect',
   'connections.disconnect_body':
-    "Revoke the dedicated key for {agent} and remove only this module's DSH entries. Externally modified values will be preserved. Already accepted tasks are not cancelled.",
+    "Revoke the dedicated key for {agent} and remove only this module's managed entries in {client}. Externally modified values will be preserved. Already accepted tasks are not cancelled.",
   'connections.preserved': 'Key revoked; externally modified configuration was preserved',
   'connections.empty': 'No client connections',
   'connections.mode_managed': 'Automatic configuration',
@@ -79,7 +79,7 @@ export const en = {
   'connections.evidence_configured': 'Configured entry',
   'connections.detected_paths': 'Installation locations',
   'connections.manual_hint':
-    'Manual API setup only; automatic configuration is not yet supported for this client. Installation detection does not verify a connection.',
+    'Manual API reference parameters and vendor documentation below. Installation detection does not verify a connection.',
   'connections.manual_no_source': 'No source is available. Publish another agent first.',
   'connections.receiver_unavailable':
     'Installation discovery is available, but no safe receiver configuration adapter is implemented. Source-agent availability is listed under local backends.',
@@ -98,4 +98,14 @@ export const en = {
   'connections.search': 'Search agents',
   'connections.rescan': 'Rescan local agents',
   'connections.no_matches': 'No matching agents',
+  'connections.tab_api': 'API Setup',
+  'connections.tab_mcp': 'MCP Bridge',
+  'connections.tab_manual': 'Manual Guide',
+  'connections.channel': 'Channel',
+  'connections.channel_api': 'Compatible API',
+  'connections.channel_mcp': 'MCP Bridge (oaa mcp)',
+  'connections.all_agents': 'All published agents',
+  'connections.key_file': 'Private key file (0600)',
+  'connections.env_key': 'Credential env var',
+  'connections.diff_preview': 'Configuration change preview',
 };

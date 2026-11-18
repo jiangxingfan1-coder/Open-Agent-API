@@ -86,7 +86,6 @@ const IGNORED: Record<ParamFamily, readonly string[]> = {
     'user',
     'store',
     'service_tier',
-    'tool_choice',
     'parallel_tool_calls',
     ...Object.keys(chatTolerated).filter(
       (k) => !['logit_bias', 'top_logprobs', 'tool_choice', 'parallel_tool_calls'].includes(k),
@@ -100,42 +99,40 @@ const IGNORED: Record<ParamFamily, readonly string[]> = {
     'store',
     'service_tier',
     'truncation',
-    'tool_choice',
     'parallel_tool_calls',
     ...Object.keys(responsesTolerated).filter(
       (k) => !['tool_choice', 'parallel_tool_calls'].includes(k),
     ),
   ],
-  claude: [
-    'temperature',
-    'top_p',
-    'top_k',
-    'stop_sequences',
-    'tool_choice',
-    'thinking',
-    'service_tier',
-  ],
-  gemini: ['safetySettings', 'toolConfig', 'cachedContent'],
+  claude: ['temperature', 'top_p', 'top_k', 'stop_sequences', 'thinking', 'service_tier'],
+  gemini: ['safetySettings', 'cachedContent'],
 };
 
-/** Gemini `generationConfig` 里除 `maxOutputTokens` 之外的字段都不转发。 */
+/** Gemini `generationConfig` 里除结构化输出与 `maxOutputTokens` 之外的字段都不转发。 */
 const GEMINI_APPLIED = new Set([
   'maxOutputTokens',
   'responseMimeType',
   'responseSchema',
   'responseJsonSchema',
 ]);
+const GEMINI_TOOL_CONFIG_APPLIED = new Set(['functionCallingConfig', 'function_calling_config']);
 
 /** 这次请求里被忽略的参数名（按固定顺序）；不是对象或没有时为空数组。 */
-export function ignoredParams(family: ParamFamily, body: unknown): string[] {
+export function ignoredParams(family: ParamFamily, body: unknown, toolsIgnored = false): string[] {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return [];
   const obj = body as Record<string, unknown>;
   const names = IGNORED[family].filter((k) => obj[k] !== undefined);
   if (family === 'gemini') {
+    if (toolsIgnored && obj.toolConfig !== undefined) names.push('toolConfig');
+    else if (obj.toolConfig && typeof obj.toolConfig === 'object' && !Array.isArray(obj.toolConfig))
+      for (const k of Object.keys(obj.toolConfig))
+        if (!GEMINI_TOOL_CONFIG_APPLIED.has(k)) names.push(`toolConfig.${k}`);
     const config = obj.generationConfig;
     if (config && typeof config === 'object' && !Array.isArray(config))
       for (const k of Object.keys(config))
         if (!GEMINI_APPLIED.has(k)) names.push(`generationConfig.${k}`);
+  } else if (toolsIgnored && obj.tool_choice !== undefined) {
+    names.push('tool_choice');
   }
   return names;
 }
@@ -143,9 +140,10 @@ export function ignoredParams(family: ParamFamily, body: unknown): string[] {
 export function ignoredParamsHeader(
   family: ParamFamily | undefined,
   body: unknown,
+  toolsIgnored = false,
 ): string | undefined {
   if (!family) return undefined;
-  const names = ignoredParams(family, body);
+  const names = ignoredParams(family, body, toolsIgnored);
   return names.length ? names.join(', ') : undefined;
 }
 
@@ -203,13 +201,6 @@ export function rejectUnsatisfiable(
     v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0);
   if (family === 'chat' && nonEmpty(body.functions))
     throw unsupportedParameter('functions', endpoint, TOOLS_HINT);
-  const choice = body.tool_choice;
-  if (choice !== undefined && choice !== null && choice !== 'auto' && choice !== 'none')
-    throw unsupportedParameter(
-      'tool_choice',
-      endpoint,
-      'Forcing a tool call is not possible: the agent decides which tools to use. Use "auto" or omit it.',
-    );
   if (family === 'responses') return;
   if (body.logprobs === true)
     throw unsupportedParameter(

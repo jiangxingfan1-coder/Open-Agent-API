@@ -30,6 +30,7 @@ const FIXED_ALLOWED_HEADERS = [
   'x-oaa-compat',
   'x-oaa-protocol',
   'x-oaa-client-tools',
+  'X-OAA-Webhook-Token',
 ];
 
 const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,100}$/;
@@ -51,7 +52,11 @@ export function tolerateEmptyJsonBody(req: FastifyRequest): void {
   if (req.headers['content-length'] !== '0' || typeof type !== 'string' || !type.includes('json'))
     return;
   const path = req.url.split('?')[0]!;
-  if (req.method === 'DELETE' || /\/(cancel|resume|reconcile)$/.test(path))
+  if (
+    req.method === 'DELETE' ||
+    /\/(cancel|resume|reconcile|webhook-token)$/.test(path) ||
+    /^\/v1\/webhooks\/workflows\/[^/]+$/.test(path)
+  )
     delete req.headers['content-type'];
 }
 

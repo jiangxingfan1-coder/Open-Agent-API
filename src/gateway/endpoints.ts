@@ -33,10 +33,12 @@ export const GATEWAY_FEATURES = [
   'overview-etag-v1',
   'overview-events-v1',
   'platform-setup-v1',
+  'prometheus-metrics-v1',
   'queue-insight-v1',
   'run-timeline-v1',
   'stream-progress-v1',
   'structured-output-v1',
+  'trace-context-v1',
   'webhooks-v1',
   'workflow-output-v1',
 ].sort();

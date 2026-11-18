@@ -8,7 +8,7 @@
 
 - **不能证明「所有智能体」都能转。** 能证明的是：一个智能体只要提供四种接入方式之一（内置原生、ACP、`oaa/1` 适配器、A2A），就能发布成 Agent API；本机装着的 7 个真实智能体里，3 个跑通了真实调用，另外 4 个卡在它们各自的账号或配置状态上（两个未登录、一个密钥过期、一个自身配置锁），网关给出了明确的错误而不是含糊失败。
 - **「其它智能体能使用这个 API」已用真实智能体证明一次**：Antigravity（Gemini 3.8 Flash）作为调用方，经 OAA 的 MCP 入口调用了由 Codex 充当的 `agent/codex`，拿回了正确结果。两层 Harness、两个不同的智能体、两家不同的模型。
-- **0.0.64 之后自动检查多了很多，真实智能体的记录没有增加。** CI 现在在 Linux、macOS 与 Windows、Node 24 与 26 上跑完整测试，构建并烟雾测试 Docker 镜像，并运行一个兼容性实验室：官方 SDK 实际运行，常用聊天客户端的请求回放（见 [CI 里的自动检查](#ci-里的自动检查2026-11-14)）。这些全都用替身智能体与夹具模型。真实智能体的端到端仍然只有 Antigravity，Codex 与 Claude Code 没有重跑（见[还没有任何检查覆盖的](#还没有任何检查覆盖的)）。
+- **0.0.64 之后自动检查多了很多，真实智能体的记录也有扩展。** CI 现在在 Linux、macOS 与 Windows、Node 24 与 26 上跑完整测试，构建并烟雾测试 Docker 镜像，并运行一个兼容性实验室：官方 SDK 实际运行，常用聊天客户端的请求回放（见 [CI 里的自动检查](#ci-里的自动检查2026-11-14)）。这些全都用替身智能体与夹具模型。2026-11-18，Codex（流式、取消、编排、用量上报）与 Claude Code（认证错误面）自 2026-11-11 以来首次真机端到端实测，兼容性实验室从 374 个场景增长到 456 个且零失败（见 [十大模块升级后的端到端验证](#十大模块升级后的端到端验证2026-11-18)）。Codex S8 调用方工具桥接因账户额度耗尽未能用真实智能体验证（见[还没有任何检查覆盖的](#还没有任何检查覆盖的)）。
 
 ## 作为被调用方（智能体 → Agent API）
 
@@ -93,6 +93,47 @@ node dist/examples/live-agents-acceptance.js --agent claude|codex|antigravity --
 
 **没有验证的**：审批与调用方工具桥接（这个引擎不支持）；计费的成功路径（被隔离拦下）；Codex、Claude Code 的真实运行；内置内核智能体配真实模型；公网与反向代理环境。
 
+## 十大模块升级后的端到端验证（2026-11-18）
+
+在 10 个升级模块（原生桥接增强、协议兼容性、编排、安全/可观测性、工作站、本地生态、控制台工作台、桌面统一）的大规模并行开发之后，一位独立验证者对一台 macOS 机器上安装的真实智能体执行了两轮端到端验收。网关为 `main` 分支 commit `a61238a`（版本 0.0.69）。
+
+### 实测的真实智能体
+
+| 智能体 | 场景 | 结果 | 观测 |
+| --- | --- | --- | --- |
+| Antigravity 1.5.10（`agy acp`，`gemini-3.8-flash`） | S1 非流式、S7 取消、S12 收尾；ACP 桥接含强制具名 `tool_choice` + `oaa-caller` 桥接 + `response_format` JSON Schema + W3C `traceparent` | **全部通过** | S1：7.9 秒，用量 `13328`；S7：4.3 秒，干净退出；S12：0 残留进程、0 密钥泄露；桥接：`traceparent` 落盘并回显 |
+| Codex CLI 0.167.0 | S2 流式、S7 取消、`toolsDisabled=true` 编排（`recommend`，`agent/codex-orch@fast`）、`GET /metrics` Prometheus | **全部通过** | S2：16.2 秒，真实用量上报（经 `thread/tokenUsage/updated` 上报 `56801` token）；S7：协议级 `turn/interrupt` 优雅取消（4.7 秒，子进程干净退出）；编排：无工具纯推理 `recommend` 模式；`/metrics`：200 |
+| Codex CLI 0.167.0 | S8 调用方工具桥接（elicitation 修复后重测） | **被账户额度阻塞** | 收到 `native_incomplete`（422）："You've hit your usage limit… try again at Nov 21st"。**非代码 bug**：网关正确传播了外部错误。elicitation 识别逻辑（`mcpServer/elicitation/request` + `_meta.codex_approval_kind === 'mcp_tool_call'`）的所有单元测试与集成测试均通过 |
+| Claude Code 2.1.318 | 未认证桥接请求 | **通过（预期的失败路径）** | 正确返回 `422 adapter_auth_required`，附带 CLI 原话："Not logged in · Please run /login"（已脱敏）。S12：0 残留、0 泄露 |
+
+### 本次验证中确认的代码修复
+
+1. **Codex MCP elicitation 自动放行**（`native-bridge.ts`）：Codex 0.167+ 对调用方工具审批发送 `mcpServer/elicitation/request` 且 `_meta.codex_approval_kind = "mcp_tool_call"`。`codexCallerTool()` 现在识别此模式，当 `serverName` 和 `tool_name` 匹配已声明的 `clientTools` 时自动放行。`codexDecisionPayload()` 返回 `{ action, content, _meta: null }` 并正确处理 form/url 模式。单元测试覆盖真实 Codex 报文结构、错误服务器、未声明工具和三种响应模式。
+2. **Claude 错误捕获**（`native.ts`）：`assistant` 帧带 `error: true` 时现在被捕获并用于 `agentFailure` 回退，输出"Not logged in"而非静默失败。
+3. **`verify-env.ts` 预期对齐**：Claude `streaming: 'token'`、`bridge: true`；Codex `usage: true`、`bridge: true`。
+4. **`node-enroll.js` heredoc 注入加固**：用 `shellSingleQuote()` + `node -e` writer 替换了未引用的 `<<EOF`。Shell 注入测试确认 `$(command)`、反引号和 `$VAR` 在恶意载荷中无效。
+
+### 兼容性实验室（2026-11-18）
+
+兼容性实验室（`npm run compat`）两次独立运行结果完全一致：
+
+- **456 个场景通过、0 失败、4 个不适用、0 跳过**
+- 覆盖全部 14 个客户端：`openai` Python + Node、`anthropic` Python + Node、`google-genai` Python + Node、`vercel-ai-sdk`、`langchain`、`litellm`、`openai-agents`、`llamaindex`、`cookbook-python`、`cookbook-node`、`cookbook-curl`
+- 从 374（2026-11-14）增长到 456——增长反映新协议特性（原生 Schema 下推、`tool_choice` 强制执行、`traceparent`、转换配置）和额外 SDK 版本
+
+### 安全审查（2026-11-18）
+
+- 宿主配置零污染：`.codex/config.toml`、`.config/opencode`、`.cursor/mcp.json`、`.claude.json`、Claude Desktop——均无 OAA 标记
+- `node-enroll.js`：用恶意载荷实际执行 `sh -c` 验证 shell 注入不可能
+- `innerHTML`：仅 1 处安全 i18n 键值调用（`static-text.js:12`）；`#workbench` 对话工作台无 XSS 风险
+- SSE 线上字节数精确断言不变（即使加入 `traceparent`/`tracestate` 头）
+
+### 本次未验证的
+
+- 用真实 Codex 端到端的 S8 调用方工具桥接（被 Codex 账户额度耗尽阻塞至 2026-11-21，非代码问题）
+- Windows 和 Linux 上的真实智能体
+- 用真实外部智能体的 S10 计费成功路径（仍被 `isolation_required` 阻塞）
+
 ## CI 里的自动检查（2026-11-14）
 
 下面这些是在公开仓库一个开发分支上的 GitHub Actions 里，用后来成为 0.0.65 的代码跑的。它们都不涉及真实智能体、真实模型提供方或账号：用的是确定性夹具与替身智能体。
@@ -103,13 +144,13 @@ node dist/examples/live-agents-acceptance.js --agent claude|codex|antigravity --
 | Windows 上的完整测试 | `windows.yml`：在 `windows-latest`、Node 24 上跑 `node scripts/test-offline.mjs --all --isolate`：每个测试文件一个进程；只在 POSIX 上有意义的测试带明确原因跳过 | 通过（约 10 分钟） | 经 `PATHEXT` 发现命令、`.cmd` 启动器、结束整棵进程树、命名管道、文件权限与命令行，在 Windows 运行器上对着测试替身工作正常。没有在 Windows 上用真实的 Codex、Claude Code 或 Antigravity 运行过；Node 26 上的 Windows 作业只跑类型检查、格式检查与打包相关的测试 |
 | Windows 发布包 | v0.0.64 的发布工作流在 Windows 运行器上：zip 解压到含空格与中文的路径，经 `oaa.cmd` 启动，`/healthz` 报告了版本 | v0.0.64 的包通过 | 0.0.65 的 Windows 包还没有走过这条工作流（见下面的发布包烟雾测试） |
 | Docker 镜像 | `docker.yml`：构建 amd64 镜像，再跑容器烟雾测试（首次启动、密钥文件、一次 API 调用、日志里没有密钥、Host 检查、重启、`docker stop` 退出码为 0） | 在 `ubuntu-latest` 上通过 | Dockerfile 能构建，容器配合离线示例智能体工作正常。没有运行的：arm64 镜像、推送到 ghcr（这两步只在发布 Release 时进行）、任何智能体命令行（容器里没有） |
-| 兼容性实验室 | `compat.yml`（每次 push 与 pull request，以及每周一次）：十一类软件包对着一个隔离网关运行（网关里是离线示例智能体和确定性夹具模型），并把十二个聊天客户端记录下来的请求形状回放给它 | 374 个场景通过、0 失败、4 个按设计不适用（客户端本来就做不到）、0 跳过：实际运行部分 244 个，回放部分 130 个 | 实际运行部分是真实的软件包经真实套接字；回放只说明网关接受客户端发来的请求、并以它能解析的形式回答，不说明整个应用可用。过程中没有真实模型或智能体。Cursor 未核实。各客户端的版本、证据等级与配置见 [compatibility.md](compatibility.md) |
+| 兼容性实验室 | `compat.yml`（每次 push 与 pull request，以及每周一次）：十一类软件包对着一个隔离网关运行（网关里是离线示例智能体和确定性夹具模型），并把十二个聊天客户端记录下来的请求形状回放给它。2026-11-18 独立验证者在本地两次独立运行结果一致：456 个场景（较 2026-11-14 的 374 增长），覆盖 14 个客户端 | 456 个场景通过、0 失败、4 个按设计不适用（客户端本来就做不到）、0 跳过 | 实际运行部分是真实的软件包经真实套接字；回放只说明网关接受客户端发来的请求、并以它能解析的形式回答，不说明整个应用可用。过程中没有真实模型或智能体。Cursor 未核实。各客户端的版本、证据等级与配置见 [compatibility.md](compatibility.md) |
 | 开发者平台与外部智能体 | 离线的端到端测试，把示例智能体当作外部运行的上架项：逐项的 `host_execution` 开关、委派或故障转移链、并发调用、取消、拒绝审批、流式断开，以及每种情况下的扣费或退回 | 离线测试通过 | 对不上报用量的外部智能体，计费规则成立。真实外部智能体的计费成功路径（上面的场景 S10）仍然没有见到过 |
 | 发布包烟雾测试 | `scripts/smoke-release.mjs` 与 `scripts/smoke-flow.mjs`，每个安装包都跑：启动器 `--help`、在含空格与中文的路径里 `init`、在随机端口 `serve` 并核对 `/healthz` 版本、`doctor` 把 Claude 引擎标为需要另行安装、用包内 Node 逐个 import `dist/src` 下的每个模块，然后 `quickstart`、在三种协议上各调用一次并由示例智能体回答、控制台页面与图标库、一个停在审批的任务经 API 批准、同样的流程经 `oaa approvals` 与 `oaa approve`、`oaa status`、第二次 `quickstart` 不重复创建任何东西，以及 `oaa stop` 释放端口且没有残留进程 | 第一部分在 v0.0.64 的发布工作流里跑过；其余是之后加的，还没有在发布运行器上跑过 | 包里带齐了需要的东西，第一次使用的人能从示例智能体得到回答。没有运行的：任何真实智能体 |
 
 ## 还没有任何检查覆盖的
 
-- **真实的 Codex 与 Claude Code 端到端。** 自 2026-11-11 那次手工联调以来，对这两个的调用没有重做过，端到端脚本也没有对它们运行过。这包括图片交付：Codex 的 `localImage` 条目与 Claude Code 的图片块只是按厂商文档实现的（[images.md](images.md#验证状况)）。结构化输出的修复轮与调用方工具桥接用替身测试，没有用这两个真实智能体测过。
+- **真实的 Codex 与 Claude Code 端到端（已有部分进展）。** 2026-11-18，Codex 0.167.0 通过了 S2 流式、S7 优雅取消与无工具编排，并上报了真实用量；Claude Code 2.1.318 在未登录态正确返回 `adapter_auth_required`。对 Codex 的 S8 调用方工具桥接重测因账户额度耗尽未能完成（非代码问题，2026-11-21 重置）。图片交付（Codex 的 `localImage` 条目与 Claude Code 的图片块）仍然只是按厂商文档实现的（[images.md](images.md#验证状况)）。结构化输出的修复轮用替身测试，没有用这两个真实智能体测过。
 - **向真实的公网 HTTPS 端点投递事件回调。** 测试只用本机的明文 http 接收端；HTTPS 投递走同一段代码，但没有被覆盖（[webhooks.md](webhooks.md#限制与未覆盖的情况)）。
 - **桌面应用，一次人工检查之外的部分。** 项目所有者于 2026-11-14 在一台 Apple 芯片的 Mac 上，用隔离方式打开了一个发布模式构建的 macOS 应用包（只做了一次），确认了五处：控制台直接是已连接状态、没有连接对话框；首次启动的一次性说明出现；刷新（⌘R）后仍然已连接（管理员密钥经 `sessionStorage` 交接）；「关于」里的版本号正确；菜单与对话框跟随系统语言（只看了所有者当前的系统语言）。没有验证的：端口被占用时的三种提示；系统语言两个方向的切换；同一数据目录第二次启动不再弹首次启动说明；应用崩溃后遗留网关的识别与复用；Intel 芯片的包；这个版本在正常的、非隔离安装下（数据目录在默认位置、端口 8787）的表现；Windows 启动器的双语提示（没有 Windows 机器，CI 里只有 PowerShell 语法检查）；审批通知。离线测试运行的是壳的纯逻辑（语言、端口与数据目录的处理、端口上是谁的网关、让控制台登录的页面脚本）。
 - **Windows 与 Linux 上的真实智能体**、Linux 包与 `install.sh` 在发布运行器上的表现、arm64 的 Docker 镜像，以及从发布页安装的 npm tarball。

@@ -7,6 +7,7 @@
  */
 import { AGENT_LIMITS } from '../core/limits.js';
 import type { ArtifactPayload, Run } from '../core/contracts.js';
+import { persistWorkerArtifact } from '../store/large-artifacts.js';
 import { Fault, sha } from '../core/util.js';
 import type { Store } from '../store/store.js';
 
@@ -126,10 +127,7 @@ export async function storeNativeArtifacts(
 ): Promise<string[]> {
   const ids: string[] = [];
   for (const artifact of artifacts) {
-    const bytes = Buffer.from(artifact.content, 'base64');
-    if (sha(bytes) !== artifact.sha256)
-      throw new Fault('artifact_integrity', 'Native artifact digest mismatch.', 502);
-    const file = await store.addFile(run.owner, artifact.name, bytes, allowedNodes, run.id);
+    const file = await persistWorkerArtifact(store, run.owner, run.id, artifact, allowedNodes);
     ids.push(file.id);
   }
   return ids;

@@ -25,6 +25,9 @@ import {
   checkProviderStateProtocol,
   replayProviderState,
 } from './provider-state.js';
+import * as structuredWire from './structured-wire.js';
+import type { NativeTurnControls } from './structured-wire.js';
+export type { NativeTurnControls } from './structured-wire.js';
 
 function parseToolArguments(name: string, raw: string): Record<string, unknown> {
   const trimmed = (raw ?? '').trim();
@@ -122,6 +125,7 @@ export interface ModelDriver {
     messages: ModelMessage[],
     signal: AbortSignal,
     delta: (text: string) => void,
+    controls?: NativeTurnControls,
   ): Promise<ModelResult>;
   /** A driver bound to a caller-supplied key (BYOK); absent when the driver cannot accept one. */
   withApiKey?(apiKey: string): ModelDriver;
@@ -347,6 +351,7 @@ export class OpenAIModel implements ModelDriver {
     messages: ModelMessage[],
     signal: AbortSignal,
     delta: (text: string) => void,
+    controls?: NativeTurnControls,
   ): Promise<ModelResult> {
     const toolDefs = buildToolDefs(agent);
     checkAbort(signal);
@@ -362,9 +367,10 @@ export class OpenAIModel implements ModelDriver {
     }, this.config.timeoutMs);
     const connected = () => clearTimeout(timer);
     try {
+      const args = [agent, messages, toolDefs, request.signal, connected, delta, controls] as const;
       return this.config.kind === 'openai-responses'
-        ? await this.callResponses(agent, messages, toolDefs, request.signal, connected, delta)
-        : await this.callChat(agent, messages, toolDefs, request.signal, connected, delta);
+        ? await this.callResponses(...args)
+        : await this.callChat(...args);
     } catch (error) {
       if (signal.aborted) throw new Fault('cancelled', 'Model request cancelled.', 409);
       if (error instanceof Fault && !timedOut) throw error;
@@ -384,6 +390,7 @@ export class OpenAIModel implements ModelDriver {
     signal: AbortSignal,
     connected: () => void,
     delta: (text: string) => void,
+    controls?: NativeTurnControls,
   ): Promise<ModelResult> {
     const input: Record<string, unknown>[] = [];
     const tools = toolDefs.map((t) => ({ type: 'function' as const, ...t, strict: false }));
@@ -425,6 +432,7 @@ export class OpenAIModel implements ModelDriver {
         stream: true,
         store: false,
         max_output_tokens: agent.limits.maxOutputTokens,
+        ...structuredWire.openAIResponsesControls(controls, tools.length > 0),
       },
       signal,
       connected,
@@ -497,6 +505,7 @@ export class OpenAIModel implements ModelDriver {
     signal: AbortSignal,
     connected: () => void,
     delta: (text: string) => void,
+    controls?: NativeTurnControls,
   ): Promise<ModelResult> {
     const chatMessages = messages.map((m) =>
       m.role === 'tool'
@@ -526,6 +535,7 @@ export class OpenAIModel implements ModelDriver {
         stream: true,
         stream_options: this.config.streamUsage === false ? undefined : { include_usage: true },
         [this.config.maxTokensField]: agent.limits.maxOutputTokens,
+        ...structuredWire.openAIChatControls(controls, toolDefs.length > 0),
       },
       signal,
       connected,
@@ -603,6 +613,7 @@ export class AnthropicModel implements ModelDriver {
     messages: ModelMessage[],
     signal: AbortSignal,
     delta: (text: string) => void,
+    controls?: NativeTurnControls,
   ): Promise<ModelResult> {
     const toolDefs = buildToolDefs(agent);
     checkAbort(signal);
@@ -612,11 +623,13 @@ export class AnthropicModel implements ModelDriver {
       .filter((m) => m.role === 'system' && m.content)
       .map((m) => m.content);
     const claudeMessages: { role: 'user' | 'assistant'; content: Record<string, unknown>[] }[] = [];
-    const tools = toolDefs.map((t) => ({
+    const rawTools = toolDefs.map((t) => ({
       name: t.name,
       description: t.description,
       input_schema: t.parameters,
     }));
+    const wire = structuredWire.anthropicControls(controls, rawTools);
+    const tools = wire.tools ?? [];
     const prefix = () => ({ system: systemParts.join('\n\n'), tools, messages: claudeMessages });
 
     const pushMerged = (role: 'user' | 'assistant', blocks: Record<string, unknown>[]) => {
@@ -677,7 +690,7 @@ export class AnthropicModel implements ModelDriver {
           max_tokens: agent.limits.maxOutputTokens,
           ...(systemParts.length ? { system: systemParts.join('\n\n') } : {}),
           messages: claudeMessages,
-          ...(tools.length ? { tools } : {}),
+          ...wire,
           stream: true,
         }),
       });
@@ -923,6 +936,7 @@ export class GeminiModel implements ModelDriver {
     messages: ModelMessage[],
     signal: AbortSignal,
     delta: (text: string) => void,
+    controls?: NativeTurnControls,
   ): Promise<ModelResult> {
     const toolDefs = buildToolDefs(agent);
     checkAbort(signal);
@@ -1038,6 +1052,7 @@ export class GeminiModel implements ModelDriver {
     const deadline = AbortSignal.timeout(this.config.timeoutMs);
     const combinedSignal = AbortSignal.any([signal, deadline]);
 
+    const wire = structuredWire.geminiControls(controls, tools.length > 0);
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -1053,8 +1068,10 @@ export class GeminiModel implements ModelDriver {
             : {}),
           contents,
           ...(tools.length ? { tools } : {}),
+          ...(wire.toolConfig ? { toolConfig: wire.toolConfig } : {}),
           generationConfig: {
             maxOutputTokens: agent.limits.maxOutputTokens,
+            ...wire.generationConfigExtra,
           },
         }),
       });

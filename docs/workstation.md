@@ -15,10 +15,11 @@ The console has a Projects view and each task can select a shared project. Priva
 | `GET /v1/projects/{id}/members` | Owner-admin inspects grants |
 | `POST /v1/projects/{id}/members` | `{subject,access}` with `read`, `write` or `none` |
 | `GET /v1/projects/{id}/memory` | Read shared entries |
+| `GET /v1/projects/{id}/memory/search` | BM25 full-text search (`?q=...&namespace=...&limit=...`) |
 | `PUT /v1/projects/{id}/memory` | `{namespace,key,value,revision?}`; `"new"` requires absence |
 | `DELETE /v1/projects/{id}/memory` | `{namespace,key,revision}` prevents stale deletion |
 
-Select a project with `metadata["oaa.project"]`. Kernel agents with published `memory_read` / `memory_write` tools can use `scope:"project"`; the default remains private. Other agents receive a bounded reference snapshot. Completed root-task output is retained as an **agent claim**, not verified fact, when the caller has write access; opt out with `oaa.project.remember=false`. A turn cannot move a project conversation into a different project. Raw private memory, system instructions and native session handles are not copied across callers.
+Select a project with `metadata["oaa.project"]`. Kernel agents with published `memory_read` / `memory_write` / `memory_search` tools can use `scope:"project"`; the default remains private. Other agents receive a bounded reference snapshot ranked by SQLite FTS5 BM25 relevance to the current task input (falling back to the most recently updated entries when no terms match). Completed root-task output is retained as an **agent claim**, not verified fact, when the caller has write access; opt out with `oaa.project.remember=false`. A turn cannot move a project conversation into a different project. Raw private memory, system instructions and native session handles are not copied across callers.
 
 ## Durable Tasks
 
@@ -55,7 +56,7 @@ Definitions are private to their creator unless explicitly attached to a shared 
 
 Publish at `POST /v1/workflows`; start with `POST /v1/workflows/{id}/run` and `{input,file_ids?}`. Inspect `/v1/workflow-runs` and `/v1/workflow-runs/{id}`; `/cancel` cancels active children and `/resume` reattaches a blocked execution after child outcomes are resolved. Existing uncertain-effect rules still apply.
 
-Manual/API triggers are always available. Explicitly enabled interval triggers use 1-10080 minutes and skip missed slots rather than causing catch-up bursts. Completion-event triggers name an agent and default to the creator's subject; workflow child runs do not recursively trigger other workflows. Schedules revalidate the stored key, never store bearer credentials, and expose admission errors in trigger status. Caller-supplied provider credentials are not persisted for scheduled workflows.
+Manual/API triggers are always available. Explicitly enabled interval triggers use 1-10080 minutes and skip missed slots rather than causing catch-up bursts. Standard 5-field cron triggers (`{kind:"cron",expression,timezone?}`, defaulting to `UTC`) evaluate IANA time zones per minute slot and skip missed downtime windows. Inbound webhook triggers (`{kind:"webhook"}`) issue a one-time high-entropy `webhook_token` on creation or rotation (`POST /v1/workflows/{id}/webhook-token`) while storing only its SHA-256 hash; `POST /v1/webhooks/workflows/{id}` verifies `Authorization: Bearer <webhook_token>` or `X-OAA-Webhook-Token` in constant time, enforces rate limits and a 64 KiB JSON limit, revalidates the creator's key, and rejects archived (409) or disabled (403) definitions. Completion-event triggers name an agent and default to the creator's subject; workflow child runs do not recursively trigger other workflows. Schedules revalidate the stored key, never store bearer credentials, and expose admission errors in trigger status. Caller-supplied provider credentials are not persisted for scheduled workflows.
 
 `POST /v1/workflows/{id}/archive` and `/restore` require `{revision}` and owner-admin authority. Archiving pauses triggers and hides the definition from the default list, without cancelling accepted executions or deleting history. `GET /v1/workflows?archived=true` lists archived definitions. Restoring leaves triggers disabled; archived definitions cannot be edited or started until restored. Manual/API invocation remains available for unarchived definitions even when their automatic triggers are disabled.
 
@@ -65,7 +66,7 @@ Execution lists include bounded `progress` counts and owner/caller waiting infor
 
 The task dialog can request an image, document, audio or video file. `GET /v1/media/formats` lists supported format signatures. `POST /v1/media/jobs` accepts `{agent,model?,input,kind,format?,file_ids?,metadata?}` and starts a normal persistent run; `GET /v1/media/jobs/{id}` exposes its actual artifacts. Existing compatibility APIs can instead set `oaa.output_kind` and `oaa.output_format` metadata. Workflow stages support `output_kind` and `format` arguments too.
 
-This uses the selected agent's installed tools, not a new OAA-owned image, speech or video model. A missing or mismatched new artifact fails the output contract. Signature checks do not certify a document's full structure, codec correctness, creative quality or factual content. The existing 8 MiB artifact export limit remains explicit. Image, text, audio and video artifact previews use authenticated fetches and temporary local blob URLs; keys are never put into media URLs and playback does not auto-start.
+This uses the selected agent's installed tools, not a new OAA-owned image, speech or video model. A missing or mismatched new artifact fails the output contract. Signature checks do not certify a document's full structure, codec correctness, creative quality or factual content. Artifact exports stream with chunked SHA-256 verification up to 64 MiB by default (configurable via `maxArtifactBytes` up to 256 MiB), while regular uploads remain capped at 8 MiB. Image, text, audio and video artifact previews use authenticated fetches and temporary local blob URLs; keys are never put into media URLs and playback does not auto-start.
 
 On 2026-11-17, real Codex tasks generated and downloaded a one-second PCM WAV and H.264 MP4; independent `ffprobe` decoding recognized both. These are technical test signals/patterns, not evidence of artistic AI media quality.
 
@@ -79,7 +80,7 @@ Only extracted numbers and booleans, freshness and a source hash reach the plann
 
 ## Cross-Platform Desktop
 
-The new independent Electron shell is under `desktop/cross-platform`; the existing macOS Swift shell and CLI packages remain intact. It starts or attaches to a matching private loopback gateway, injects the local key only into its own top frame, and keeps renderer Node integration off with context isolation and process sandboxing. The design follows [Electron's security guidance](https://www.electronjs.org/docs/latest/tutorial/security).
+The unified cross-platform Electron shell lives under `desktop/cross-platform`, absorbing all capabilities of the archived macOS Swift shell (`hiddenInset` traffic lights at `{ x: 20, y: 18 }`, live Dock & tray badges, bilingual approval notifications, three-state port ownership & orphan-gateway adoption, `.seeded` first-run seeding) and adding a sandboxed Tray Quick Approvals Panel plus Launch at Login across macOS (`arm64` / `x64`), Windows (`x64`), and Linux. It starts or attaches to a matching private loopback gateway, injects the local key only into its own top frame, and keeps renderer Node integration off with context isolation and process sandboxing. The design follows [Electron's security guidance](https://www.electronjs.org/docs/latest/tutorial/security).
 
 ```sh
 npm install --prefix desktop/cross-platform

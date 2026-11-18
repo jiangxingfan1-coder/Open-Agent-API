@@ -17,9 +17,13 @@ import { editWorkflow } from '../dialogs/workflow-editor.js';
 import { showRun } from '../dialogs/runs.js';
 
 const triggerName = (kind) =>
-  ({ manual: t('workflow.manual'), interval: t('workflow.interval'), event: t('workflow.event') })[
-    kind
-  ];
+  ({
+    manual: t('workflow.manual'),
+    interval: t('workflow.interval'),
+    cron: t('workflow.cron'),
+    event: t('workflow.event'),
+    webhook: t('workflow.webhook'),
+  })[kind];
 let archivedView = false;
 const executionStatus = (run) => {
   if (run.status === 'cancelling') return el('span', t('workflow.cancelling'), 'status run');

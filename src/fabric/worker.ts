@@ -35,6 +35,7 @@ import {
 import type { NativeSandbox } from '../engines/native.js';
 import type { AcpTimings } from '../engines/acp.js';
 import * as img from './image-capabilities.js';
+import { adapterProfileAdvert } from './adapter-profiles.js';
 import { safeEmit, type Emit } from '../engines/shared.js';
 import { adapterNamePattern } from '../config/agent-presets.js';
 import { collectProcess } from '../engines/process.js';
@@ -112,6 +113,7 @@ export class WorkerRuntime implements Executor {
     } else if (config.sandbox?.backend === 'srt') {
       const srt = new SrtLauncher({
         dataDir: config.dataDir,
+        maxConcurrentSandboxes: config.sandbox.maxConcurrentSandboxes,
         extraDeniedReads: config.sandbox.denyRead,
         ...(config.sandbox.parentProxy ? { parentProxy: config.sandbox.parentProxy } : {}),
       });
@@ -119,8 +121,8 @@ export class WorkerRuntime implements Executor {
       // Probe only engines the owner both enabled and listed for sandboxing.
       const natives = Object.fromEntries(
         Object.keys(config.sandbox.native ?? {})
-          .filter((engine) => config.native[engine as 'claude' | 'codex']?.enabled)
-          .map((engine) => [engine, config.native[engine as 'claude' | 'codex']!.executable]),
+          .filter((engine) => config.native[engine as SandboxNativeEngine]?.enabled)
+          .map((engine) => [engine, config.native[engine as SandboxNativeEngine]!.executable]),
       );
       this.sandboxChecked = srt.selfCheck(process.execPath, natives).catch(() => undefined);
     } else this.sandboxChecked = Promise.resolve();
@@ -135,6 +137,9 @@ export class WorkerRuntime implements Executor {
     const adapters = Object.entries(this.config.adapters).filter(([name, a]) =>
       adapterReady(name, a),
     );
+    const acpAdapters = adapters
+      .filter(([, a]) => a.transport === 'acp')
+      .map(([n]) => `adapter/${n}`);
     return {
       nodeId: this.config.nodeId,
       providers: [
@@ -165,11 +170,14 @@ export class WorkerRuntime implements Executor {
       concurrency: this.config.concurrency,
       execution: {
         agentPolicyVersion: 1,
+        traceContextVersion: 1,
+        ...adapterProfileAdvert(this.config, adapters),
         toolFreeReasoning: [
           'kernel',
           ...native
-            .filter(([name]) => name === 'antigravity' || name === 'claude')
+            .filter(([name]) => name === 'antigravity' || name === 'claude' || name === 'codex')
             .map(([name]) => name),
+          ...acpAdapters,
         ],
         projectWorkspaces: this.projects.advertised(),
         projectEngines: [
@@ -184,14 +192,19 @@ export class WorkerRuntime implements Executor {
           (runtime) => runtime === 'node' || executableExists(runtime),
         ),
         toolSelection: true,
-        // Caller-tool bridging (docs/harness.md): the kernel loop and ACP adapters (via MCP).
+        // Caller-tool bridging (docs/harness.md): kernel loop, Claude/Codex native and ACP via MCP.
         clientTools: {
           native: [
             'kernel',
             ...native
-              .filter(([name]) => this.modelCatalogs.snapshot()[name]?.clientTools === 'hybrid')
+              .filter(
+                ([name]) =>
+                  name === 'codex' ||
+                  name === 'claude' ||
+                  this.modelCatalogs.snapshot()[name]?.clientTools === 'hybrid',
+              )
               .map(([name]) => name),
-            ...adapters.filter(([, a]) => a.transport === 'acp').map(([n]) => `adapter/${n}`),
+            ...acpAdapters,
           ],
         },
         imageInput: img.imageInputAdvert(this.config, this.drivers),
@@ -267,6 +280,7 @@ export class WorkerRuntime implements Executor {
       apiKey: work.credential.apiKey,
       allowedDomains: profile.providerDomains,
       cpuSeconds: profile.cpuSeconds,
+      ...(work.context.subject ? { subject: work.context.subject } : {}),
     };
   }
   /**
@@ -421,7 +435,7 @@ export class WorkerRuntime implements Executor {
             ...(agent.access
               ? { nativeState: { ...result.nativeState, workspaceIdentity: identity } }
               : {}),
-            artifacts: await collectNativeArtifacts(outputRoot),
+            artifacts: await collectNativeArtifacts(outputRoot, this.config.maxArtifactBytes),
           };
         } finally {
           lease.release();
@@ -488,13 +502,14 @@ export class WorkerRuntime implements Executor {
       let refused: Error | undefined;
       try {
         const messages = img.withImageData(work.messages, work.context.files);
-        const result = await driver.call(effectiveAgent, messages, turn.signal, (delta) => {
+        const onDelta = (delta: string) =>
           safeEmit(emit, { type: 'text', data: { delta } }, (error) => {
             refused ??=
               error instanceof Error ? error : new Fault('event_failed', String(error), 500);
             turn.abort(refused);
           });
-        });
+        const extra = work.controls ? ([work.controls] as const) : [];
+        const result = await driver.call(effectiveAgent, messages, turn.signal, onDelta, ...extra);
         if (refused) throw refused;
         if (result.providerState)
           result.providerState = validateProviderState(result.providerState, {
@@ -624,6 +639,7 @@ export class WorkerRuntime implements Executor {
               this.config.sandbox?.allowDomains ?? [],
             ),
             cpuSeconds: this.config.sandbox?.cpuSeconds ?? 60,
+            ...(work.context.subject ? { subject: work.context.subject } : {}),
           },
         };
       }

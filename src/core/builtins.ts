@@ -19,6 +19,8 @@ export const builtin = (name: BuiltinToolName): ToolBinding => ({
       read_skill: 'Load the full instructions of a published skill by its path.',
       memory_read: 'Read durable cross-session memory entries by namespace and key or prefix.',
       memory_write: 'Persist a durable cross-session memory entry under a namespace and key.',
+      memory_search:
+        'Search durable private or shared project memory entries by keyword relevance (BM25).',
     }[name],
     inputSchema:
       name === 'list_files'
@@ -34,29 +36,41 @@ export const builtin = (name: BuiltinToolName): ToolBinding => ({
               },
               additionalProperties: false,
             }
-          : name === 'memory_write'
+          : name === 'memory_search'
             ? {
                 type: 'object',
                 properties: {
                   scope: { type: 'string', enum: ['private', 'project'] },
+                  query: { type: 'string', minLength: 1, maxLength: 2000 },
                   namespace: { type: 'string', maxLength: 120 },
-                  key: { type: 'string', maxLength: 240 },
-                  value: {},
+                  limit: { type: 'integer', minimum: 1, maximum: 50 },
                 },
-                required: ['key', 'value'],
+                required: ['query'],
                 additionalProperties: false,
               }
-            : {
-                type: 'object',
-                properties: {
-                  path: { type: 'string', maxLength: 240 },
-                  ...(name === 'write_file'
-                    ? { content: { type: 'string', maxLength: 1_000_000 } }
-                    : {}),
+            : name === 'memory_write'
+              ? {
+                  type: 'object',
+                  properties: {
+                    scope: { type: 'string', enum: ['private', 'project'] },
+                    namespace: { type: 'string', maxLength: 120 },
+                    key: { type: 'string', maxLength: 240 },
+                    value: {},
+                  },
+                  required: ['key', 'value'],
+                  additionalProperties: false,
+                }
+              : {
+                  type: 'object',
+                  properties: {
+                    path: { type: 'string', maxLength: 240 },
+                    ...(name === 'write_file'
+                      ? { content: { type: 'string', maxLength: 1_000_000 } }
+                      : {}),
+                  },
+                  required: name === 'write_file' ? ['path', 'content'] : ['path'],
+                  additionalProperties: false,
                 },
-                required: name === 'write_file' ? ['path', 'content'] : ['path'],
-                additionalProperties: false,
-              },
     requiresApproval: false,
     timeoutMs: 30_000,
     cacheTtlMs: 0,

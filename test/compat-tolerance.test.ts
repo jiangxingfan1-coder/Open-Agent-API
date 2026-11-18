@@ -119,8 +119,6 @@ test('strict chat: forced tool_choice, logprobs and non-text output are refused 
     const tool = { type: 'function', function: { name: 'f', parameters: { type: 'object' } } };
     const cases: [Record<string, unknown>, string][] = [
       [{ functions: [{ name: 'f' }] }, 'functions'],
-      [{ tool_choice: 'required' }, 'tool_choice'],
-      [{ tool_choice: { type: 'function', function: { name: 'f' } } }, 'tool_choice'],
       [{ logprobs: true }, 'logprobs'],
       [{ modalities: ['text', 'audio'] }, 'modalities'],
       [{ n: 2 }, 'n'],
@@ -130,6 +128,15 @@ test('strict chat: forced tool_choice, logprobs and non-text output are refused 
       assert.equal(r.statusCode, 400, JSON.stringify(extra));
       assert.equal(r.json().error.code, 'unsupported_parameter');
       assert.equal(r.json().error.param, param);
+    }
+    for (const extra of [
+      { tool_choice: 'required' },
+      { tool_choice: { type: 'function', function: { name: 'f' } } },
+    ]) {
+      const r = await chat(extra);
+      assert.equal(r.statusCode, 400, JSON.stringify(extra));
+      assert.equal(r.json().error.code, 'invalid_request');
+      assert.equal(r.json().error.param, 'tool_choice');
     }
     // Caller tools: a kernel agent takes them over; an agent that cannot gets the refusal that names the way out.
     const bridged = await chat({ tools: [tool] });
@@ -249,7 +256,7 @@ test('strict responses: a forced tool_choice is refused with the way out; tools 
     for (const [extra, param] of refused) {
       const r = await responses(extra);
       assert.equal(r.statusCode, 400, JSON.stringify(extra));
-      assert.equal(r.json().error.code, 'unsupported_parameter');
+      assert.equal(r.json().error.code, 'invalid_request');
       assert.equal(r.json().error.param, param);
     }
     const typo = await responses({ max_token: 1 });

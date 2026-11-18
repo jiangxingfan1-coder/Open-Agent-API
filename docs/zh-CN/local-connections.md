@@ -2,7 +2,7 @@
 
 [English](../local-connections.md) · 简体中文
 
-本地互联以可搜索的卡片列出本机客户端，点击卡片打开配置弹窗。自动配置接收端为 DeepSeek Harness（DSH）：选择已经发布的源智能体，查看预览并确认，OAA 自动创建专用密钥并向 DSH 添加提供方。不替换原提供方，不改变当前会话，不自动发布智能体，也不改变原有 API 密钥流程。
+本地互联以可搜索的卡片列出本机客户端，点击卡片打开配置弹窗。自动配置支持 **API 自动接入**（`dsh`、`opencode`、`codex`）与 **MCP 桥一键注入**（`claude-desktop`、`cursor`、`windsurf`、`claude-code`）双通道：选择已发布的源智能体（MCP 桥也可选择全部已发布智能体），查看变更摘要预览并确认，OAA 自动创建仅具最小权限（`read`、`invoke`、`files`，绝无 `approve` 或 `admin`）的专用密钥并保存在私有的 `0600` 密钥文件中，先备份原文件再原子合并受管条目，绝不覆盖客户端原有的其他提供方、MCP 服务或当前会话。
 
 ## 客户端检测
 
@@ -41,10 +41,10 @@
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| GET | `/v1/local/connections` | 目标可用性、源选择及连接状态 |
-| POST | `/v1/local/connections/preview` | `{agent, model, tool_mode?}`；模型默认 `auto` |
-| POST | `/v1/local/connections/apply` | 同一管理员尚未过期预览的 `{plan_id}` |
-| POST | `/v1/local/connections/{id}/check` | 不生成内容的接口、密钥和模型元数据检查 |
-| DELETE | `/v1/local/connections/{id}` | 撤销密钥并按指纹清理拥有的条目 |
+| GET | `/v1/local/connections` | 目标可用性（`target` 与 `targets`）、源选择及连接状态 |
+| POST | `/v1/local/connections/preview` | `{target?, channel?, agent?, model?, tool_mode?}`；默认 `target: "dsh"`、`model: "auto"` |
+| POST | `/v1/local/connections/apply` | 同一管理员尚未过期预览的 `{plan_id, target?, channel?}` |
+| POST | `/v1/local/connections/{id}/check` | 不生成内容的接口、密钥和目标元数据检查 |
+| DELETE | `/v1/local/connections/{id}` | 撤销专用密钥、删除私有密钥文件并按指纹清理拥有的条目 |
 
-首版不自动配置 Codex 或 Claude 客户端。要求在沙箱中执行宿主工具的发布需要单独验证的连接，不自动配置。不升级第三方软件包，也不承诺闭源智能体的工具隔离。
+API 自动配置向 OpenCode 原子合并 `provider["open-agent-api"]`（通过 `{file:<私有密钥路径>}` 引用），向 Codex 追加或更新独立的 `[model_providers.oaa]` 段（拒绝自环接入与复杂冲突 TOML 语法）。MCP 一键注入向目标配置写入 `mcpServers["open-agent-api"]` 并通过 `--token-file` 传入网关私有 `0600` 密钥文件，绝不在客户端 JSON 中暴露明文裸令牌。要求在沙箱中执行宿主工具的发布需要单独验证的连接，不自动配置。

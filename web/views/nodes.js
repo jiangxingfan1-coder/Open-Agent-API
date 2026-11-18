@@ -19,6 +19,7 @@ import { api } from '../lib/api.js';
 import { live, load } from '../lib/live.js';
 import { filterText, setCount } from './common.js';
 import { openEverythingAcpImport } from '../dialogs/everything-acp.js';
+import { openNodeEnrollDialog } from '../dialogs/node-enroll.js';
 
 export function nodeState(n) {
   return n.state === 'revoked'
@@ -138,7 +139,24 @@ export function renderNodes(body) {
   };
   const root = el('div', undefined, 'nodes');
   body.append(root);
-  root.append(button(t('eacp.import'), 'download', openEverythingAcpImport));
+  const pairCard = el('div', undefined, 'ext-item adapter-card');
+  const pairSub = el('div', undefined, 'ext-sub');
+  pairSub.append(el('span', t('dlg.nodePair.cardDesc'), 'ext-facts'));
+  const pairBtn = button(
+    t('dlg.nodePair.open'),
+    'server',
+    openNodeEnrollDialog,
+    'primary small-btn',
+  );
+  pairCard.append(
+    icon('network'),
+    el('strong', t('dlg.nodePair.cardTitle'), 'ext-name'),
+    pairBtn,
+    pairSub,
+  );
+  const toolbar = el('div', undefined, 'row-action');
+  toolbar.append(button(t('eacp.import'), 'download', openEverythingAcpImport));
+  root.append(pairCard, toolbar);
   if (!rows.length)
     root.append(
       all.length

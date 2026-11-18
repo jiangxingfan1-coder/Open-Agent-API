@@ -25,7 +25,8 @@ import {
   projectOutput,
   type EventInput,
 } from './output.js';
-
+import { memoryFts } from './project-fts.js';
+import { getArtifactByteLimit } from './large-artifacts.js';
 import { refreshWaiting, waitingOn } from './waiting.js';
 import { backupBeforeMigration } from './backup.js';
 type Row = Record<string, unknown>;
@@ -1332,8 +1333,8 @@ export class Store {
         )
       : (subject ?? LEGACY_SUBJECT);
     relativeName(name);
-    if (bytes.length > LIMITS.fileBytes)
-      throw new Fault('file_too_large', 'File exceeds 8 MiB.', 413);
+    if (bytes.length > (runId ? getArtifactByteLimit(this) : LIMITS.fileBytes))
+      throw new Fault('file_too_large', 'File exceeds size limit.', 413);
     const file: FileRecord = {
       id: id(runId ? 'artifact' : 'file'),
       owner,
@@ -1351,16 +1352,17 @@ export class Store {
       JSON.stringify(file),
       fileSubject,
     );
-    const payload: FilePayload = {
-      id: file.id,
-      name: file.name,
-      content: bytes.toString('base64'),
-      sha256: file.sha256,
-      allowedNodes: file.allowedNodes,
-    };
-    this.filePayloadCache.set(file.id, { sha256: file.sha256, payload });
-    if (this.filePayloadCache.size > LIMITS.filePayloadCacheFiles) {
-      this.filePayloadCache.delete(this.filePayloadCache.keys().next().value!);
+    if (bytes.length <= LIMITS.fileBytes) {
+      const payload: FilePayload = {
+        id: file.id,
+        name: file.name,
+        content: bytes.toString('base64'),
+        sha256: file.sha256,
+        allowedNodes: file.allowedNodes,
+      };
+      this.filePayloadCache.set(file.id, { sha256: file.sha256, payload });
+      if (this.filePayloadCache.size > LIMITS.filePayloadCacheFiles)
+        this.filePayloadCache.delete(this.filePayloadCache.keys().next().value!);
     }
     return file;
   }
@@ -1377,10 +1379,9 @@ export class Store {
   async filePayload(fileId: string, owner: string, subject?: string): Promise<FilePayload> {
     const f = this.file(fileId, owner, subject);
     const cached = this.filePayloadCache.get(fileId);
-    if (cached && cached.sha256 === f.sha256) {
-      return cached.payload;
-    }
-    const bytes = await readBounded(path.join(this.root, 'files'), f.id);
+    if (cached && cached.sha256 === f.sha256) return cached.payload;
+    const maxBytes = f.runId ? getArtifactByteLimit(this) : LIMITS.fileBytes;
+    const bytes = await readBounded(path.join(this.root, 'files'), f.id, maxBytes);
     if (sha(bytes) !== f.sha256)
       throw new Fault('file_integrity', 'File content has changed.', 500);
     const payload: FilePayload = {
@@ -1390,9 +1391,10 @@ export class Store {
       sha256: f.sha256,
       allowedNodes: f.allowedNodes,
     };
-    this.filePayloadCache.set(fileId, { sha256: f.sha256, payload });
-    if (this.filePayloadCache.size > LIMITS.filePayloadCacheFiles) {
-      this.filePayloadCache.delete(this.filePayloadCache.keys().next().value!);
+    if (bytes.length <= LIMITS.fileBytes) {
+      this.filePayloadCache.set(fileId, { sha256: f.sha256, payload });
+      if (this.filePayloadCache.size > LIMITS.filePayloadCacheFiles)
+        this.filePayloadCache.delete(this.filePayloadCache.keys().next().value!);
     }
     return payload;
   }
@@ -1467,6 +1469,7 @@ export class Store {
     this.prepare(
       'INSERT INTO memories(owner,subject,namespace,key,value,updated_at,run_id) VALUES(?,?,?,?,?,?,?) ON CONFLICT(owner,subject,namespace,key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,run_id=excluded.run_id',
     ).run(owner, subject, namespace, key, serialized, now, runId ?? null);
+    memoryFts(this).indexPrivate(owner, subject, namespace, key, serialized);
     return {
       owner,
       namespace,
@@ -1480,7 +1483,9 @@ export class Store {
     const res = this.prepare(
       'DELETE FROM memories WHERE owner=? AND subject=? AND namespace=? AND key=?',
     ).run(owner, subject, namespace, key);
-    return Number(res.changes ?? 0) > 0;
+    const deleted = Number(res.changes ?? 0) > 0;
+    if (deleted) memoryFts(this).removePrivate(owner, subject, namespace, key);
+    return deleted;
   }
   /**
    * The run is parked and waits only on its caller (pending `client_tool` actions, no human one).

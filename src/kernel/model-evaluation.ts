@@ -5,6 +5,7 @@ import { ModelEvaluations, type EvaluationSample } from '../store/model-evaluati
 import type { Store } from '../store/store.js';
 import { discoveredAgent, refreshAgentModels, supportsReasoning } from '../fabric/model-pool.js';
 import {
+  EVALUATION_DIMENSIONS,
   EVALUATION_SUITE,
   evaluationCases,
   scoreEvaluation,
@@ -60,6 +61,7 @@ export class ModelEvaluator {
       agent: id,
       revision,
       suite: EVALUATION_SUITE,
+      dimensions: [...EVALUATION_DIMENSIONS],
       settings: this.records.settings(owner, id),
       running: this.pending.has(`${owner}\n${id}`),
       supported: supportsReasoning(this.hub, owner, agent),

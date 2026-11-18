@@ -24,6 +24,7 @@ import { AGENT_IO_LIMITS, bounded, record, safeEmit, type Emit } from './shared.
 import { callerToolPermission, openCallerRelay, type CallerRelay } from './caller-relay.js';
 import { PRODUCT_VERSION } from '../core/version.js';
 import { acpImageBlocks, type EngineImages } from './image-blocks.js';
+import { reasoningPrompt } from './reasoning-policy.js';
 
 export const ACP_PROTOCOL_VERSION = 1;
 const MAX_FRAME_BYTES = AGENT_IO_LIMITS.frameBytes;
@@ -371,6 +372,7 @@ export async function runAcp(
   clientTools?: ClientTool[],
   images?: EngineImages,
   assetRoot = workspace,
+  toolsDisabled = false,
 ): Promise<NativeResult> {
   const name = agent.engine.startsWith('adapter/') ? agent.engine.slice('adapter/'.length) : '';
   const adapter = config.adapters[name];
@@ -387,7 +389,7 @@ export async function runAcp(
   const cancelGraceMs = timings.cancelGraceMs ?? 3_000;
   const exitGraceMs = timings.exitGraceMs ?? 2_000;
   const cwd = path.resolve(workspace);
-  const prompt = agent.instructions ? `${agent.instructions}\n\n${input}` : input;
+  const prompt = reasoningPrompt(agent.instructions, input, toolsDisabled);
 
   let phase: 'starting' | 'session' | 'prompting' | 'finished' = 'starting';
   let sessionId: string | undefined;
@@ -427,6 +429,7 @@ export async function runAcp(
       progress({ event: 'permission_denied', reason });
       return reject ? { outcome: { outcome: 'selected', optionId: reject.optionId } } : cancelled;
     };
+    if (toolsDisabled) return refuse('tools_disabled');
     // Only one-shot choices are offered: an owner approval never becomes a standing grant.
     if (!allow || options.length > 16 || new Set(ids).size !== ids.length)
       return refuse('no_allow_once_option');
@@ -569,7 +572,8 @@ export async function runAcp(
   try {
     if (signal.aborted) onAbort();
     // Bridged caller tools: one stdio MCP server per turn. Without them the wire stays `[]`.
-    if (clientTools?.length) relay = await openCallerRelay(assetRoot, clientTools, emit);
+    if (!toolsDisabled && clientTools?.length)
+      relay = await openCallerRelay(assetRoot, clientTools, emit);
     const mcpServers = relay ? [relay.server] : [];
     const init = record(await step(peer.call('initialize', initializeParams()), 'initialize'));
     if (init.protocolVersion !== ACP_PROTOCOL_VERSION)

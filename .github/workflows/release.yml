@@ -131,6 +131,7 @@ jobs:
           node-version: ${{ env.NODE_RUNTIME_VERSION }}
       - run: node --version && npm --version
       - run: npm ci --ignore-scripts
+      - run: npm ci --prefix desktop/cross-platform --ignore-scripts
       - run: npm run check
       - run: npm run format:check
       - name: 离线测试（macOS、Linux）
@@ -140,7 +141,7 @@ jobs:
         if: matrix.platform == 'win'
         run: |
           npm run build
-          node --import ./dist/test/setup-locale.js --test --test-concurrency=1 dist/test/release-plan.test.js dist/test/claude-sdk.test.js
+          node --import ./dist/test/setup-locale.js --test --test-concurrency=1 dist/test/release-plan.test.js dist/test/claude-sdk.test.js dist/test/desktop-unified.test.js
 
       - name: 下载官方 Node 并用 SHASUMS256.txt 校验
         run: |
@@ -226,11 +227,12 @@ jobs:
           res="${mnt}/Open Agent API.app/Contents/Resources"
           test -x "${res}/node/bin/node"
           test -f "${res}/node/LICENSE"
-          test ! -e "${res}/app/node_modules/@anthropic-ai/claude-agent-sdk"
-          test ! -e "${res}/app/node_modules/typescript"
+          test -f "${res}/app.asar"
+          test ! -e "${res}/gateway/node_modules/@anthropic-ai/claude-agent-sdk"
+          test ! -e "${res}/gateway/node_modules/typescript"
           file "${res}/node/bin/node" "${mnt}/Open Agent API.app/Contents/MacOS/OpenAgentAPI"
           codesign --verify --deep --strict "${mnt}/Open Agent API.app"
-          "${res}/node/bin/node" scripts/smoke-release.mjs --launcher "${res}/oaa" --expect-version "$VERSION" --app-dir "${res}/app"
+          "${res}/node/bin/node" scripts/smoke-release.mjs --launcher "${res}/oaa" --expect-version "$VERSION" --app-dir "${res}/gateway"
 
       - name: 烟雾测试（Linux：解压到含空格与中文的路径，用包内 Node 运行 CLI 与网关，再把 install.sh 当本地安装源试一遍）
         if: matrix.platform == 'linux'
@@ -242,6 +244,8 @@ jobs:
           test -x "${bundle}/runtime/bin/node"
           test -f "${bundle}/runtime/LICENSE"
           test -x "${bundle}/oaa"
+          test -x "${bundle}/open-agent-api-desktop"
+          test -x "${bundle}/desktop/open-agent-api"
           test ! -e "${bundle}/app/node_modules/@anthropic-ai/claude-agent-sdk"
           test ! -e "${bundle}/app/node_modules/typescript"
           file "${bundle}/runtime/bin/node"
@@ -266,6 +270,7 @@ jobs:
           $node = Join-Path $bundle "runtime\node.exe"
           if (-not (Test-Path -LiteralPath $node)) { throw "缺少 runtime\node.exe" }
           if (-not (Test-Path -LiteralPath (Join-Path $bundle "runtime\LICENSE"))) { throw "缺少 runtime\LICENSE" }
+          if (-not (Test-Path -LiteralPath (Join-Path $bundle "desktop\open-agent-api.exe"))) { throw "缺少 desktop\open-agent-api.exe" }
           if (Test-Path -LiteralPath (Join-Path $bundle "app\node_modules\@anthropic-ai\claude-agent-sdk")) { throw "不应带 claude-agent-sdk" }
           & $node scripts/smoke-release.mjs --launcher (Join-Path $bundle "oaa.cmd") --expect-version $env:VERSION --app-dir (Join-Path $bundle "app")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -1,5 +1,5 @@
 /** 提交与预检：授权、续接与交接检查、执行级别检查、幂等、限额、建运行。 */
-import type { AgentDefinition, Principal, Run, RunImage } from '../core/contracts.js';
+import type { AgentDefinition, Principal, Run, RunImage, TraceContext } from '../core/contracts.js';
 import {
   allowedExecution,
   executionFor,
@@ -10,21 +10,21 @@ import {
   visibleSubject,
 } from '../core/contracts.js';
 import { permits } from '../fabric/network.js';
-import { discoveredAgent } from '../fabric/model-pool.js';
+import { canOrchestrate, discoveredAgent, supportsReasoning } from '../fabric/model-pool.js';
 import { checkAccessPolicy } from './access-policy.js';
 import { localWorkerConfig, unavailableReason } from '../fabric/runnability.js';
 import type { Invocation, PreviewRequest } from './invocation.js';
 import { responseObject } from './response-object.js';
-import { asRoutingStrategy } from './routing.js';
+import { asRoutingStrategy, resolveSemanticProfile } from './routing.js';
 import { Fault, canonical, faultOf, id, scopeDenied, sha } from '../core/util.js';
 import { LIMITS } from '../core/limits.js';
 import { agentFallbackChain, routeInspector, toTopologyHint } from './fallback.js';
-import { buildHandoffBrief, conversationOf, portableSessions } from './handoff.js';
+import { portableSessions, prepareRunHandoff } from './handoff.js';
 import type { KernelRuntime } from './runtime.js';
 import * as clientTools from './client-tools.js';
 import { assertImagesPlaced, imageDemand, modelImages, runImages } from './images.js';
-import { supportsReasoning } from '../fabric/model-pool.js';
 import { projectSelection } from './project-memory.js';
+import { getArtifactByteLimit } from '../store/large-artifacts.js';
 import { durability } from './durability.js';
 import { mediaPolicy, mediaInstruction } from '../core/media.js';
 import { modelIdentity } from '../fabric/model-identity.js';
@@ -270,6 +270,7 @@ export function submit(
   invocation: Invocation,
   idem?: string,
   providerKey?: string,
+  trace?: TraceContext,
 ): Run {
   if (rt.closing()) throw new Fault('shutting_down', 'Gateway is shutting down.', 503);
   authorize(principal, invocation.agent, 'invoke');
@@ -382,7 +383,13 @@ export function submit(
     bundle.agent.orchestration.scope === 'agent' &&
     route.mode === 'auto' &&
     invocation.metadata['oaa.orchestration_child'] !== 'true' &&
-    !supportsReasoning(rt.hub, principal.owner, bundle.agent)
+    !canOrchestrate(rt.store, rt.hub, principal.owner, bundle.agent, {
+      grantedAgents: principal.agents,
+      externalCaller: !!(principal.accountId || principal.externalCaller),
+      toolBoundary: invocation.metadata['oaa.tool_boundary'],
+      execution: allowedExecution(principal),
+      hostAgents: principal.hostAgents,
+    })
   )
     throw new Fault(
       'capability_unavailable',
@@ -413,36 +420,35 @@ export function submit(
   const media = mediaPolicy(invocation.metadata);
   const inputMessage =
     invocation.input +
-    mediaInstruction(media) +
+    mediaInstruction(media, getArtifactByteLimit(rt.store)) +
     (newFiles.length ? `\n\nAdditional input files:\n${newFiles.join('\n')}` : '');
-  const project = projectSelection(rt.store, principal, invocation.metadata, previous);
+  const project = projectSelection(
+    rt.store,
+    principal,
+    invocation.metadata,
+    previous,
+    invocation.input,
+  );
   const durable = durability(bundle.agent, invocation.metadata);
-  // 交接：内核智能体拿到整理过的对话历史；外部智能体自己管理会话，改用一段交接说明。
-  const conversation = handoff && previous ? conversationOf(previous) : undefined;
-  const continuationBrief =
-    previous &&
-    bundle.agent.engine !== 'kernel' &&
-    (bundle.agent.modelPolicy || bundle.agent.access || bundle.agent.orchestration)
-      ? buildHandoffBrief({
-          fromAgent: previous.agentId,
-          conversation: conversationOf(previous),
-          inputFiles: previous.fileIds.map((f) => rt.store.file(f, principal.owner).name),
-          artifacts: previous.artifactIds.map((f) => rt.store.file(f, principal.owner).name),
-        })
+  // 交接：内核智能体拿到整理过的对话历史与结构化交接系统提示；外部智能体改用含结构化摘要的交接说明。
+  const { conversation, continuationBrief, handoffBrief, handoffSystemPrompt } = prepareRunHandoff(
+    rt.store,
+    previous,
+    bundle.agent,
+    handoff,
+    principal.owner,
+    visibleSubject(principal),
+  );
+  const semanticStrategy =
+    route.mode === 'auto' &&
+    !invocation.metadata['oaa.routing_strategy'] &&
+    invocation.model !== 'auto'
+      ? resolveSemanticProfile(invocation.model)?.strategy
       : undefined;
-  const handoffBrief =
-    conversation && previous && bundle.agent.engine !== 'kernel'
-      ? buildHandoffBrief({
-          fromAgent: previous.agentId,
-          conversation,
-          inputFiles: (previous.fileIds ?? []).map(
-            (file) => rt.store.file(file, principal.owner).name,
-          ),
-          artifacts: (previous.artifactIds ?? []).map(
-            (file) => rt.store.file(file, principal.owner).name,
-          ),
-        })
-      : undefined;
+  const baseMetadata =
+    semanticStrategy && semanticStrategy !== 'auto' && semanticStrategy !== 'balanced'
+      ? { ...invocation.metadata, 'oaa.routing_strategy': semanticStrategy }
+      : invocation.metadata;
   const run: Run = {
     id: id('resp'),
     owner: principal.owner,
@@ -463,15 +469,17 @@ export function submit(
     artifactIds: [...(previous?.artifactIds ?? [])],
     metadata:
       handoff && previous && previous.agentId !== invocation.agent
-        ? { ...invocation.metadata, 'oaa.handoff_from': previous.agentId }
-        : invocation.metadata,
+        ? { ...baseMetadata, 'oaa.handoff_from': previous.agentId }
+        : baseMetadata,
     route,
+    ...(trace ? { trace } : {}),
     checkpoint: {
       modelIdentity: modelIdentity(rt.hub, principal.owner, bundle.agent),
       ...(media ? { media } : {}),
       ...(durable ? { durability: durable } : {}),
       ...(project ? { project } : {}),
       messages: [
+        ...(handoffSystemPrompt ? [{ role: 'system' as const, content: handoffSystemPrompt }] : []),
         ...(conversation ?? previous?.checkpoint.messages ?? []),
         {
           role: 'user',
@@ -524,6 +532,7 @@ export function submit(
             },
           }
         : {}),
+      ...(invocation.tool_choice ? { toolChoice: invocation.tool_choice } : {}),
     },
   };
   if (invocation.output_contract)

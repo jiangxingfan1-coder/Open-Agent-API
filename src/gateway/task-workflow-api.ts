@@ -19,6 +19,16 @@ export const WORKFLOW_OPERATIONS = [
     'Restore an archived workflow with triggers still disabled',
   ],
   [
+    '/v1/workflows/{id}/webhook-token',
+    'post',
+    'Issue or rotate a one-time inbound webhook trigger token (SHA-256 hash stored only)',
+  ],
+  [
+    '/v1/webhooks/workflows/{id}',
+    'post',
+    'Trigger an enabled inbound-webhook workflow using its bearer or X-OAA-Webhook-Token secret',
+  ],
+  [
     '/v1/workflows/validate',
     'post',
     'Validate and lay out a workflow without execution or publication',

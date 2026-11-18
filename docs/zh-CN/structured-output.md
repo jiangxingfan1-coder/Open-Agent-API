@@ -43,7 +43,7 @@
 
 ## 流式
 
-带结构化格式的流不能边生成边发文本，因为已经发出去的片段可能事后被判属于错误的答案。网关把答案扣到校验通过，再把最终的 JSON 作为**一个**文本分块，按该协议正常的事件序列发出（Chat：角色分块、一个内容分块、结束分块、要求时的用量分块、`[DONE]`；Responses、Claude、Gemini 同理）。等待期间，心跳帧（`: heartbeat`，每 15 秒）保持连接不超时。答案不合格时，流以该协议的错误结束，之前没有任何内容。如果没法为智能体的整段运行一直开着连接，用非流式调用，或后台运行（`background: true`）再取回响应。
+默认情况下（当 `structuredOutput.maxRepairs > 0`，或该 schema 未作为严格原生 schema 下推时），流式请求会在生成期间暂存答案，避免一旦需要静默修复而把错误片段提前发给客户端：校验通过后再把最终 JSON 作为**一个**文本分块按协议标准序列发出（等待期间每 15 秒发送 `: heartbeat` 保活；校验失败则以协议错误帧结束且此前无正文）。当内核路由已将兼容的严格 `json_schema` 原生下推给上游模型驱动且 `structuredOutput.maxRepairs === 0` 时，token 增量直接流式直出，并在收尾时仍经 Ajv 做最终断言。不便长连时可改用非流式或 `background: true`。
 
 ## 与其它功能的关系
 
@@ -54,12 +54,12 @@
 * **备选智能体**（`oaa.agent_fallback`）照旧；它们在任何输出出现之前生效。
 * 智能体**已发布的 `outputSchema`** 在调用方的契约之后仍然生效；不合格的话和以前一样是 `output_contract`。
 
-## 没有做的
+## 原生下推与边界
 
-* schema **没有**传给模型提供方自己的结构化输出功能（OpenAI 的 `response_format`、Anthropic 的 `output_config.format`、Gemini 的 `responseSchema`）。智能体在输入里被告知结构，由网关校验；提供方原生的格式能提高一次通过率，但要按提供方分别处理，还可能让提供方拒绝它原本接受的请求。保证并不依赖它。
+* **原生 Schema 下推与平滑降级**：对内核智能体，兼容的输出契约会在最终回答轮次原生下推至四大模型驱动（OpenAI Chat 的 `response_format`、OpenAI Responses 的 `text.format`、Anthropic Messages 的 `output_config.format`、Gemini 的 `generationConfig.responseMimeType = "application/json"` 加 `responseSchema` / `responseJsonSchema`；当首轮同时存在强制调用方工具时，工具轮优先执行 `toolChoice`，最终文本轮再生效 `outputContract`）。超出某厂商严格子集的 schema（如 strict 模式不支持的自由对象）会自动平滑降级为提示词约束加网关 Ajv 校验，不会因上游挑剔而报 400。
 * `json_object` 只接受对象；顶层是数组要用 `json_schema`（或 Gemini 的普通 JSON mime 类型）。
-* `strict` 本身没有作用（见上）；`description` 字段只作为 schema 的一部分原样带着。
-* 靠**强制工具调用**来拿结构的调用方（例如 LangChain 的 `with_structured_output(method="function_calling")`，或默认 `jsonTool` 模式的 `@ai-sdk/anthropic`）得不到支持：网关没法保证强制的工具选择（见 [harness.md](harness.md)）。请改用 JSON schema 方式（`method="json_schema"`；`@ai-sdk/anthropic` 用 `structuredOutputMode: "outputFormat"`）。
+* `strict` 在兼容的原生 `json_schema` 下推时一并透传并回显；网关侧始终对 schema 本身做完整校验。
+* **强制工具调用（`tool_choice`）**：靠强制工具调用提取结构的调用方（例如 LangChain 的 `with_structured_output(method="function_calling")` 或 `jsonTool` 模式的 `@ai-sdk/anthropic`）在支持桥接的智能体（`kernel`、`codex`、`claude`、Antigravity ACP 与 ACP 适配器，见 [harness.md](harness.md)）上已受支持：内核驱动首轮原生下推 `tool_choice` 并在续接轮自动收敛回 `auto`；外部桥接智能体注入必调约束并在未命中时执行最多 1 轮会话续接纠正（仍未调用则返回 422 `tool_choice_unmet`）。
 
 ## 示例
 

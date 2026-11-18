@@ -1,5 +1,8 @@
 // Console message dictionary: the pages (overview, agents, tasks, machines, access, keys, platform, settings). Chinese text; the other language file must have exactly the same keys.
+import { zhWorkbench } from './messages-views-workbench-zh.js';
+
 export const zh = {
+  ...zhWorkbench,
   'breakdown.model': '模型推理',
   'breakdown.tools': '工具执行',
   'breakdown.queue': '排队等待',
@@ -376,10 +379,11 @@ export const zh = {
   'settings.resetMessage': '外观与使用偏好会恢复为默认值。',
   'webhooks.title': '事件回调',
   'webhooks.hint':
-    '运行事件（完成、失败、等待审批等）会带 HMAC 签名推送到这些地址。增删改请用 oaa webhook 命令或 /v1/webhooks 接口，详见 docs/zh-CN/webhooks.md。',
+    '运行事件（完成、失败、等待审批等）会带 HMAC 签名推送到这些地址。可直接在此管理，或使用 oaa webhook 命令与 /v1/webhooks 接口，详见 docs/zh-CN/webhooks.md。',
   'webhooks.loading': '正在读取事件回调…',
   'webhooks.none': '还没有事件回调',
-  'webhooks.noneHint': '用 oaa webhook add https://example.com/hook 添加一个。',
+  'webhooks.noneHint':
+    '点击「添加回调端点」，或运行 oaa webhook add https://example.com/hook 添加。',
   'webhooks.error': '读取事件回调失败。',
   'webhooks.colUrl': '地址',
   'webhooks.colEvents': '事件',

@@ -35,6 +35,11 @@ export class RunTextSink {
     return this.sink !== undefined;
   }
 
+  /** 当前是否处于缓冲扣留状态（结构化输出修复或强制工具未确认前）。 */
+  get held(): boolean {
+    return this.holding;
+  }
+
   /**
    * Structured output: while held, text is not recorded at all. The answer is checked first and
    * written out in one piece once it fits (kernel/structured-output.ts).

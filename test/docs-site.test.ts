@@ -248,13 +248,17 @@ test('docs-site: no Markdown file of the repository shows literal ** or ~~ on Gi
     'dist',
     'release',
     '.claude',
+    '.playwright-cli',
+    '.venv',
+    'venv',
     'site-dist',
+    'coverage',
     'output',
   ]);
   const files: string[] = [];
   const walk = async (dir: string) => {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
-      if (skip.has(entry.name)) continue;
+      if (skip.has(entry.name) || entry.name.startsWith('.oaa')) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) await walk(full);
       else if (entry.name.endsWith('.md')) files.push(full);

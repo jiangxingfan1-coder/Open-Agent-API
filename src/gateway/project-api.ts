@@ -12,6 +12,11 @@ export const PROJECT_OPERATIONS = [
     'Grant or revoke project memory access for one caller subject',
   ],
   ['/v1/projects/{id}/memory', 'get', 'Read shared project memory with a matching project grant'],
+  [
+    '/v1/projects/{id}/memory/search',
+    'get',
+    'Full-text BM25 search across shared project memory with a matching project grant',
+  ],
   ['/v1/projects/{id}/memory', 'put', 'Write revision-checked shared project memory'],
   ['/v1/projects/{id}/memory', 'delete', 'Delete one revision-checked shared project memory entry'],
 ] as const;

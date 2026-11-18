@@ -33,6 +33,11 @@ export const VIEWS = {
     group: t('view.group.workspace'),
     desc: t('view.agents.desc'),
   },
+  workbench: {
+    title: t('view.workbench.title'),
+    group: t('view.group.workspace'),
+    desc: t('view.workbench.desc'),
+  },
   requests: {
     title: t('view.requests.title'),
     group: t('view.group.workspace'),
@@ -75,6 +80,7 @@ export const VIEW_ICONS = {
   usage: 'chart-no-axes-combined',
   overview: 'layout-dashboard',
   agents: 'bot',
+  workbench: 'messages-square',
   requests: 'activity',
   nodes: 'server',
   access: 'plug',
@@ -267,8 +273,10 @@ const FEATURE_LABELS = {
   'overview-events-v1': t('feature.overview-events-v1'),
   'platform-setup-v1': t('feature.platform-setup-v1'),
   'platform-v1': t('feature.platform-v1'),
+  'prometheus-metrics-v1': t('feature.prometheus-metrics-v1'),
   'queue-insight-v1': t('feature.queue-insight-v1'),
   'run-timeline-v1': t('feature.run-timeline-v1'),
+  'trace-context-v1': t('feature.trace-context-v1'),
   'webhooks-v1': t('feature.webhooks-v1'),
   'workflow-output-v1': t('feature.workflow-output-v1'),
 };

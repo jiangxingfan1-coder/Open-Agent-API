@@ -88,7 +88,11 @@ Gemini, native `/v1/runs`, files, timeline, event streams):
 - Comparisons use `timingSafeEqual` over hashes.
 - Portal passwords use scrypt (N=32768, r=8, p=3, 16-byte salt); unknown emails cost one scrypt
   too. Changing or resetting a password, or disabling an account, ends all its sessions.
-- Login, signup and password reset are rate-limited per client IP and per email (in memory).
+- Login, signup, password reset and credit-code redemption failures are rate-limited per client IP,
+  per email and per account, persisted in SQLite (`platform_rate_limits`) across restarts.
+- When `platform.verificationWebhookUrl` is configured, signup and self-service password reset
+  return a uniform verification prompt (eliminating `email_taken` enumeration) and deliver signed
+  verification events asynchronously over HTTPS.
 - Error messages pass through `redact()`, which removes `sk-…`, `oaa_…`, `oan_…`, `oas_…`,
   `Bearer …`, Google `AIza…`, GitHub, Slack and AWS access-key formats and `key=value` secrets.
   Redaction is a safety net, not a guarantee.
@@ -180,13 +184,14 @@ console. The key file `admin.token` stays in the data folder.
   shell or network tools can be steered to use them within its execution level and approvals.
 - **Environment inheritance** (default): see item 4 above.
 - **Agent-limited admins** with a quota can create several keys, each up to their own quota.
-- **Account enumeration**: portal signup answers `email_taken` for a registered email, in every
-  profile. A uniform answer needs an email-verification step, which the platform does not have
-  (signup returns a usable session immediately).
-- **In-memory rate limits** reset on restart and are per process.
+- **Account enumeration (when `verificationWebhookUrl` is unset)**: without an outbound verification
+  webhook configured, portal signup answers `email_taken` for a registered email so synchronous
+  local/invite signups can return a usable session immediately. Set `platform.verificationWebhookUrl`
+  on public sites for a uniform verification response.
+- **Single-node rate-limit scope**: portal rate limits persist in SQLite across gateway restarts,
+  while per-key API RPM counters remain in memory per gateway process.
 - **Compromised execution nodes** see the runs placed on them (including BYOK keys) and can
   return forged results and usage.
-- **Login failure counters** are in memory only (not persisted), in every profile.
 - **Stored data** (SQLite and files) is not encrypted at rest; protect the data directory with
   file permissions and disk encryption.
 - **The macOS app's engine switch** is not an opt-out: each launch sets `enabled: true` again for

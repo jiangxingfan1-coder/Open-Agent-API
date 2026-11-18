@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { graphSchema, parseGraph, compileGraphPlan } from './graph.js';
+import { parseCron, validateTimeZone } from './cron.js';
 import { Fault } from '../core/util.js';
 
 export const taskWorkflowSchema = z
@@ -25,9 +26,26 @@ export const taskWorkflowSchema = z
           .strict(),
         z
           .object({
+            kind: z.literal('cron'),
+            expression: z.string().min(1).max(120),
+            timezone: z.string().min(1).max(120).default('UTC'),
+            input: z.unknown().default({}),
+          })
+          .strict(),
+        z
+          .object({
             kind: z.literal('event'),
             agent: z.string().min(1).max(120),
             subject: z.string().min(1).max(200).optional(),
+          })
+          .strict(),
+        z
+          .object({
+            kind: z.literal('webhook'),
+            secretHash: z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .optional(),
           })
           .strict(),
       ])
@@ -44,6 +62,10 @@ export const workflowAgents = (definition: TaskWorkflow) => [
 ];
 export function validateTaskWorkflow(value: unknown, agents: Set<string>) {
   const definition = taskWorkflowSchema.parse(value);
+  if (definition.trigger.kind === 'cron') {
+    parseCron(definition.trigger.expression);
+    validateTimeZone(definition.trigger.timezone);
+  }
   const allowed = new Set(['input', 'model', 'file_ids', 'strategy', 'output_kind', 'format']);
   const argumentsOf = (args: Record<string, unknown>) => {
     if (!Object.hasOwn(args, 'input') || Object.keys(args).some((key) => !allowed.has(key)))

@@ -5,11 +5,10 @@ import { modelPolicySchema, modelRouteId, MAX_AGENT_MODELS } from '../core/model
 import { agentAccessSchema } from '../core/agent-access.js';
 import { orchestrationSchema } from '../core/orchestration.js';
 import { modelAliases } from './compat-models.js';
-import { refreshAgentModels } from '../fabric/model-pool.js';
-import { supportsReasoning } from '../fabric/model-pool.js';
+import { canOrchestrate, refreshAgentModels } from '../fabric/model-pool.js';
 import type { GatewayConfig } from '../config/config.js';
 import { agentSchema, type AgentDefinition, type Principal } from '../core/contracts.js';
-import { agentConversionProfile } from '../engines/conformance.js';
+import { resolveConversionProfile } from '../fabric/adapter-profiles.js';
 import {
   adapterAgentDescription,
   backendNotEnabled,
@@ -121,7 +120,7 @@ export function registerAgentRoutes(app: FastifyInstance, deps: AgentRouteDeps):
     return {
       data: data.map((a) => ({
         ...a,
-        conversion: agentConversionProfile(a, config.localWorker),
+        conversion: resolveConversionProfile(a, config.localWorker, hub, req.principal.owner),
       })),
       catalog_cursor: catalog.cursor(req.principal, catalogEntries(data)),
     };
@@ -138,7 +137,7 @@ export function registerAgentRoutes(app: FastifyInstance, deps: AgentRouteDeps):
       definition.agent,
       definition.digest,
       query,
-      agentConversionProfile(definition.agent, config.localWorker),
+      resolveConversionProfile(definition.agent, config.localWorker, hub, req.principal.owner),
     );
   });
   app.get('/v1/catalog/agent/content', async (req, reply) => {
@@ -173,7 +172,9 @@ export function registerAgentRoutes(app: FastifyInstance, deps: AgentRouteDeps):
     if (
       body.orchestration &&
       !prior.agent.orchestration?.enabled &&
-      !supportsReasoning(hub, req.principal.owner, prior.agent)
+      !canOrchestrate(store, hub, req.principal.owner, prior.agent, {
+        grantedAgents: req.principal.agents,
+      })
     )
       throw new Fault(
         'capability_unavailable',

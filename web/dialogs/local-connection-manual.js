@@ -3,6 +3,65 @@ import { button, copyText, el, iconButton, icons } from '../lib/dom.js';
 import { t } from '../lib/i18n.js';
 import { agentModelChoices, agentModelName, openKeyDialog } from './key.js';
 
+const TARGET_CATALOG = {
+  dsh: { clientId: 'dsh', name: 'DeepSeek Harness', icon: 'deepseek-harness', channel: 'api' },
+  opencode: { clientId: 'opencode-acp', name: 'OpenCode', icon: 'opencode-acp', channel: 'api' },
+  codex: { clientId: 'codex', name: 'Codex', icon: 'codex', channel: 'api' },
+  'claude-desktop': {
+    clientId: 'claude-desktop',
+    name: 'Claude Desktop',
+    icon: 'claude',
+    channel: 'mcp',
+  },
+  cursor: { clientId: 'cursor', name: 'Cursor', icon: 'cursor', channel: 'mcp' },
+  windsurf: { clientId: 'windsurf', name: 'Windsurf', icon: 'windsurf', channel: 'mcp' },
+  'claude-code': { clientId: 'claude', name: 'Claude Code', icon: 'claude', channel: 'mcp' },
+};
+
+const CLIENT_TARGETS = {
+  dsh: { api: 'dsh' },
+  'opencode-acp': { api: 'opencode', manual: true },
+  opencode: { api: 'opencode', manual: true },
+  codex: { api: 'codex', manual: true },
+  claude: { mcp: 'claude-code', manual: true },
+  'claude-code': { mcp: 'claude-code', manual: true },
+  'claude-desktop': { mcp: 'claude-desktop' },
+  cursor: { mcp: 'cursor' },
+  windsurf: { mcp: 'windsurf' },
+};
+
+export function targetClientMeta(target, clients = []) {
+  const entry = TARGET_CATALOG[target] ?? TARGET_CATALOG.dsh;
+  const matched = clients.find((c) => c.id === entry.clientId || c.id === target);
+  if (matched) return matched;
+  return {
+    id: entry.clientId,
+    name: entry.name,
+    icon: entry.icon,
+    connection: 'managed',
+    targets: { [entry.channel]: target },
+  };
+}
+
+export function resolveClientTargets(client) {
+  const preset = CLIENT_TARGETS[client.id] ?? {};
+  return {
+    api: client.targets?.api ?? preset.api,
+    mcp: client.targets?.mcp ?? preset.mcp,
+    manual: client.connection === 'manual' || !!preset.manual || !!client.guide,
+  };
+}
+
+export function protocolName(protocol) {
+  return (
+    {
+      responses: 'OpenAI Responses',
+      messages: 'Anthropic Messages',
+      'chat-completions': 'OpenAI Chat Completions',
+    }[protocol] ?? ''
+  );
+}
+
 /** Manual setup stays in the normal, explicitly confirmed API-key flow; no client files are edited. */
 export function manualConnection(body, actions, client, dlg, valid) {
   const engines = new Set([client.id, ...(client.engines ?? [])]);

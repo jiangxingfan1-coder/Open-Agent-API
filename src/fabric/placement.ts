@@ -224,7 +224,9 @@ export function toolPlacement(
 ): PlacementReason[] {
   if (
     binding.handler.kind === 'builtin' &&
-    (binding.handler.name === 'memory_read' || binding.handler.name === 'memory_write')
+    (binding.handler.name === 'memory_read' ||
+      binding.handler.name === 'memory_write' ||
+      binding.handler.name === 'memory_search')
   ) {
     return commonPlacement({ ...request, files: [], preferred: undefined }, node);
   }
@@ -243,6 +245,7 @@ export function toolPlacement(
     if (
       binding.handler.name !== 'memory_read' &&
       binding.handler.name !== 'memory_write' &&
+      binding.handler.name !== 'memory_search' &&
       !advert.execution?.builtins.includes(binding.handler.name)
     )
       reasons.push(reason('builtin_unreported', 'Worker has not reported this built-in tool.'));

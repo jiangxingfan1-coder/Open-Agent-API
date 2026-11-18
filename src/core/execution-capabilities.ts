@@ -3,6 +3,24 @@ import { z } from 'zod';
 import { imageInputCapabilitySchema } from './images.js';
 import { modelCatalogSchema } from './model-catalog.js';
 
+export const conversionProfileSchema = z
+  .object({
+    access: z.enum(['kernel', 'native', 'acp', 'oaa-adapter', 'a2a', 'unknown']),
+    transport: z.string().min(1).max(120),
+    tier: z.enum(['basic', 'streaming', 'interactive']),
+    streaming: z.enum(['token', 'message', 'final']),
+    approvals: z.enum(['bridged', 'denied', 'none']),
+    cancel: z.enum(['cooperative', 'terminate', 'request-abort']),
+    resume: z.enum(['native', 'agent-declared', 'adapter-state', 'none']),
+    tool_events: z.enum(['tool', 'status', 'none']),
+    usage: z.enum(['reported', 'agent-reported', 'partial', 'none']),
+    artifacts: z.boolean(),
+    model_selection: z.enum(['route', 'declared', 'agent-confirmed', 'allowlist']),
+    client_tools: z.enum(['bridge', 'managed']),
+    image_input: z.enum(['route', 'native', 'agent-declared', 'workspace-file', 'none']),
+  })
+  .strict();
+
 export const executionCapabilitiesSchema = z
   .object({
     builtins: z.array(z.string()).max(100),
@@ -43,6 +61,30 @@ export const executionCapabilitiesSchema = z
       })
       .strict()
       .optional(),
+    /** W3C Trace Context + caller subject propagation; sent after `trace-context-v1`. */
+    traceContextVersion: z.literal(1).optional(),
+    /** Static ConversionProfiles of enabled `adapter/<name>` entries; sent after `conversion-profiles-v1`. */
+    adapterProfiles: z.record(z.string().max(200), conversionProfileSchema).optional(),
   })
   .strict();
 export type ExecutionCapabilities = z.infer<typeof executionCapabilitiesSchema>;
+
+export type NodeCredential = {
+  nodeId: string;
+  owner: string;
+  token: string;
+  capabilities: string[];
+  agents: string[];
+};
+export type NodePolicyState = 'active' | 'draining' | 'revoked';
+export const nodePolicySchema = z
+  .object({
+    nodeId: z.string().min(1).max(120),
+    owner: z.string(),
+    state: z.enum(['active', 'draining', 'revoked']),
+    actor: z.string(),
+    reason: z.string().max(1000),
+    updatedAt: z.number().int().nonnegative(),
+  })
+  .strict();
+export type NodePolicy = z.infer<typeof nodePolicySchema>;

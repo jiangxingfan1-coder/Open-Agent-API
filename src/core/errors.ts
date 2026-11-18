@@ -88,6 +88,7 @@ const ROWS: Row[] = [
   ['client_tools_too_many', 400, 'request', _, '已发布工具加调用方工具超过 100 个', '减少本次请求声明的工具'],
   ['output_schema_unsupported', 400, 'request', _, '请求的输出 schema 里有网关无法如实校验的内容（异步、文档外引用、未实现的 format、危险的正则、嵌套过深）', '改写 schema：只引用文档内部、用标准 format、正则写简单些'],
   ['invalid_client_tool', 400, 'request', _, '调用方工具的名字或参数 schema 不合法', '名字用字母、数字、_ 或 -（至多 64 个），参数用合法的 JSON Schema'],
+  ['tool_choice_unmet', 422, 'request', _, '请求强制要求调用工具，但智能体（含纠正轮）仍未调用所要求的工具', '放宽 tool_choice 为 auto，或在提示词中说明工具用途'],
   ['invalid_json', 400, 'request', _, '请求体不是合法 JSON，或声明了 JSON 却为空'],
   ['payload_too_large', 413, 'request', _, '请求体或数据超过大小上限'],
   ['unsupported_media_type', 415, 'request', _, '不支持的 Content-Type'],

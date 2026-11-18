@@ -1,7 +1,6 @@
 /**
- * Execution metadata a worker may send. `byokProviders`, `sandbox`, `providerStateProviders`,
- * `clientTools` and `imageInput` are newer fields that an older gateway's strict schema would
- * reject, so each is included only after the gateway offered the matching feature.
+ * Execution metadata a worker may send. Newer fields that an older gateway's strict schema would
+ * reject are included only after the gateway offered the matching feature in `welcome.features`.
  */
 import type { NodeAdvertisement } from '../core/contracts.js';
 
@@ -14,8 +13,10 @@ export type Negotiated = {
   modelCatalogs?: boolean;
   agentPolicy?: boolean;
   toolFreeReasoning?: boolean;
+  traceContext?: boolean;
+  adapterProfiles?: boolean;
 };
-export const NO_NEGOTIATION = {
+export const NO_NEGOTIATION: Negotiated = {
   byok: false,
   sandbox: false,
   providerState: false,
@@ -24,6 +25,8 @@ export const NO_NEGOTIATION = {
   modelCatalogs: false,
   agentPolicy: false,
   toolFreeReasoning: false,
+  traceContext: false,
+  adapterProfiles: false,
 };
 
 export function advertisedExecution(
@@ -42,6 +45,8 @@ export function advertisedExecution(
     projectWorkspaces,
     projectEngines,
     toolFreeReasoning,
+    traceContextVersion,
+    adapterProfiles,
     ...legacy
   } = execution;
   return {
@@ -56,5 +61,9 @@ export function advertisedExecution(
     ...(negotiated.agentPolicy && projectWorkspaces ? { projectWorkspaces } : {}),
     ...(negotiated.agentPolicy && projectEngines ? { projectEngines } : {}),
     ...(negotiated.toolFreeReasoning && toolFreeReasoning ? { toolFreeReasoning } : {}),
+    ...(negotiated.traceContext && traceContextVersion ? { traceContextVersion } : {}),
+    ...(negotiated.adapterProfiles && adapterProfiles && Object.keys(adapterProfiles).length
+      ? { adapterProfiles }
+      : {}),
   };
 }
