@@ -48,6 +48,131 @@ const basicModel = () =>
       : { calls: [{ id: 'guard', name: 'guarded', arguments: {} }] },
   );
 
+test('failed queued cancellation preserves its place and can still run once or be cancelled again', async () => {
+  const gate = Promise.withResolvers<void>();
+  const inputs: string[] = [];
+  const s = await setup(
+    new FixtureModel(async (_a, m) => {
+      inputs.push(m.at(-1)!.content);
+      await gate.promise;
+      return { text: 'done' };
+    }),
+    { maxActiveRuns: 1 },
+  );
+  try {
+    s.store.publish('owner', makeBundle(agent({ id: 'agent/review' })));
+    const first = submit(s, undefined, 'hold');
+    await waitFor(() => s.driver.calls === 1);
+    const keep = submit(s, undefined, 'keep'),
+      retry = submit(s, undefined, 'retry');
+    s.store.db.exec(
+      "CREATE TEMP TRIGGER fail_cancel BEFORE INSERT ON events WHEN NEW.type='response.cancelled' BEGIN SELECT RAISE(ABORT,'cancel unavailable'); END",
+    );
+    for (const r of [keep, retry])
+      await assert.rejects(s.kernel.cancel(principal, r.id), /cancel unavailable/);
+    assert.equal(s.kernel.stats().queued, 2);
+    assert.deepEqual(
+      [keep, retry].map((r) => s.store.run(r.id).status),
+      ['queued', 'queued'],
+    );
+    s.store.db.exec('DROP TRIGGER fail_cancel');
+    assert.equal((await s.kernel.cancel(principal, retry.id)).status, 'cancelled');
+    gate.resolve();
+    for (const r of [first, keep]) assert.equal((await s.kernel.wait(r.id)).status, 'completed');
+    assert.deepEqual(inputs, ['hold', 'keep']);
+  } finally {
+    gate.resolve();
+    await s.cleanup();
+  }
+});
+
+test('a failed approval opening creates neither a visible action nor a dispatch', async () => {
+  const s = await setup(basicModel());
+  let writes = 0;
+  try {
+    const binding = installTool(s, 'guarded', true, async () => ({ value: ++writes }));
+    s.store.publish('owner', makeBundle(agent({ id: 'agent/review', tools: [binding] })));
+    s.store.db.exec(
+      "CREATE TEMP TRIGGER fail_open BEFORE INSERT ON events WHEN NEW.type='run.requires_action' BEGIN SELECT RAISE(ABORT,'open unavailable'); END",
+    );
+    const r = submit(s);
+    assert.equal((await s.kernel.wait(r.id)).status, 'failed');
+    assert.deepEqual(s.store.approvals(r.id), []);
+    assert.equal(s.store.history(r.id).filter((e) => e.type === 'run.requires_action').length, 0);
+    assert.equal(writes, 0);
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('a parked cancellation expires all approvals only when its terminal checkpoint commits', async () => {
+  const s = await setup(basicModel(), { approvalTimeoutMs: 5000 });
+  let writes = 0;
+  try {
+    const binding = installTool(s, 'guarded', true, async () => ({ value: ++writes }));
+    s.store.publish('owner', makeBundle(agent({ id: 'agent/review', tools: [binding] })));
+    const run = submit(s);
+    await parked(s, run.id);
+    await waitFor(() => s.kernel.stats().executing === 0);
+    const action = s.store.approvals(run.id)[0]!;
+    const notices: string[] = [];
+    s.store.events.on('approval:' + action.id, () => notices.push(s.store.run(run.id).status));
+    s.store.db.exec(
+      "CREATE TEMP TRIGGER fail_cancel BEFORE INSERT ON events WHEN NEW.type='response.cancelled' BEGIN SELECT RAISE(ABORT,'cancel unavailable'); END",
+    );
+    await assert.rejects(s.kernel.cancel(principal, run.id), /cancel unavailable/);
+    assert.equal(s.store.getApproval(action.id, run.owner).status, 'pending');
+    assert.equal(s.store.run(run.id).status, 'requires_action');
+    assert.equal(s.kernel.stats().parked, 1);
+    assert.deepEqual(notices, []);
+    s.store.db.exec('DROP TRIGGER fail_cancel');
+    assert.equal((await s.kernel.cancel(principal, run.id)).status, 'cancelled');
+    assert.deepEqual(notices, ['cancelled']);
+    assert.equal(s.store.getApproval(action.id, run.owner).status, 'expired');
+    assert.equal(writes, 0);
+  } finally {
+    await s.cleanup();
+  }
+});
+
+for (const restart of [false, true])
+  test(`a committed approval survives a failed scheduling write (restart=${restart})`, async () => {
+    const s = await setup(basicModel(), { maxActiveRuns: 1, approvalTimeoutMs: 10000 });
+    let next: Awaited<ReturnType<typeof createGateway>> | undefined;
+    let writes = 0;
+    try {
+      const binding = installTool(s, 'guarded', true, async () => ({ value: ++writes }));
+      s.store.publish('owner', makeBundle(agent({ id: 'agent/review', tools: [binding] })));
+      const run = submit(s);
+      await parked(s, run.id);
+      await waitFor(() => s.kernel.stats().executing === 0);
+      const a = s.store.approvals(run.id)[0]!;
+      s.store.db.exec(
+        "CREATE TEMP TRIGGER fail_wake BEFORE UPDATE OF status ON runs WHEN NEW.status='queued' BEGIN SELECT RAISE(ABORT,'wake unavailable'); END",
+      );
+      s.kernel.decide(principal, run.id, a.id, 'approve');
+      assert.equal(s.store.getApproval(a.id, run.owner).status, 'approved');
+      assert.equal(s.store.run(run.id).status, 'requires_action');
+      assert.equal(writes, 0);
+      if (restart) {
+        await s.app.close();
+        next = await createGateway(
+          s.config,
+          new WorkerRuntime(s.runtime.config, s.runtime.handlers, new Map([['fixture', s.driver]])),
+        );
+        await next.listen();
+      } else s.store.db.exec('DROP TRIGGER fail_wake');
+      const g = next ?? s;
+      await waitFor(() => g.store.run(run.id).status === 'completed', 6000);
+      assert.equal(writes, 1);
+      assert.equal(s.driver.calls, 2);
+      assert.equal(g.store.history(run.id).filter((e) => e.type === 'approval.resolved').length, 1);
+    } finally {
+      await next?.app.close();
+      await s.cleanup();
+    }
+  });
+
 test('a parked kernel approval releases the only run slot without repeating its model turn', async () => {
   const s = await setup(basicModel(), { maxActiveRuns: 1, approvalTimeoutMs: 5000 });
   let writes = 0;

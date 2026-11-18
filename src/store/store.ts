@@ -29,6 +29,15 @@ import { putPrivateMemory, deletePrivateMemory } from './private-memory.js';
 import { installRunOutcomes } from './run-outcomes.js';
 import { getArtifactByteLimit } from './large-artifacts.js';
 import { refreshWaiting, waitingOn } from './waiting.js';
+import {
+  approvalRows,
+  approvalRow,
+  writeApprovalRow,
+  changeApprovalRows,
+  keepParkedOnRestart,
+  type Approval,
+} from './approval-rows.js';
+export type { Approval } from './approval-rows.js';
 import { backupBeforeMigration } from './backup.js';
 type Row = Record<string, unknown>;
 /**
@@ -63,17 +72,6 @@ export type FileRecord = Omit<FilePayload, 'content'> & {
   runId?: string;
   bytes: number;
   createdAt: number;
-};
-export type Approval = {
-  id: string;
-  runId: string;
-  owner: string;
-  stepId: string;
-  kind: 'tool' | 'native' | 'reconcile' | 'client_tool';
-  detail: Record<string, unknown>;
-  response?: Record<string, unknown>;
-  status: 'pending' | 'approved' | 'denied' | 'expired';
-  expiresAt: number;
 };
 export type MemoryRecord = {
   owner: string;
@@ -963,6 +961,29 @@ export class Store {
   checkpoint(run: Run, events: EventInput[] = [], final?: (view: Run) => EventInput): void {
     this.record(run, events, true, { final });
   }
+  checkpointActions(
+    run: Run,
+    actions: Approval[] | 'expire',
+    events: EventInput[],
+    final?: (view: Run) => EventInput,
+    committed?: () => void,
+  ): void {
+    this.record(run, events, true, { actions, final, committed });
+  }
+  openApproval(run: Run, approval: Approval): void {
+    const previous = run.status;
+    run.status = 'requires_action';
+    try {
+      this.checkpointActions(
+        run,
+        [approval],
+        [{ type: 'run.requires_action', data: { approval } }],
+      );
+    } catch (error) {
+      run.status = previous;
+      throw error;
+    }
+  }
   /**
    * 换用备选智能体：把运行改挂到另一个智能体名下，并在同一个事务里写入检查点和事件。
    * 目录列与摘要列一起改，避免出现「载荷说是 B、索引还是 A」的中间状态。
@@ -1034,11 +1055,15 @@ export class Store {
       completion,
       reassign,
       stageAdmission,
+      actions,
+      committed,
     }: {
       final?: (view: Run) => EventInput;
       completion?: { step: ExecutionStep; artifactIds: string[] };
       reassign?: boolean;
       stageAdmission?: () => () => void;
+      actions?: Approval[] | 'expire';
+      committed?: () => void;
     } = {},
   ): void {
     const owner = this.ownerOf(run.id);
@@ -1055,8 +1080,10 @@ export class Store {
     };
     const events: RunEvent[] = [];
     let publishAdmission: (() => void) | undefined;
+    let changed: Approval[] = [];
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      if (actions) changed = changeApprovalRows(this, run, actions);
       if (completion) this.step(completion.step);
       if (reassign) {
         this.prepare('UPDATE runs SET agent_id=? WHERE id=? AND owner=?').run(
@@ -1088,6 +1115,7 @@ export class Store {
       throw e;
     }
     publishAdmission?.();
+    committed?.();
     this.remember(run.id, { messages, updatedAt: view.updatedAt });
     this.appendHotEvents(run.id, events);
     run.output = view.output;
@@ -1097,6 +1125,7 @@ export class Store {
       ...events.map((event) => ({ name: run.id, value: event })),
       // Delivered only after commit: summary/metrics read models never see provisional state.
       ...(snapshot ? [{ name: 'summary', value: this.summaryChange(view) }] : []),
+      ...changed.map((a) => ({ name: `approval:${a.id}`, value: a })),
     ]);
   }
   /**
@@ -1308,9 +1337,7 @@ export class Store {
     this.mutation(
       a.runId,
       () => {
-        this.prepare(
-          'INSERT INTO approvals VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload',
-        ).run(a.id, a.runId, a.owner, JSON.stringify(a));
+        writeApprovalRow(this, a);
         notifications.push(...refreshWaiting(this, a.runId));
       },
       event,
@@ -1318,19 +1345,10 @@ export class Store {
     );
   }
   approvals(runId: string): Approval[] {
-    return (
-      this.prepare('SELECT payload FROM approvals WHERE run_id=? ORDER BY rowid').all(
-        runId,
-      ) as Row[]
-    ).map((r) => JSON.parse(r.payload as string));
+    return approvalRows(this, runId);
   }
   getApproval(approvalId: string, owner: string): Approval {
-    const row = this.prepare('SELECT payload FROM approvals WHERE id=? AND owner=?').get(
-      approvalId,
-      owner,
-    ) as Row | undefined;
-    if (!row) throw new Fault('approval_not_found', 'Approval not found.', 404);
-    return JSON.parse(row.payload as string);
+    return approvalRow(this, approvalId, owner);
   }
   /**
    * Store a file. An artifact (`runId`) always belongs to its run's subject; an upload belongs to
@@ -1495,12 +1513,7 @@ export class Store {
   }
   recover(): void {
     for (const run of this.allRuns(['in_progress', 'requires_action'])) {
-      if (
-        run.status === 'requires_action' &&
-        run.checkpoint.suspension?.kind === 'approval' &&
-        this.awaitingCaller(run.id)
-      )
-        continue;
+      if (keepParkedOnRestart(this, run)) continue;
       for (const step of this.steps(run.id).filter((s) => s.status === 'running')) {
         step.status = ['write', 'unknown'].includes(step.effect) ? 'uncertain' : 'pending';
         this.step(step);
@@ -1512,14 +1525,10 @@ export class Store {
           'Execution was interrupted. Explicit resume is required; completed steps are retained.',
       };
       run.metadata['oaa.usage_complete'] = 'false';
-      for (const a of this.approvals(run.id).filter((a) => a.status === 'pending')) {
-        a.status = 'expired';
-        this.approval(a);
-      }
       const outputEvents = run.output.flatMap((m, i) =>
         !m.status || m.status === 'in_progress' ? finishOutput(m, i, 'incomplete') : [],
       );
-      this.checkpoint(run, outputEvents, () => ({
+      this.checkpointActions(run, 'expire', outputEvents, () => ({
         type: 'run.interrupted',
         data: { error: run.error },
       }));

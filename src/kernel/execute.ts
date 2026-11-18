@@ -16,7 +16,7 @@ import { boundApprovalDetail, recordProgress } from './agent-events.js';
 import type { KernelRuntime } from './runtime.js';
 import type { ExecutionSlice } from './types.js';
 import { checkExecution } from './submission.js';
-import { autoApprove, awaitApproval, expireApprovals } from './approvals.js';
+import { autoApprove, awaitApproval } from './approvals.js';
 import { abandonCallerTool, awaitCallerTool } from './client-tools.js';
 import { nativeStepId } from './native-turn.js';
 import { runAgentPass } from './agent-pass.js';
@@ -361,8 +361,7 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
     run.status = classification.status;
     run.error = classification.error;
     delete run.checkpoint.suspension;
-    expireApprovals(rt, run.id);
-    rt.store.checkpoint(run, writer.finish('incomplete'), (view) => ({
+    rt.store.checkpointActions(run, 'expire', writer.finish('incomplete'), (view) => ({
       type: terminalEventType(run.status),
       data: { response: responseObject(view) },
     }));

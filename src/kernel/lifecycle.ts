@@ -6,7 +6,6 @@ import { Fault } from '../core/util.js';
 import { isTerminalEvent } from '../core/events.js';
 import type { KernelRuntime } from './runtime.js';
 import { authorize, checkProviderKey } from './submission.js';
-import { expireApprovals } from './approvals.js';
 import { rememberProjectResult } from './project-memory.js';
 import { recoverDurable } from './durability.js';
 import { supportsReasoning } from '../fabric/model-pool.js';
@@ -45,8 +44,7 @@ export function finishOrphan(rt: KernelRuntime, run: Run): void {
     message: 'The parent run is no longer active; this queued sub-agent run was not started.',
   };
   delete run.checkpoint.suspension;
-  expireApprovals(rt, run.id);
-  rt.store.checkpoint(run, [], (view) => ({
+  rt.store.checkpointActions(run, 'expire', [], (view) => ({
     type: 'response.cancelled',
     data: { response: responseObject(view) },
   }));
@@ -97,16 +95,7 @@ export async function cancel(rt: KernelRuntime, principal: Principal, runId: str
   authorize(principal, run.agentId, 'invoke');
   if (terminal(run.status)) return run;
   if (run.status === 'queued') {
-    rt.admission.clearParked(runId);
-    run.status = 'cancelled';
-    delete run.checkpoint.suspension;
-    rt.admission.queue = rt.admission.queue.filter((r) => r !== runId);
-    expireApprovals(rt, runId);
-    rt.store.checkpoint(run, [], (view) => ({
-      type: 'response.cancelled',
-      data: { response: responseObject(view) },
-    }));
-    releaseRun(rt, run);
+    rt.admission.finishParked(run, 'cancelled');
     return run;
   }
   if (run.checkpoint.suspension && !rt.admission.tasks.has(runId)) {

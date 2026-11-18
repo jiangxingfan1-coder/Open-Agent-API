@@ -133,7 +133,10 @@ What a run looks like after the gateway stops, by how it stopped:
 | `in_progress`, external agent (ACP, native, adapter) | `interrupted`, `effect_outcome_unknown`: a started turn cannot rule out side effects | same |
 | `requires_action` (approval) | `interrupted`; the pending approval is expired | same, at the next start |
 | `requires_action` waiting for a caller-side tool result | kept; the caller can still answer | same |
+| Parked kernel step whose required decisions all committed, before scheduling resumed | the scheduler consumes those decisions after restart; a denied or expired decision does not dispatch work | same |
 | queued delegated child whose parent is no longer active | `cancelled`, `parent_interrupted` | same |
+
+A queued or parked cancellation expires its pending actions in the same transaction as its terminal event. If that write fails, the run keeps its queue position or approval wait. A batch of caller tool results likewise commits all results and its output cursor together, or none.
 
 `interrupted` is final for display and accounting, but not for the operator: `POST
 /v1/runs/{id}/resume` (or `oaa resume`) continues it, and a step with an unknown external effect

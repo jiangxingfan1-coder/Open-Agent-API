@@ -12,10 +12,11 @@ import { Admission } from './admission.js';
 import type { KernelRuntime } from './runtime.js';
 import type { KernelAuth, KernelLimits, QueueInsight } from './types.js';
 import { linkWorkflowStage } from '../store/task-workflows.js';
+import { keepParkedOnRestart } from '../store/approval-rows.js';
 import { authorize, preview, submit } from './submission.js';
 import { context } from './model-turn.js';
 import { execute } from './execute.js';
-import { decide, expireApprovals } from './approvals.js';
+import { decide } from './approvals.js';
 import { cancel, reconcile, releaseRun, resume, start, wait } from './lifecycle.js';
 
 export type { KernelLimits, QueueInsight } from './types.js';
@@ -57,7 +58,6 @@ export class Kernel {
       limits,
       closing: () => this.closing,
       execute: (runId, preloaded) => execute(this.rt, runId, preloaded),
-      expireApprovals: (runId) => expireApprovals(this.rt, runId),
       releaseRun: (run) => releaseRun(this.rt, run),
     });
     this.rt = {
@@ -220,7 +220,7 @@ export class Kernel {
     await Promise.allSettled(this.admission.tasks.values());
     for (const runId of this.admission.parked.keys()) {
       const run = this.store.run(runId);
-      if (run.status === 'requires_action' && !this.store.awaitingCaller(runId))
+      if (run.status === 'requires_action' && !keepParkedOnRestart(this.store, run))
         this.admission.finishParked(
           run,
           'interrupted',

@@ -233,9 +233,7 @@ export function clientToolCall(
     status: 'pending',
     expiresAt: Date.now() + timeoutMs,
   };
-  store.approval(approval);
-  run.status = 'requires_action';
-  store.checkpoint(run, [{ type: 'run.requires_action', data: { approval } }]);
+  store.openApproval(run, approval);
   throw new ApprovalSuspension([approval.id]);
 }
 
@@ -312,9 +310,7 @@ export async function awaitCallerTool(
     status: 'pending',
     expiresAt: Date.now() + rt.limits.approvalTimeoutMs,
   };
-  store.approval(approval);
-  run.status = 'requires_action';
-  store.checkpoint(run, [{ type: 'run.requires_action', data: { approval } }]);
+  store.openApproval(run, approval);
   announceAwaiting(store, run.id);
   return await new Promise<CallerToolAnswer>((resolve, reject) => {
     let settled = false;
@@ -473,17 +469,18 @@ export function resolveClientResults(
   // 宁可重复交付，不可丢失：停车时不推进 delivered，到续接时才推进到停车那一刻的输出条数。
   if (run.checkpoint.bridge) {
     run.checkpoint.bridge.delivered = run.output.length;
-    store.save(run);
   }
   const before = store.lastEventId(run.id);
-  for (const a of pending) {
+  const outputs = new Map(results.map((r) => [r.call_id, r.output]));
+  const events = pending.map((a) => {
     a.status = 'approved';
-    a.response = { output: results.find((r) => r.call_id === a.id)!.output, cursor: before };
-    store.approval(a, {
-      type: 'approval.resolved',
+    a.response = { output: outputs.get(a.id)!, cursor: before };
+    return {
+      type: 'approval.resolved' as const,
       data: { approval_id: a.id, decision: 'approve', actor: principal.name, kind: 'client_tool' },
-    });
-  }
+    };
+  });
+  store.checkpointActions(run, pending, events);
   const cursor = store.lastEventId(run.id);
   hooks.wake(run.id);
   return { run: store.run(run.id), cursor };

@@ -45,9 +45,7 @@ export async function awaitApproval(
     expiresAt: Date.now() + rt.limits.approvalTimeoutMs,
   };
   if (!existing) {
-    rt.store.approval(a);
-    run.status = 'requires_action';
-    rt.store.checkpoint(run, [{ type: 'run.requires_action', data: { approval: a } }]);
+    rt.store.openApproval(run, a);
   }
   checkAbort(signal);
   if (kind === 'tool') {
@@ -139,13 +137,6 @@ export function autoApprove(
     data: { approval_id: a.id, decision: 'approve', actor: 'policy:auto' },
   });
   return { decision: 'approve' };
-}
-export function expireApprovals(rt: KernelRuntime, runId: string): void {
-  for (const action of rt.store.approvals(runId)) {
-    if (action.status !== 'pending') continue;
-    action.status = 'expired';
-    rt.store.approval(action);
-  }
 }
 export function decide(
   rt: KernelRuntime,

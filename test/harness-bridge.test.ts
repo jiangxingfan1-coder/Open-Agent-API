@@ -115,6 +115,58 @@ test('bridge: single call parks, returns tool_calls, and the same run continues'
   }
 });
 
+test('bridge: failure on the second result rolls back the entire submitted batch and its cursor', async () => {
+  const s = await setup(
+    new FixtureModel((_a, m) =>
+      toolResults(m).length
+        ? { text: 'done' }
+        : {
+            text: 'waiting',
+            calls: [
+              { id: 'a', name: 'edit_file', arguments: { path: 'a.ts' } },
+              { id: 'b', name: 'lint', arguments: {} },
+            ],
+          },
+    ),
+  );
+  try {
+    publish(s);
+    const first = await chat(s, { messages: [USER], tools: [EDIT, LINT] });
+    const runId = String(first.headers['x-run-id']),
+      calls = first.json().choices[0].message.tool_calls;
+    await waitFor(() => s.store.run(runId).checkpoint.suspension?.kind === 'approval');
+    const before = s.store.run(runId).checkpoint.bridge!.delivered;
+    s.store.db.exec(`CREATE TEMP TRIGGER fail_second BEFORE UPDATE OF payload ON approvals WHEN
+      json_extract(NEW.payload,'$.detail.tool')='lint' AND json_extract(NEW.payload,'$.status')='approved'
+      BEGIN SELECT RAISE(ABORT,'second result unavailable'); END`);
+    const reply = () =>
+      chat(s, {
+        tools: [EDIT, LINT],
+        messages: [
+          USER,
+          assistantCalls(calls),
+          toolMessage(calls[0].id, 'one'),
+          toolMessage(calls[1].id, 'two'),
+        ],
+      });
+    assert.equal((await reply()).statusCode, 500);
+    assert.deepEqual(
+      s.store.approvals(runId).map((a) => a.status),
+      ['pending', 'pending'],
+    );
+    assert.equal(s.store.run(runId).checkpoint.bridge!.delivered, before);
+    assert.equal(s.store.history(runId).filter((e) => e.type === 'approval.resolved').length, 0);
+    s.store.db.exec('DROP TRIGGER fail_second');
+    const done = await reply();
+    assert.equal(done.statusCode, 200, done.body);
+    assert.equal(done.headers['x-run-id'], runId);
+    assert.equal(s.store.history(runId).filter((e) => e.type === 'approval.resolved').length, 2);
+    assert.equal(s.driver.calls, 2);
+  } finally {
+    await s.cleanup();
+  }
+});
+
 test('bridge: two parallel calls are returned together; a partial reply parks again', async () => {
   const model = new FixtureModel((_a, messages) => {
     if (!toolResults(messages).length)

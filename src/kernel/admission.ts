@@ -19,13 +19,13 @@ export interface AdmissionRuntime {
   closing(): boolean;
   /** 启动一次执行（内核主流程）。 */
   execute(runId: string, preloaded?: Run): Promise<void>;
-  expireApprovals(runId: string): void;
   releaseRun(run: Run): void;
 }
 
 export class Admission {
   readonly tasks = new Map<string, Promise<void>>();
   readonly parked = new Map<string, NodeJS.Timeout | undefined>();
+  private readonly retrying = new Map<string, boolean>();
   queue: string[] = [];
   /**
    * 占用运行槽的运行数。不变量：执行中的运行数 = active + 借出运行槽的父运行数；
@@ -177,7 +177,10 @@ export class Admission {
         deferred.push(runId);
         continue;
       }
-      this.scheduleParked(runId);
+      if (!this.scheduleParked(runId)) {
+        deferred.push(runId);
+        continue;
+      }
       const queuedRun = this.rt.store.run(runId);
       if (queuedRun.status !== 'queued') continue;
       this.clearParked(runId);
@@ -202,28 +205,65 @@ export class Admission {
   clearParked(runId: string): void {
     clearTimeout(this.parked.get(runId));
     this.parked.delete(runId);
+    this.retrying.delete(runId);
   }
   finishParked(
     run: Run,
     status: 'failed' | 'cancelled' | 'interrupted' | 'incomplete',
-    code: string,
-    message: string,
+    code?: string,
+    message?: string,
   ): void {
-    this.clearParked(run.id);
-    this.queue = this.queue.filter((id) => id !== run.id);
     run.status = status;
-    run.error = { code, message };
+    if (code && message) run.error = { code, message };
     delete run.checkpoint.suspension;
-    this.rt.expireApprovals(run.id);
-    this.rt.store.checkpoint(run, [], (view) => ({
-      type: terminalEventType(status),
-      data: { response: responseObject(view) },
-    }));
+    this.rt.store.checkpointActions(
+      run,
+      'expire',
+      [],
+      (view) => ({
+        type: terminalEventType(status),
+        data: { response: responseObject(view) },
+      }),
+      () => {
+        this.clearParked(run.id);
+        this.queue = this.queue.filter((id) => id !== run.id);
+      },
+    );
     this.rt.releaseRun(run);
   }
-  scheduleParked(runId: string): void {
-    if (this.rt.closing() || this.tasks.has(runId) || !this.parked.has(runId)) return;
-    clearTimeout(this.parked.get(runId));
+  scheduleParked(runId: string): boolean {
+    if (this.rt.closing() || this.tasks.has(runId) || !this.parked.has(runId)) return true;
+    if (this.retrying.get(runId)) return false;
+    try {
+      this.checkParked(runId);
+      this.retrying.delete(runId);
+      return true;
+    } catch (error) {
+      if (
+        !(error instanceof Error && 'code' in error && error.code === 'ERR_SQLITE_ERROR') ||
+        !this.parked.has(runId)
+      )
+        throw error;
+      // A committed approval remains authoritative; retry only its scheduling checkpoint.
+      if (!this.retrying.has(runId))
+        process.emitWarning(
+          'A parked decision could not be checkpointed; scheduling will retry.',
+          'OAAParkedCheckpoint',
+        );
+      this.retrying.set(runId, true);
+      clearTimeout(this.parked.get(runId));
+      this.parked.set(
+        runId,
+        setTimeout(() => {
+          this.retrying.set(runId, false);
+          this.scheduleParked(runId);
+          this.pump();
+        }, 1000).unref(),
+      );
+      return false;
+    }
+  }
+  private checkParked(runId: string): void {
     const run = this.rt.store.run(runId);
     const deadline = run.checkpoint.deadlineAt ?? Infinity;
     const now = Date.now();
@@ -268,7 +308,7 @@ export class Admission {
           { type: 'run.queued', data: { reason: 'approval_resolved' } },
         ]);
         if (!this.parked.has(runId)) return;
-        this.queue.push(run.id);
+        this.enqueue(run.id);
       }
       wakeAt = Math.min(
         deadline,

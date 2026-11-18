@@ -72,7 +72,10 @@ npm run soak -- --minutes 30 --concurrency 8 --retention-minutes 5 [--dir DIR] [
 | `in_progress`，外部智能体（ACP、原生、适配器） | `interrupted`，`effect_outcome_unknown`：已开始的回合无法排除副作用 | 同左 |
 | `requires_action`（审批） | `interrupted`；待审批项过期 | 同左，在下次启动时 |
 | `requires_action`，在等调用方回传工具结果 | 保留；调用方仍可回传 | 同左 |
+| 已停车且所需审批决定均已落盘，但还没重新调度 | 重启后消费已有决定；拒绝、过期都不会派发工具 | 同左 |
 | 父运行已不活跃的排队子运行 | `cancelled`，`parent_interrupted` | 同左 |
+
+排队或停车任务取消时，待办过期和终态事件一起提交。写入失败，任务保留原队列位置或审批等待状态。调用方一次回传多项工具结果时，结果和输出游标也全部提交或全部回滚。
 
 `interrupted` 在展示与计费上算已结束，但对运维人员不是终点：`POST /v1/runs/{id}/resume`（或 `oaa resume`）可以继续它；有未知外部副作用的步骤需要先核对（`POST /v1/runs/{id}/reconcile`）。interrupted 的运行永远不会被自动恢复。外部智能体进程是网关的子进程，网关退出它们也退出（压测核对了 SIGTERM 和 SIGKILL 之后都没有残留）。
 
