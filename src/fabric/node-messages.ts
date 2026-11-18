@@ -18,7 +18,13 @@ const usageSchema = z
   })
   .passthrough();
 const artifactSchema = z
-  .object({ name: z.string().max(1024), content: z.string(), sha256: z.string().max(128) })
+  .object({
+    name: z.string().max(1024),
+    content: z.string(),
+    sha256: z.string().max(128),
+    localPath: z.never().optional(),
+    transferIndex: z.number().int().min(0).max(99).optional(),
+  })
   .passthrough();
 const artifactsSchema = z.array(artifactSchema).max(1000).optional();
 /**
@@ -69,6 +75,23 @@ export function workResultSchema(kind: 'install' | Work['kind']): z.ZodType<unkn
 }
 
 const ref = { id: z.string().min(1).max(200), leaseId: z.string().min(1).max(200) };
+export const ARTIFACT_CHUNK_BYTES = 128 * 1024;
+const chunkSchema = z
+  .object({
+    type: z.literal('artifact_chunk'),
+    ...ref,
+    index: z.number().int().min(0).max(99),
+    offset: z.number().int().nonnegative(),
+    bytes: z.number().int().positive().max(LIMITS.maxArtifactExportBytes),
+    name: z.string().min(1).max(240),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    data: z
+      .string()
+      .min(4)
+      .max(4 * Math.ceil(ARTIFACT_CHUNK_BYTES / 3)),
+  })
+  .strict();
+export type ArtifactChunk = z.infer<typeof chunkSchema>;
 const eventSchema = z
   .object({
     type: z.literal('event'),
@@ -100,6 +123,7 @@ const resultSchema = z
   .passthrough();
 
 export type NodeMessage =
+  | ArtifactChunk
   | { type: 'heartbeat' }
   | { type: 'advertisement'; advertisement: unknown; execution: unknown }
   | { type: 'event'; id: string; leaseId: string; actionId?: string; event: WorkEvent }
@@ -131,6 +155,11 @@ export function parseNodeMessage(raw: string): NodeMessage {
     throw new NodeProtocolError('message is not an object');
   const type = (value as { type?: unknown }).type;
   if (type === 'heartbeat') return { type };
+  if (type === 'artifact_chunk') {
+    const parsed = chunkSchema.safeParse(value);
+    if (!parsed.success) throw new NodeProtocolError('invalid artifact chunk');
+    return parsed.data;
+  }
   if (type === 'advertisement') {
     const v = value as { advertisement?: unknown; execution?: unknown };
     return { type, advertisement: v.advertisement, execution: v.execution };

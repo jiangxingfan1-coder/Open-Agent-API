@@ -2,6 +2,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { isOwnerWide, principalSubject, type Principal } from '../core/contracts.js';
 import { Fault, sha } from '../core/util.js';
 import { memoryFts, type MemorySearchHit, type MemorySearchOptions } from './project-fts.js';
+import { withSavepoint } from './savepoint.js';
 
 type Database = { db: DatabaseSync; prepare(sql: string): StatementSync };
 export type ProjectEntry = {
@@ -131,12 +132,15 @@ export class Projects {
       );
     const updatedAt = Date.now(),
       next = sha(`${updatedAt}:${payload}`);
-    this.store
-      .prepare(
-        'INSERT INTO project_memories VALUES(?,?,?,?,?,?,?) ON CONFLICT(owner,project,namespace,key) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,updated_at=excluded.updated_at',
-      )
-      .run(p.owner, id, namespace, key, payload, next, updatedAt);
-    memoryFts(this.store).indexProject(p.owner, id, namespace, key, payload);
+    const fts = memoryFts(this.store);
+    withSavepoint(this.store.db, () => {
+      this.store
+        .prepare(
+          'INSERT INTO project_memories VALUES(?,?,?,?,?,?,?) ON CONFLICT(owner,project,namespace,key) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,updated_at=excluded.updated_at',
+        )
+        .run(p.owner, id, namespace, key, payload, next, updatedAt);
+      fts.indexProject(p.owner, id, namespace, key, payload);
+    });
     return { namespace, key, value, revision: next, updatedAt };
   }
   get(p: Principal, id: string, namespace: string, key: string): ProjectEntry | undefined {
@@ -165,15 +169,22 @@ export class Projects {
     this.require(p, id);
     return memoryFts(this.store).searchProject(p.owner, id, query, options);
   }
+  async warmSearch(p: Principal, id: string) {
+    this.require(p, id);
+    await memoryFts(this.store).warm('project', p.owner, id);
+  }
   delete(p: Principal, id: string, namespace: string, key: string, revision: string) {
     this.require(p, id, true);
-    const result = this.store
-      .prepare(
-        'DELETE FROM project_memories WHERE owner=? AND project=? AND namespace=? AND key=? AND revision=?',
-      )
-      .run(p.owner, id, namespace, key, revision);
-    if (!result.changes)
-      throw new Fault('version_conflict', 'The project memory changed or was removed.', 409);
-    memoryFts(this.store).removeProject(p.owner, id, namespace, key);
+    const fts = memoryFts(this.store);
+    withSavepoint(this.store.db, () => {
+      const result = this.store
+        .prepare(
+          'DELETE FROM project_memories WHERE owner=? AND project=? AND namespace=? AND key=? AND revision=?',
+        )
+        .run(p.owner, id, namespace, key, revision);
+      if (!result.changes)
+        throw new Fault('version_conflict', 'The project memory changed or was removed.', 409);
+      fts.removeProject(p.owner, id, namespace, key);
+    });
   }
 }

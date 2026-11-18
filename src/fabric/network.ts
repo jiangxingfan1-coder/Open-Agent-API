@@ -43,6 +43,8 @@ import {
 import { LIMITS } from '../core/limits.js';
 import { isUncertainWhenStarted } from '../core/errors.js';
 import { checkWorkResult, parseNodeMessage, type NodeMessage } from './node-messages.js';
+import type { ArtifactStoreLike } from '../store/large-artifacts.js';
+import { IncomingArtifacts } from './artifact-transfer.js';
 
 const advertisementSchema = z
   .object({
@@ -68,6 +70,7 @@ type Pending = {
   leaseId: string;
   kind: 'install' | Work['kind'];
   cancellation?: Fault;
+  transfers?: IncomingArtifacts;
 };
 function send(socket: WebSocket, message: unknown): void {
   if (socket.readyState !== WebSocket.OPEN)
@@ -80,12 +83,14 @@ function send(socket: WebSocket, message: unknown): void {
 export class RemoteExecutor implements Executor {
   private pending = new Map<string, Pending>();
   private disconnected = false;
+  private cleanups = new Set<Promise<void>>();
   lastSeen = Date.now();
   constructor(
     readonly socket: WebSocket,
     private advert: NodeAdvertisement,
     readonly leaseMs: number,
     readonly changed: (advertisement: NodeAdvertisement) => void,
+    private readonly artifactStore?: ArtifactStoreLike,
   ) {
     socket.on('message', (bytes) => this.message(bytes.toString()));
     socket.once('close', () => this.disconnect());
@@ -115,6 +120,11 @@ export class RemoteExecutor implements Executor {
     clearTimeout(p.timer);
     clearInterval(p.lease);
     p.signal.removeEventListener('abort', p.abort);
+    if (p.transfers) {
+      const done = p.transfers.discard();
+      this.cleanups.add(done);
+      void done.then(() => this.cleanups.delete(done));
+    }
     this.pending.delete(requestId);
   }
   private cancel(requestId: string, fault: Fault): void {
@@ -170,6 +180,26 @@ export class RemoteExecutor implements Executor {
       const p = this.pending.get(key);
       // 迟到、重复、租约不符或不是发给本节点的请求：照旧忽略（至多提交一次）。
       if (!p || msg.leaseId !== p.leaseId) return this.note(`ignored ${msg.type} for ${key}`);
+      if (msg.type === 'artifact_chunk') {
+        if (p.cancellation) return;
+        if (!p.transfers) return this.refuse('Unexpected artifact transfer');
+        void p.transfers
+          .accept(msg)
+          .then(() => {
+            if (this.pending.get(key) === p && !p.cancellation)
+              send(this.socket, {
+                type: 'artifact_ack',
+                id: key,
+                leaseId: p.leaseId,
+                index: msg.index,
+                offset: msg.offset,
+              });
+          })
+          .catch((error) => {
+            if (this.pending.get(key) === p) this.cancel(key, faultOf(error));
+          });
+        return;
+      }
       if (msg.type === 'event') {
         if (p.cancellation) return;
         const event = msg.event;
@@ -191,18 +221,46 @@ export class RemoteExecutor implements Executor {
           });
         return;
       }
-      this.cleanup(key);
-      if (p.cancellation) return p.reject(p.cancellation);
-      if (msg.error)
-        return p.reject(new Fault(msg.error.code, msg.error.message, 502, msg.error.uncertain));
+      if (p.cancellation || msg.error) {
+        this.cleanup(key);
+        return p.reject(
+          p.cancellation ??
+            new Fault(msg.error!.code, msg.error!.message, 502, msg.error!.uncertain),
+        );
+      }
       let result: unknown;
       try {
         result = checkWorkResult(p.kind, msg.result);
+        if (
+          !p.transfers &&
+          (p.kind === 'native' || p.kind === 'tool') &&
+          (result as { artifacts?: { transferIndex?: number }[] }).artifacts?.some(
+            (a) => a.transferIndex !== undefined,
+          )
+        )
+          throw new Error('Artifact transfer was not negotiated');
       } catch (error) {
+        this.cleanup(key);
         // 节点声称执行完了、结果却不合规：外部效果未知，按 uncertain 拒绝并断开。
         p.reject(new Fault('invalid_protocol', 'Worker returned a malformed result.', 502, true));
         return this.refuse((error as Error).message);
       }
+      try {
+        p.transfers?.finish(result);
+      } catch (error) {
+        this.cleanup(key);
+        const fault =
+          error instanceof Fault
+            ? error
+            : new Fault(
+                'persistence_failed',
+                'Could not publish transferred artifacts.',
+                500,
+                true,
+              );
+        return p.reject(fault);
+      }
+      this.cleanup(key);
       p.resolve(result);
     } catch (error) {
       this.refuse(`rejected ${msg.type}: ${(error as Error).message}`);
@@ -214,6 +272,7 @@ export class RemoteExecutor implements Executor {
     signal: AbortSignal,
     emit: Emit,
     timeoutMs: number,
+    allowedNodes?: string[],
   ): Promise<unknown> {
     checkAbort(signal);
     if (this.disconnected)
@@ -253,6 +312,16 @@ export class RemoteExecutor implements Executor {
         lease,
         leaseId,
         kind,
+        ...((kind === 'native' || kind === 'tool') && this.artifactStore
+          ? {
+              transfers: new IncomingArtifacts(
+                this.artifactStore,
+                (payload as Work).context.owner,
+                (payload as Work).context.runId,
+                allowedNodes,
+              ),
+            }
+          : {}),
       });
       signal.addEventListener('abort', abort, { once: true });
       try {
@@ -283,7 +352,12 @@ export class RemoteExecutor implements Executor {
     );
     this.advert.warm.push(bundle.digest);
   }
-  async execute(work: Work, signal: AbortSignal, emit: Emit): Promise<WorkResult> {
+  async execute(
+    work: Work,
+    signal: AbortSignal,
+    emit: Emit,
+    allowedNodes?: string[],
+  ): Promise<WorkResult> {
     let outbound = work;
     if (work.context && this.advert.execution?.traceContextVersion !== 1) {
       const { trace: _trace, subject: _subject, ...legacyContext } = work.context;
@@ -295,10 +369,12 @@ export class RemoteExecutor implements Executor {
       signal,
       emit,
       work.kind === 'tool' ? work.binding.capability.timeoutMs : work.agent.limits.timeoutMs,
+      allowedNodes,
     )) as WorkResult;
   }
   async close(): Promise<void> {
     this.disconnect();
+    await Promise.all(this.cleanups);
   }
 }
 
@@ -374,6 +450,7 @@ export class NodeHub {
     readonly credentials: NodeCredential[],
     readonly leaseMs = 15_000,
     policies: NodePolicy[] = [],
+    private readonly artifactStore?: ArtifactStoreLike,
   ) {
     if (new Set(credentials.map((c) => c.nodeId)).size !== credentials.length)
       throw new Fault(
@@ -528,13 +605,19 @@ export class NodeHub {
             ...msg.advertisement,
             ...(msg.execution ? { execution: msg.execution } : {}),
           });
-          const executor = new RemoteExecutor(ws, advert, this.leaseMs, (next) => {
-            this.validateAdvertisement(credential, next);
-            queueMicrotask(() => {
-              this.events.emit('change', credential.owner);
-              this.pump();
-            });
-          });
+          const executor = new RemoteExecutor(
+            ws,
+            advert,
+            this.leaseMs,
+            (next) => {
+              this.validateAdvertisement(credential, next);
+              queueMicrotask(() => {
+                this.events.emit('change', credential.owner);
+                this.pump();
+              });
+            },
+            this.artifactStore,
+          );
           this.register(credential, executor);
           send(ws, {
             type: 'welcome',
@@ -552,6 +635,7 @@ export class NodeHub {
               'tool-free-reasoning-v1',
               'trace-context-v1',
               'conversion-profiles-v1',
+              ...(this.artifactStore ? ['artifact-chunks-v1'] : []),
             ],
           });
           ws.once('close', () => {
@@ -971,9 +1055,12 @@ export class NodeHub {
           : job.work.agent.limits.timeoutMs,
       );
       executionDeadline = timer.signal;
-      const result = await node.executor
-        .execute(job.work, AbortSignal.any([job.signal, executionDeadline]), job.emit)
-        .finally(timer.clear);
+      const signal = AbortSignal.any([job.signal, executionDeadline]);
+      const result = await (
+        node.executor instanceof RemoteExecutor
+          ? node.executor.execute(job.work, signal, job.emit, job.bundle.agent.allowedNodes)
+          : node.executor.execute(job.work, signal, job.emit)
+      ).finally(timer.clear);
       node.successes++;
       const executionMs = Date.now() - executionStart;
       health.successes++;

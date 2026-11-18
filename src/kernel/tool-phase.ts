@@ -353,7 +353,7 @@ export async function callTool(
       type: 'tool.started',
       data: { step_id: stepId, node_id: 'kernel', attempt: 0 },
     });
-    const value = runMemoryTool(rt.store, run, binding.handler.name, call.arguments);
+    const value = await runMemoryTool(rt.store, run, binding.handler.name, call.arguments);
     step.status = 'completed';
     step.result = { value };
     delete step.error;

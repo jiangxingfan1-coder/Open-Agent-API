@@ -72,7 +72,7 @@ export async function createGateway(
       config.nodeKeys.map(async (n) => ({ ...n, token: await secret(n) })),
     );
     credentials.push(...auth.nodeCredentials());
-    const hub = new NodeHub(credentials, config.leaseMs, auth.nodePolicies());
+    const hub = new NodeHub(credentials, config.leaseMs, auth.nodePolicies(), store);
     cleanupHub = () => hub.close();
     if (config.localWorker) {
       hub.addLocal(
@@ -529,7 +529,6 @@ export async function createGateway(
     registerMetricsRoutes(app, {
       auth,
       store,
-      kernel,
       hub,
       cachedMetrics,
       activityCache,

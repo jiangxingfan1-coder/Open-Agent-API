@@ -14,6 +14,8 @@ import { coarseDelay, deadlineTimer, sha, sleep } from '../src/core/util.js';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { setup, agent } from './helpers.js';
+import { principal } from './helpers.js';
+import { TaskWorkflows, type WorkflowExecution } from '../src/store/task-workflows.js';
 
 // Retention tests: in-process gateway through app.inject; nothing listens on a port.
 
@@ -146,6 +148,47 @@ test('retention: a delegated child is kept while its parent is kept', async () =
       .run(parent, child);
     const report = await prune(s.store, { olderThanMs: 1000, now: cutoff + 1000 });
     assert.equal(report.runs, 0);
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('retention protects workflow inputs before their first child and throughout resumable states', async () => {
+  const s = await setup();
+  try {
+    const records = new TaskWorkflows(s.store);
+    const statuses: WorkflowExecution<{ id: string }>['status'][] = [
+      'queued',
+      'running',
+      'cancelling',
+      'blocked',
+      'completed',
+      'failed',
+      'cancelled',
+    ];
+    for (const status of statuses) {
+      const file = await s.store.addFile('owner', 'source.txt', Buffer.from(status));
+      const e = records.create({
+        owner: 'owner',
+        subject: 'legacy',
+        authority: principal,
+        revision: '1',
+        definition: { id: status },
+        input: {},
+        fileIds: [file.id],
+      });
+      e.status = status;
+      records.save(e);
+    }
+    const age = { olderThanMs: 86400000, now: Date.now() + 2 * 86400000 };
+    assert.equal((await prune(s.store, { ...age, dryRun: true })).files, 3);
+    assert.equal((await prune(s.store, age)).files, 3);
+    for (const e of records.executions('owner')) {
+      assert.equal(
+        !!s.store.prepare('SELECT 1 FROM files WHERE id=?').get(e.fileIds[0]!),
+        !['completed', 'failed', 'cancelled'].includes(e.status),
+      );
+    }
   } finally {
     await s.cleanup();
   }

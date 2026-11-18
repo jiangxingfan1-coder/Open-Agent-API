@@ -174,6 +174,8 @@ An unknown external write outcome blocks Resume. An authorized operator must exp
 
 ## Data retention and backups
 
+On `GET /metrics`, `oaa_run_outcomes_total{agent,status}` is the counter for completion and failure rates. It counts transitions into terminal states and survives history pruning and restarts. At first upgrade it starts from the terminal runs still retained, not already-deleted history. The older `oaa_runs_total`, `oaa_run_errors_total`, `oaa_run_tokens_total` and `oaa_tokens_total` series retain their names and snapshot values, but are gauges: do not apply `rate()` to them.
+
 Nothing is deleted automatically unless you ask for it. `oaa prune [--older-than 30d] [--dry-run] [--vacuum]` deletes finished runs older than the given age with their events, steps, artifacts and webhook approval announcements, plus uploads (including stored image inputs) and session workspaces that no kept run uses. Queued, running, waiting and `interrupted` runs are never touched, nor is a run whose developer-platform ledger line is still unsettled. Ledger lines, key usage totals, memories and webhook delivery logs are records and stay. To prune on a schedule, set `"retention": {"runsDays": 30}` in `config.json`; `oaa doctor` and `oaa status` warn when the database grows past `retention.warnDatabaseMb` (default 1024).
 
 Before a schema migration the gateway copies the database to `backups/state-v<old>-before-subjects-<time>.sqlite`; only the newest 3 copies per source version are kept. Details, measured soak results and crash-recovery semantics: [stability.md](stability.md).

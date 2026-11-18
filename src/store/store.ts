@@ -25,7 +25,8 @@ import {
   projectOutput,
   type EventInput,
 } from './output.js';
-import { memoryFts } from './project-fts.js';
+import { putPrivateMemory, deletePrivateMemory } from './private-memory.js';
+import { installRunOutcomes } from './run-outcomes.js';
 import { getArtifactByteLimit } from './large-artifacts.js';
 import { refreshWaiting, waitingOn } from './waiting.js';
 import { backupBeforeMigration } from './backup.js';
@@ -188,6 +189,7 @@ export class Store {
           this.saveSummary(run);
         }
       }
+      installRunOutcomes(this.db);
       if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
       this.db.exec('COMMIT');
     } catch (e) {
@@ -778,7 +780,7 @@ export class Store {
     after = 0,
     subject?: string,
   ): SummaryRow[] {
-    const scope = this.scope(owner, agents, subject);
+    const scope = this.summaryScope(owner, agents, subject);
     const out: SummaryRow[] = [];
     let cursor = Number.MAX_SAFE_INTEGER;
     for (;;) {
@@ -1108,7 +1110,7 @@ export class Store {
       .map((r) => this.run(r.id as string));
   }
   /** Summary filter: owner, granted agents and, unless owner-wide, the caller's own subject. */
-  private scope(owner: string, agents: string[], subject?: string) {
+  summaryScope(owner: string, agents: string[], subject?: string) {
     const base = agents.includes('*')
       ? { sql: 'owner=?', args: [owner] }
       : {
@@ -1120,7 +1122,7 @@ export class Store {
       : { sql: `${base.sql} AND subject=?`, args: [...base.args, subject] };
   }
   summaries(owner: string, agents: string[], limit = 50, subject?: string): RunSummary[] {
-    const scope = this.scope(owner, agents, subject);
+    const scope = this.summaryScope(owner, agents, subject);
     return this.prepare(
       `SELECT payload FROM run_summaries WHERE ${scope.sql} ORDER BY ordinal DESC LIMIT ?`,
     )
@@ -1135,7 +1137,7 @@ export class Store {
   }
   /** Run counts by current status within the owner/agents scope; queued + in_progress + requires_action = active. */
   metrics(owner: string, agents: string[], subject?: string) {
-    const scope = this.scope(owner, agents, subject);
+    const scope = this.summaryScope(owner, agents, subject);
     const row = this.prepare(
       `SELECT count(*) AS runs,coalesce(sum(status='completed'),0) AS completed,coalesce(sum(status IN ('queued','in_progress','requires_action')),0) AS active,coalesce(sum(status='queued'),0) AS queued,coalesce(sum(status='in_progress'),0) AS in_progress,coalesce(sum(status='requires_action'),0) AS requires_action,coalesce(sum(status='requires_action' AND EXISTS(SELECT 1 FROM approvals a WHERE a.run_id=run_summaries.run_id AND json_extract(a.payload,'$.status')='pending') AND NOT EXISTS(SELECT 1 FROM approvals a WHERE a.run_id=run_summaries.run_id AND json_extract(a.payload,'$.status')='pending' AND json_extract(a.payload,'$.kind')!='client_tool')),0) AS awaiting_caller,coalesce(sum(total_tokens),0) AS total_tokens,coalesce(sum(usage_known=0),0) AS unknown_usage_runs,coalesce(sum(usage_known=2),0) AS partial_usage_runs FROM run_summaries WHERE ${scope.sql}`,
     ).get(...scope.args)!;
@@ -1462,30 +1464,10 @@ export class Store {
     value: unknown,
     runId?: string,
   ): MemoryRecord {
-    const now = Date.now();
-    const serialized = JSON.stringify(value ?? null);
-    if (serialized.length > LIMITS.memoryEntryBytes)
-      throw new Fault('memory_too_large', 'Memory entry exceeds the 256KB limit.', 413);
-    this.prepare(
-      'INSERT INTO memories(owner,subject,namespace,key,value,updated_at,run_id) VALUES(?,?,?,?,?,?,?) ON CONFLICT(owner,subject,namespace,key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,run_id=excluded.run_id',
-    ).run(owner, subject, namespace, key, serialized, now, runId ?? null);
-    memoryFts(this).indexPrivate(owner, subject, namespace, key, serialized);
-    return {
-      owner,
-      namespace,
-      key,
-      value,
-      updatedAt: now,
-      ...(runId ? { runId } : {}),
-    };
+    return putPrivateMemory(this, owner, subject, namespace, key, value, runId);
   }
   deleteMemory(owner: string, subject: string, namespace: string, key: string): boolean {
-    const res = this.prepare(
-      'DELETE FROM memories WHERE owner=? AND subject=? AND namespace=? AND key=?',
-    ).run(owner, subject, namespace, key);
-    const deleted = Number(res.changes ?? 0) > 0;
-    if (deleted) memoryFts(this).removePrivate(owner, subject, namespace, key);
-    return deleted;
+    return deletePrivateMemory(this, owner, subject, namespace, key);
   }
   /**
    * The run is parked and waits only on its caller (pending `client_tool` actions, no human one).

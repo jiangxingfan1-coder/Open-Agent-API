@@ -22,6 +22,8 @@ import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { sha } from '../core/util.js';
+import { RECOVERABLE_WORKFLOW_STATES } from './task-workflows.js';
+import { isStagingArtifact } from './large-artifacts.js';
 
 /**
  * Bumped whenever a prune deleted runs. Caches built from run summaries (the console's activity
@@ -99,11 +101,15 @@ function candidates(db: DatabaseSync, cutoff: number, owner: string | undefined,
   const unsettled = hasTable(db, 'platform_ledger')
     ? `AND NOT EXISTS (SELECT 1 FROM platform_ledger l WHERE l.run_id=r.id AND l.status='in_progress')`
     : '';
+  const workflowStages = hasTable(db, 'workflow_executions')
+    ? `AND (r.owner,r.id) NOT IN (SELECT w.owner,n.value FROM workflow_executions w,
+        json_each(w.payload,'$.nodes') n WHERE w.status IN ${RECOVERABLE_WORKFLOW_STATES} AND n.type='text')`
+    : '';
   return db
     .prepare(
       `SELECT r.id,r.owner,r.session_id FROM runs r WHERE ${old('r')} ${owner === undefined ? '' : 'AND r.owner=?'}
        AND NOT EXISTS (SELECT 1 FROM runs p WHERE p.id=json_extract(r.payload,'$.metadata."oaa.parent_run_id"') AND NOT (${old('p')}))
-       ${unsettled}
+       ${unsettled} ${workflowStages}
        ORDER BY r.rowid LIMIT ?`,
     )
     .all(...(owner === undefined ? [cutoff, cutoff, limit] : [cutoff, owner, cutoff, limit]))
@@ -115,15 +121,31 @@ function candidates(db: DatabaseSync, cutoff: number, owner: string | undefined,
 }
 
 /** File ids still listed by a run that stays. */
-function referencedFiles(db: DatabaseSync): Set<string> {
-  return new Set(
-    db
+function referencedFiles(db: DatabaseSync, dryIds: Set<string>, owner?: string): Set<string> {
+  const refs = new Set<string>();
+  const args = owner === undefined ? [] : [owner];
+  for (const r of db
+    .prepare(
+      `SELECT r.owner,r.id AS run,j.value AS file FROM runs r,
+      json_each(CASE WHEN json_valid(r.payload) THEN r.payload ELSE '{}' END,'$.fileIds') j
+      ${owner === undefined ? '' : 'WHERE r.owner=?'}`,
+    )
+    .iterate(...args)) {
+    if (!dryIds.has(String(r.run))) refs.add(`${r.owner}\0${r.file}`);
+  }
+  if (hasTable(db, 'workflow_executions')) {
+    // Stage arguments and $ref inputs can name a file before any child run exists.
+    for (const r of db
       .prepare(
-        `SELECT DISTINCT j.value AS id FROM runs r, json_each(CASE WHEN json_valid(r.payload) THEN r.payload ELSE '{}' END,'$.fileIds') j`,
+        `SELECT w.owner,j.atom AS file FROM workflow_executions w,json_tree(w.payload) j
+      WHERE w.status IN ${RECOVERABLE_WORKFLOW_STATES} ${owner === undefined ? '' : 'AND w.owner=?'}
+      AND j.type='text' AND (j.atom GLOB 'file_*' OR j.atom GLOB 'artifact_*')`,
       )
-      .all()
-      .map((row) => String(row.id)),
-  );
+      .iterate(...args)) {
+      refs.add(`${r.owner}\0${r.file}`);
+    }
+  }
+  return refs;
 }
 
 export async function prune(store: PrunableStore, options: PruneOptions): Promise<PruneReport> {
@@ -185,29 +207,39 @@ export async function prune(store: PrunableStore, options: PruneOptions): Promis
     }
   }
   // Files: artifacts of deleted runs and old uploads, unless a kept run still lists them.
-  const referenced = referencedFiles(db);
+  let referenced = referencedFiles(db, dryIds, options.owner);
   const fileRows = db
     .prepare(
-      `SELECT f.id,json_extract(f.payload,'$.bytes') AS bytes,json_extract(f.payload,'$.runId') AS run_id,
+      `SELECT f.id,f.owner,json_extract(f.payload,'$.bytes') AS bytes,json_extract(f.payload,'$.runId') AS run_id,
         json_extract(f.payload,'$.createdAt') AS created FROM files f
        WHERE json_valid(f.payload) ${options.owner === undefined ? '' : 'AND f.owner=?'}`,
     )
     .all(...(options.owner === undefined ? [] : [options.owner]));
   const runExists = db.prepare('SELECT 1 FROM runs WHERE id=?');
   const doomed = fileRows.filter((row) => {
-    if (referenced.has(String(row.id))) return false;
+    if (referenced.has(`${row.owner}\0${row.id}`)) return false;
     // An artifact goes with its run; an upload goes once it is old and unreferenced.
     if (row.run_id) return dryIds.has(String(row.run_id)) || !runExists.get(String(row.run_id));
     return Number(row.created) < cutoff;
   });
+  const revision = db.prepare('SELECT total_changes() AS n');
+  let beforePause = revision.get()!.n;
   for (let i = 0; i < doomed.length; i += batch) {
-    const slice = doomed.slice(i, i + batch);
+    if (i && !dryRun && beforePause !== revision.get()!.n) {
+      referenced = referencedFiles(db, dryIds, options.owner);
+      beforePause = revision.get()!.n;
+    }
+    const slice = doomed
+      .slice(i, i + batch)
+      .filter((row) => !referenced.has(`${row.owner}\0${row.id}`));
+    if (!slice.length) continue;
     report.files += slice.length;
     report.file_bytes += slice.reduce((n, row) => n + Number(row.bytes ?? 0), 0);
     if (dryRun) continue;
     const ids = slice.map((row) => String(row.id));
     db.prepare(`DELETE FROM files WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
     blobs.push(...ids);
+    beforePause = revision.get()!.n;
     await options.pause?.();
   }
   if (!dryRun) {
@@ -227,9 +259,10 @@ async function sweepOrphanBlobs(db: DatabaseSync, root: string, cutoff: number):
   const names = await readdir(dir).catch(() => [] as string[]);
   const known = db.prepare('SELECT 1 FROM files WHERE id=?');
   for (const name of names) {
-    if (known.get(name)) continue;
+    if (known.get(name) || isStagingArtifact(db, name)) continue;
     const info = await stat(path.join(dir, name)).catch(() => undefined);
-    if (info?.isFile() && info.mtimeMs < cutoff) await rm(path.join(dir, name), { force: true });
+    if (info?.isFile() && info.mtimeMs < cutoff && !known.get(name) && !isStagingArtifact(db, name))
+      await rm(path.join(dir, name), { force: true });
   }
 }
 

@@ -5,9 +5,8 @@
  * (`owner`, `agents`, `visibleSubject`), zero third-party dependencies.
  */
 import type { FastifyInstance } from 'fastify';
-import { isOwnerWide, visibleSubject, type Principal } from '../core/contracts.js';
+import { visibleSubject, type Principal } from '../core/contracts.js';
 import type { NodeHub } from '../fabric/network.js';
-import type { Kernel } from '../kernel/kernel.js';
 import type { Store } from '../store/store.js';
 import {
   activityFrame,
@@ -21,7 +20,6 @@ import { overviewViewKey, type RevisionCache } from './overview.js';
 export type MetricsRouteDeps = {
   auth: Auth;
   store: Store;
-  kernel: Kernel;
   hub: NodeHub;
   cachedMetrics: (p: Principal) => ReturnType<Store['metrics']>;
   activityCache: RevisionCache<ReturnType<typeof computeActivity>>;
@@ -49,39 +47,14 @@ function formatLabels(labels: Record<string, string>): string {
   return `{${entries.map(([k, v]) => `${k}="${escapeLabel(v)}"`).join(',')}}`;
 }
 
-function queryAgentStatusRollup(
-  store: Store,
-  p: Principal,
-): { agent: string; status: string; runs: number; tokens: number }[] {
-  const clauses = ['owner = ?'];
-  const args: (string | number)[] = [p.owner];
-  const subject = visibleSubject(p);
-  if (subject !== undefined) {
-    clauses.push('subject = ?');
-    args.push(subject);
-  }
-  if (!p.agents.includes('*')) {
-    if (!p.agents.length) return [];
-    const exact = p.agents.filter((a) => !a.endsWith('*'));
-    const prefixes = p.agents.filter((a) => a.endsWith('*')).map((a) => a.slice(0, -1));
-    const sub: string[] = [];
-    if (exact.length) {
-      sub.push(`agent_id IN (${exact.map(() => '?').join(',')})`);
-      args.push(...exact);
-    }
-    for (const pre of prefixes) {
-      sub.push("agent_id LIKE ? ESCAPE '\\'");
-      args.push(`${pre.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
-    }
-    clauses.push(`(${sub.join(' OR ')})`);
-  }
-  const rows = store.db
+function queryAgentStatusRollup(store: Store, scope: ReturnType<Store['summaryScope']>) {
+  const rows = store
     .prepare(
       `SELECT agent_id AS agent, status, count(*) AS runs, coalesce(sum(total_tokens), 0) AS tokens
-         FROM run_summaries WHERE ${clauses.join(' AND ')}
+         FROM run_summaries WHERE ${scope.sql}
          GROUP BY agent_id, status ORDER BY agent_id, status`,
     )
-    .all(...args);
+    .all(...scope.args);
   return rows.map((r) => ({
     agent: String(r.agent),
     status: String(r.status),
@@ -94,7 +67,7 @@ export function renderPrometheusMetrics(
   deps: Omit<MetricsRouteDeps, 'auth'>,
   p: Principal,
 ): string {
-  const { store, kernel, hub, cachedMetrics, activityCache, timelines, summaryWindows } = deps;
+  const { store, hub, cachedMetrics, activityCache, timelines, summaryWindows } = deps;
   const metrics = cachedMetrics(p);
   const now = Date.now();
   const frame = activityFrame('24h', now);
@@ -104,12 +77,15 @@ export function renderPrometheusMetrics(
       key: overviewViewKey(p),
     }),
   );
-  const rollup = queryAgentStatusRollup(store, p);
+  const scope = store.summaryScope(p.owner, p.agents, visibleSubject(p));
+  const rollup = queryAgentStatusRollup(store, scope);
+  const outcomes = store
+    .prepare(
+      `SELECT agent_id,status,sum(n) AS n FROM run_outcomes WHERE ${scope.sql} GROUP BY agent_id,status ORDER BY agent_id,status`,
+    )
+    .all(...scope.args);
   const onlineNodes = hub.inventory(p.owner).length;
-  const kernelStats = kernel.stats();
-  const queueDepth = isOwnerWide(p)
-    ? Math.max(Number(metrics.queued ?? 0), kernelStats.queued)
-    : Number(metrics.queued ?? 0);
+  const queueDepth = Number(metrics.queued ?? 0);
 
   const lines: string[] = [];
   const metric = (
@@ -141,7 +117,7 @@ export function renderPrometheusMetrics(
 
   metric(
     'oaa_runs_total',
-    'counter',
+    'gauge',
     'Total recorded runs grouped by agent and current status.',
     rollup.map((r) => [{ agent: r.agent, status: r.status }, r.runs]),
   );
@@ -154,20 +130,26 @@ export function renderPrometheusMetrics(
   }
   metric(
     'oaa_run_errors_total',
-    'counter',
+    'gauge',
     'Total failed, incomplete or interrupted runs per agent.',
     [...errorsByAgent.entries()].map(([agent, count]) => [{ agent }, count]),
   );
 
   metric(
     'oaa_run_tokens_total',
-    'counter',
+    'gauge',
     'Observed total tokens grouped by agent and run status.',
     rollup.map((r) => [{ agent: r.agent, status: r.status }, r.tokens]),
   );
-  metric('oaa_tokens_total', 'counter', 'Observed total tokens across visible runs.', [
+  metric('oaa_tokens_total', 'gauge', 'Observed total tokens across visible runs.', [
     [{}, Number(metrics.total_tokens ?? 0)],
   ]);
+  metric(
+    'oaa_run_outcomes_total',
+    'counter',
+    'Terminal run transitions, seeded from retained history on first upgrade.',
+    outcomes.map((r) => [{ agent: String(r.agent_id), status: String(r.status) }, Number(r.n)]),
+  );
 
   const p50 = activity.latency_ms.p50 ?? 0;
   const p95 = activity.latency_ms.p95 ?? 0;

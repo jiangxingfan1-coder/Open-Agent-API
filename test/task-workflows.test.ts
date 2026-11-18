@@ -6,6 +6,8 @@ import { createGateway } from '../src/gateway/server.js';
 import { WorkerRuntime } from '../src/fabric/worker.js';
 import { sleep } from '../src/core/util.js';
 import { principalSubject } from '../src/core/contracts.js';
+import { TaskWorkflows } from '../src/store/task-workflows.js';
+import { prune } from '../src/store/retention.js';
 
 const definition = () => ({
   id: 'report',
@@ -191,6 +193,14 @@ test('workflow restart reattaches to child runs and never repeats a completed st
     const id = started.json().id;
     await waitFor(() => calls === 2);
     const before = (await s.request('GET', `/v1/workflow-runs/${id}`)).json();
+    for (const dryRun of [true, false]) {
+      const clean = await prune(s.store, {
+        olderThanMs: 86400000,
+        now: Date.now() + 2 * 86400000,
+        dryRun,
+      });
+      assert.equal(clean.runs, 0, 'a completed stage is still needed by the unfinished workflow');
+    }
     await s.app.close();
     const driver = new FixtureModel((_a, messages) => ({
       text: messages.at(-1)!.content + '_RESUMED',
@@ -214,6 +224,84 @@ test('workflow restart reattaches to child runs and never repeats a completed st
     assert.deepEqual(result!.nodes, before.nodes);
     assert.equal(result!.output, 'FIRST_DONE_RESUMED');
     assert.equal(driver.calls, 1);
+  } finally {
+    await next?.app.close();
+    await s.cleanup();
+  }
+});
+
+test('a full workflow queue defers one completion event across restart without consuming its receipt', async () => {
+  const s = await setup();
+  let next: Awaited<ReturnType<typeof createGateway>> | undefined;
+  try {
+    s.store.publish('owner', makeBundle(agent()));
+    const saved = await s.request('POST', '/v1/workflows', {
+      revision: 'new',
+      definition: {
+        ...definition(),
+        enabled: true,
+        trigger: { kind: 'event', agent: 'agent/test' },
+      },
+    });
+    assert.equal(saved.statusCode, 200, saved.body);
+    const records = new TaskWorkflows(s.store),
+      rec = records.get('owner', 'report');
+    const fill = Array.from({ length: 32 }, () =>
+      records.create({
+        owner: 'owner',
+        subject: principalSubject(rec.authority),
+        authority: rec.authority,
+        definition: { id: 'occupant' },
+        revision: '1',
+        input: {},
+        fileIds: [],
+      }),
+    );
+    const result = await s.request('POST', '/v1/responses', {
+      model: 'agent/test',
+      input: 'one event',
+    });
+    const repeat = {
+      owner: 'owner',
+      agentId: 'agent/test',
+      runId: result.json().id,
+      status: 'completed',
+    };
+    s.store.events.emit('summary', repeat);
+    assert.equal(records.get('owner', 'report').triggerStatus?.error, 'concurrency_limit');
+    assert.equal(
+      s.store.prepare('SELECT count(*) AS n FROM workflow_trigger_receipts').get()?.n,
+      0,
+    );
+    assert.equal(s.store.prepare('SELECT count(*) AS n FROM workflow_pending_events').get()?.n, 1);
+    for (const e of fill) {
+      e.status = 'completed';
+      records.save(e);
+    }
+    await s.app.close();
+    const driver = new FixtureModel();
+    next = await createGateway(
+      s.config,
+      new WorkerRuntime(s.config.localWorker!, new Map(), new Map([['fixture', driver]])),
+    );
+    await next.listen();
+    const after = new TaskWorkflows(next.store);
+    await waitFor(() =>
+      after
+        .executions('owner')
+        .some((x) => x.definition.id === 'report' && x.status === 'completed'),
+    );
+    next.store.events.emit('summary', repeat);
+    assert.equal(after.executions('owner').filter((x) => x.definition.id === 'report').length, 1);
+    assert.equal(
+      next.store.prepare('SELECT count(*) AS n FROM workflow_trigger_receipts').get()?.n,
+      1,
+    );
+    assert.equal(
+      next.store.prepare('SELECT count(*) AS n FROM workflow_pending_events').get()?.n,
+      0,
+    );
+    assert.equal(driver.calls, 2);
   } finally {
     await next?.app.close();
     await s.cleanup();

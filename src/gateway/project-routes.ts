@@ -50,8 +50,12 @@ export function registerProjectRoutes(
       })
       .strict()
       .parse(req.query);
+    const id = idOf(req.params);
+    await data.warmSearch(req.principal, id);
+    const current = auth.revalidate(req.headers.authorization);
+    auth.require(current, 'read');
     return {
-      data: data.search(req.principal, idOf(req.params), query.q, {
+      data: data.search(current, id, query.q, {
         namespace: query.namespace,
         limit: query.limit,
       }),

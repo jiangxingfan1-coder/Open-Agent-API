@@ -16,7 +16,8 @@ export function runMemoryTool(
   name: 'memory_read' | 'memory_write' | 'memory_search',
   args: Record<string, unknown>,
 ): unknown {
-  if (name === 'memory_search') {
+  if (name === 'memory_search') return search();
+  async function search() {
     const query = typeof args.query === 'string' ? args.query.trim() : '';
     if (!query)
       throw new Fault('invalid_tool_arguments', 'memory_search requires a non-empty query.');
@@ -30,6 +31,7 @@ export function runMemoryTool(
     if (args.scope === 'project') {
       if (!run.checkpoint.project)
         throw new Fault('scope_denied', 'No shared project was selected for this task.', 403);
+      await projects(store).warmSearch(projectPrincipal(run), run.checkpoint.project.id);
       const hits = projects(store).search(projectPrincipal(run), run.checkpoint.project.id, query, {
         namespace: explicitNs,
         limit,
@@ -48,7 +50,9 @@ export function runMemoryTool(
         })),
       };
     }
-    const hits = memoryFts(store).searchPrivate(run.owner, run.subject ?? LEGACY_SUBJECT, query, {
+    const fts = memoryFts(store);
+    await fts.warm('private', run.owner, run.subject ?? LEGACY_SUBJECT);
+    const hits = fts.searchPrivate(run.owner, run.subject ?? LEGACY_SUBJECT, query, {
       namespace: explicitNs,
       limit,
     });

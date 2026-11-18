@@ -36,30 +36,16 @@ export class WorkflowRunner {
       )
         continue;
       try {
-        const current = this.refresh(record.authority);
-        if (run.subject !== principalSubject(current) && !isOwnerWide(current)) continue;
-        if (
-          this.records.receipt(
-            event.owner,
-            record.definition.id,
-            `event:${record.revision}:${event.runId}`,
-          )
-        ) {
-          this.launch(
-            record.authority,
-            record,
-            {
-              run_id: run.id,
-              agent: run.agentId,
-              output: run.output
-                .map((m) => m.text)
-                .join('\n')
-                .slice(0, 12000),
-            },
-            [],
-          );
-          this.records.noteTrigger(event.owner, record.definition.id, record.revision);
-        }
+        const key = `event:${record.revision}:${event.runId}`;
+        const input = {
+          run_id: run.id,
+          agent: run.agentId,
+          output: run.output
+            .map((m) => m.text)
+            .join('\n')
+            .slice(0, 12000),
+        };
+        this.trigger(record, input, key);
       } catch (error) {
         try {
           this.records.noteTrigger(
@@ -108,6 +94,25 @@ export class WorkflowRunner {
   }
   tick(now = Date.now()) {
     if (this.closed) return;
+    for (const pending of this.records.pendingEvents()) {
+      const owner = String(pending.owner),
+        workflow = String(pending.workflow),
+        event = String(pending.event);
+      const record = this.records.get(owner, workflow);
+      if (record.archivedAt || !record.definition.enabled || record.revision !== pending.revision) {
+        this.records.dropPending(owner, workflow, event);
+        continue;
+      }
+      try {
+        this.trigger(record, JSON.parse(String(pending.input)), event);
+      } catch (error) {
+        const code = faultOf(error).code;
+        // A changed grant is not a transient capacity failure.
+        if (error instanceof Fault && code !== 'concurrency_limit')
+          this.records.dropPending(owner, workflow, event);
+        this.records.noteTrigger(owner, workflow, record.revision, code);
+      }
+    }
     for (const record of this.records.list()) {
       const trigger = record.definition.trigger;
       if (record.archivedAt || !record.definition.enabled) continue;
@@ -129,10 +134,7 @@ export class WorkflowRunner {
             .some((e) => e.definition.id === record.definition.id)
         )
           continue;
-        if (this.records.receipt(record.authority.owner, record.definition.id, receiptKey)) {
-          this.launch(record.authority, record, trigger.input, []);
-          this.records.noteTrigger(record.authority.owner, record.definition.id, record.revision);
-        }
+        this.trigger(record, trigger.input, receiptKey);
       } catch (error) {
         try {
           this.records.noteTrigger(
@@ -151,14 +153,19 @@ export class WorkflowRunner {
       if (!this.tasks.has(execution.id)) this.run(execution);
     }
   }
-  launch(principal: Principal, record: WorkflowRecord, input: unknown, fileIds: string[]) {
+  private admission(
+    principal: Principal,
+    record: WorkflowRecord,
+    input: unknown,
+    fileIds: string[],
+  ) {
     if (record.archivedAt)
       throw new Fault('invalid_request', 'Restore the archived workflow before running it.');
     const authority = this.refresh(principal);
     this.authorize(authority, record);
     if (Buffer.byteLength(JSON.stringify(input) ?? '') > 100000)
       throw new Fault('invalid_request', 'Workflow input exceeds its limit.');
-    const execution = this.records.create({
+    return {
       owner: authority.owner,
       subject: principalSubject(authority),
       definition: record.definition,
@@ -166,7 +173,25 @@ export class WorkflowRunner {
       authority,
       input,
       fileIds,
-    });
+    };
+  }
+  private trigger(record: WorkflowRecord, input: unknown, key: string) {
+    const value = this.admission(record.authority, record, input, []);
+    const trigger = record.definition.trigger;
+    if (trigger.kind === 'event') {
+      this.kernel.authorize(value.authority, trigger.agent, 'read');
+      const subject = trigger.subject ?? principalSubject(record.authority);
+      if (subject !== value.subject && !isOwnerWide(value.authority))
+        throw new Fault('scope_denied', 'The source event is no longer visible.', 403);
+    }
+    const execution = this.records.admitTrigger(value, key);
+    if (!execution) return;
+    // Child execution must not start until both its queue row and receipt have committed.
+    if (this.tasks.size < 4) this.run(execution);
+    this.records.noteTrigger(execution.owner, record.definition.id, record.revision);
+  }
+  launch(principal: Principal, record: WorkflowRecord, input: unknown, fileIds: string[]) {
+    const execution = this.records.create(this.admission(principal, record, input, fileIds));
     if (this.tasks.size < 4) this.run(execution);
     return execution;
   }

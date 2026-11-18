@@ -14,6 +14,7 @@ import {
 } from '../core/util.js';
 import { NO_NEGOTIATION, advertisedExecution } from './advertised-execution.js';
 import { type Executor, WorkerRuntime } from './worker.js';
+import { sendArtifacts } from './artifact-transfer.js';
 
 type Emit = (event: WorkEvent) => Promise<Record<string, unknown> | void>;
 type WorkerJob = {
@@ -23,6 +24,7 @@ type WorkerJob = {
   actions: Map<string, (answer: Record<string, unknown>) => void>;
   kind: 'install' | 'execute';
   failure?: Fault;
+  chunk?: { index: number; offset: number; acknowledge: () => void };
 };
 
 function send(socket: WebSocket, message: unknown): void {
@@ -96,6 +98,7 @@ async function workerConnection(
       stop.addEventListener('abort', abort, { once: true });
       let metadataUpdates = false;
       let welcomed = false;
+      let artifactChunks = false;
       let lastAdvertisement = '';
       const negotiated = { ...NO_NEGOTIATION };
       const advertise = (type: 'hello' | 'advertisement') => {
@@ -137,6 +140,7 @@ async function workerConnection(
             metadataUpdates =
               Array.isArray(msg.features) && msg.features.includes('execution-capabilities-v1');
             const features: unknown[] = Array.isArray(msg.features) ? msg.features : [];
+            artifactChunks = features.includes('artifact-chunks-v1');
             negotiated.byok = metadataUpdates && features.includes('byok-v1');
             negotiated.sandbox = metadataUpdates && features.includes('sandbox-v1');
             negotiated.providerState = metadataUpdates && features.includes('provider-turn-v1');
@@ -173,6 +177,17 @@ async function workerConnection(
             return;
           }
           const existing = jobs.get(msg.id);
+          if (msg.type === 'artifact_ack') {
+            const chunk = existing?.chunk;
+            if (
+              chunk &&
+              existing?.leaseId === msg.leaseId &&
+              chunk.index === msg.index &&
+              chunk.offset === msg.offset
+            )
+              chunk.acknowledge();
+            return;
+          }
           if (['cancel', 'renew', 'action'].includes(msg.type)) {
             if (!existing || existing.leaseId !== msg.leaseId || existing.controller.signal.aborted)
               return;
@@ -284,7 +299,47 @@ async function workerConnection(
                   503,
                 );
               checkAbort(controller.signal);
-              send(ws, { type: 'result', id: msg.id, leaseId: job.leaseId, result });
+              const outbound =
+                'installed' in result
+                  ? result
+                  : await sendArtifacts(
+                      result,
+                      artifactChunks,
+                      controller.signal,
+                      (chunk) =>
+                        new Promise<void>((resolve, reject) => {
+                          checkAbort(controller.signal);
+                          const abort = () => {
+                            delete job.chunk;
+                            reject(
+                              new Fault('cancelled', 'Artifact transfer interrupted.', 409, true),
+                            );
+                          };
+                          controller.signal.addEventListener('abort', abort, { once: true });
+                          job.chunk = {
+                            index: chunk.index,
+                            offset: chunk.offset,
+                            acknowledge: () => {
+                              controller.signal.removeEventListener('abort', abort);
+                              delete job.chunk;
+                              resolve();
+                            },
+                          };
+                          try {
+                            send(ws, {
+                              type: 'artifact_chunk',
+                              id: msg.id,
+                              leaseId: job.leaseId,
+                              ...chunk,
+                            });
+                          } catch (error) {
+                            controller.signal.removeEventListener('abort', abort);
+                            delete job.chunk;
+                            reject(error);
+                          }
+                        }),
+                    );
+              send(ws, { type: 'result', id: msg.id, leaseId: job.leaseId, result: outbound });
             } catch (error) {
               const e = job.failure ?? faultOf(error);
               try {

@@ -9,8 +9,10 @@ import path from 'node:path';
 import { setup, agent, FixtureModel, waitFor } from './helpers.js';
 import { capabilitySchema } from '../src/core/contracts.js';
 import { makeBundle } from '../src/lang/bundle.js';
+import { createHash } from 'node:crypto';
+import { RemoteExecutor } from '../src/fabric/network.js';
 
-test('separate worker process executes a host-bound tool over certificate-verified WSS on loopback', async () => {
+test('separate worker process executes a host-bound tool and transfers a 12 MiB artifact over certificate-verified WSS', async () => {
   const certDir = await mkdtemp(path.join(os.tmpdir(), 'oaa-tls-'));
   let s: Awaited<ReturnType<typeof setup>> | undefined;
   let child: ReturnType<typeof spawn> | undefined;
@@ -67,8 +69,8 @@ test('separate worker process executes a host-bound tool over certificate-verifi
             nodeId: 'process-node',
             owner: 'owner',
             tokenEnv: 'OAA_PROCESS_NODE',
-            agents: ['agent/test'],
-            capabilities: [cap.id],
+            agents: ['agent/test', 'agent/export'],
+            capabilities: [cap.id, 'native/adapter/export'],
           },
         ],
       },
@@ -82,6 +84,14 @@ test('separate worker process executes a host-bound tool over certificate-verifi
       dataDir: path.join(s.dir, 'child-worker'),
       gatewayUrl: url,
       tokenFile: path.join(s.dir, 'node.token'),
+      adapters: {
+        export: {
+          transport: 'stdio',
+          enabled: true,
+          command: process.execPath,
+          args: [path.resolve('test/fixtures/large-native-output.mjs')],
+        },
+      },
       tools: [
         { reference: 'source', capability: cap, handler: { kind: 'read_directory', root: s.dir } },
       ],
@@ -113,6 +123,53 @@ test('separate worker process executes a host-bound tool over certificate-verifi
     assert.equal(response.json().status, 'completed', response.body);
     assert.match(response.json().output.at(-1).content[0].text, /Certificate-verified WSS/);
     assert.equal(s.store.steps(response.json().id)[0]?.nodeId, 'process-node');
+    const remote = s.hub.nodes.get('process-node')!.executor;
+    assert.ok(remote instanceof RemoteExecutor);
+    let chunkBytes = 0,
+      chunks = 0,
+      manifests = 0;
+    remote.socket.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === 'artifact_chunk') {
+        chunks++;
+        chunkBytes += Buffer.byteLength(msg.data, 'base64');
+      }
+      if (msg.type === 'result' && msg.result?.artifacts?.length) {
+        const file = msg.result.artifacts[0];
+        assert.equal(file.localPath, undefined);
+        assert.equal(file.content, '');
+        assert.equal(file.transferIndex, 0);
+        manifests++;
+      }
+    });
+    s.store.publish(
+      'owner',
+      makeBundle(
+        agent({
+          id: 'agent/export',
+          engine: 'adapter/export',
+          model: 'default',
+          allowedNodes: ['process-node'],
+        }),
+      ),
+    );
+    const exported = await s.request('POST', '/v1/responses', {
+      model: 'agent/export',
+      input: 'Prepare the report.',
+    });
+    assert.equal(exported.json().status, 'completed', exported.body);
+    const run = s.store.run(exported.json().id, 'owner');
+    assert.equal(run.artifactIds.length, 1);
+    assert.ok(chunks > 1);
+    assert.equal(chunkBytes, 12 * 1024 * 1024);
+    assert.equal(manifests, 1);
+    const fetched = await s.request('GET', `/v1/files/${run.artifactIds[0]}/content`);
+    assert.equal(fetched.statusCode, 200);
+    assert.equal(fetched.rawPayload.length, chunkBytes);
+    assert.equal(
+      createHash('sha256').update(fetched.rawPayload).digest('hex'),
+      createHash('sha256').update(Buffer.alloc(chunkBytes, 55)).digest('hex'),
+    );
   } finally {
     if (child && child.exitCode === null) {
       child.kill('SIGTERM');

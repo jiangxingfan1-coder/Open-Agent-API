@@ -29,6 +29,10 @@ export type StoredArtifactRecord = {
 
 const CHUNK_BYTES = 65_536;
 const storeLimits = new WeakMap<DatabaseSync, number>();
+const liveBlobs = new WeakMap<DatabaseSync, Set<string>>();
+export function isStagingArtifact(db: DatabaseSync, fileId: string): boolean {
+  return liveBlobs.get(db)?.has(fileId) ?? false;
+}
 
 export function setArtifactByteLimit(store: ArtifactStoreLike, maxBytes?: number): void {
   if (maxBytes === undefined) {
@@ -89,21 +93,19 @@ export async function hashFileStreaming(
   }
 }
 
-export async function storeArtifactStreamOrPath(
-  store: ArtifactStoreLike,
-  params: {
-    owner: string;
-    name: string;
-    runId?: string;
-    subject?: string;
-    allowedNodes?: string[];
-    sourcePath?: string;
-    stream?: Readable;
-    bytes?: Buffer;
-    expectedSha256?: string;
-    maxBytes?: number;
-  },
-): Promise<StoredArtifactRecord> {
+type ArtifactSource = {
+  owner: string;
+  name: string;
+  runId?: string;
+  subject?: string;
+  allowedNodes?: string[];
+  sourcePath?: string;
+  stream?: Readable;
+  bytes?: Buffer;
+  expectedSha256?: string;
+  maxBytes?: number;
+};
+export async function stageArtifact(store: ArtifactStoreLike, params: ArtifactSource) {
   relativeName(params.name);
   const limit = params.maxBytes ?? (params.runId ? getArtifactByteLimit(store) : LIMITS.fileBytes);
   const tooLargeFault = () =>
@@ -130,6 +132,9 @@ export async function storeArtifactStreamOrPath(
   const hash = createHash('sha256');
   let total = 0;
   let succeeded = false;
+  let active = liveBlobs.get(store.db);
+  if (!active) liveBlobs.set(store.db, (active = new Set()));
+  active.add(fileId);
   try {
     if (params.sourcePath) {
       const src = await open(params.sourcePath, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -176,7 +181,6 @@ export async function storeArtifactStreamOrPath(
       throw new Fault('artifact_integrity', 'Artifact digest does not match.', 502);
 
     await out.close();
-    succeeded = true;
     if (process.platform === 'win32') await restrictToOwner(target);
 
     const record: StoredArtifactRecord = {
@@ -189,16 +193,51 @@ export async function storeArtifactStreamOrPath(
       allowedNodes: params.allowedNodes,
       runId: params.runId,
     };
-    store
-      .prepare('INSERT INTO files(id,owner,payload,subject) VALUES(?,?,?,?)')
-      .run(record.id, params.owner, JSON.stringify(record), fileSubject);
-    return record;
+    succeeded = true;
+    return {
+      record,
+      commit() {
+        store
+          .prepare('INSERT INTO files(id,owner,payload,subject) VALUES(?,?,?,?)')
+          .run(record.id, params.owner, JSON.stringify(record), fileSubject);
+        active.delete(fileId);
+        return record;
+      },
+      async discard() {
+        try {
+          await unlink(target);
+        } finally {
+          active.delete(fileId);
+        }
+      },
+    };
   } finally {
     if (!succeeded) {
+      active.delete(fileId);
       await out.close().catch(() => {});
       await unlink(target).catch(() => {});
     }
   }
+}
+
+export async function storeArtifactStreamOrPath(store: ArtifactStoreLike, params: ArtifactSource) {
+  const staged = await stageArtifact(store, params);
+  try {
+    return staged.commit();
+  } catch (error) {
+    await staged.discard();
+    throw error;
+  }
+}
+
+// Only the gateway's completed, lease-bound transfer can attach a stored record to a result.
+const receipts = new WeakMap<ArtifactPayload, { db: DatabaseSync; file: StoredArtifactRecord }>();
+export function attachReceivedArtifact(
+  store: ArtifactStoreLike,
+  payload: ArtifactPayload,
+  file: StoredArtifactRecord,
+) {
+  receipts.set(payload, { db: store.db, file });
 }
 
 /** Persist a worker-reported `ArtifactPayload` (either local file reference or inline Base64). */
@@ -218,6 +257,22 @@ export async function persistWorkerArtifact(
   artifact: ArtifactPayload,
   allowedNodes?: string[],
 ): Promise<StoredArtifactRecord> {
+  const receipt = receipts.get(artifact);
+  if (receipt) {
+    const { file } = receipt;
+    if (
+      receipt.db !== store.db ||
+      file.owner !== owner ||
+      file.runId !== runId ||
+      JSON.stringify(file.allowedNodes) !== JSON.stringify(allowedNodes)
+    )
+      throw new Fault(
+        'artifact_integrity',
+        'Artifact receipt does not belong to this dispatch.',
+        502,
+      );
+    return file;
+  }
   if (artifact.localPath) {
     return storeArtifactStreamOrPath(store, {
       owner,

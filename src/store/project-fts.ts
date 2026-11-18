@@ -1,4 +1,6 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
+import { setImmediate as yieldTurn } from 'node:timers/promises';
+import { withSavepoint } from './savepoint.js';
 
 type Database = { db: DatabaseSync; prepare(sql: string): StatementSync };
 export type MemorySearchOptions = {
@@ -150,7 +152,6 @@ const PRIVATE_SPEC: ScopeSpec = ['m', 'private', 'memories', 'subject', 'value',
 
 export class MemoryFts {
   readonly ftsAvailable: boolean;
-  private synced = new Set<string>();
 
   constructor(private readonly store: Database) {
     let available = false;
@@ -159,10 +160,11 @@ export class MemoryFts {
         CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(owner UNINDEXED,scope UNINDEXED,namespace,key,body,tokenize='unicode61');
         CREATE TABLE IF NOT EXISTS memory_fts_map(kind TEXT NOT NULL,owner TEXT NOT NULL,scope_id TEXT NOT NULL,namespace TEXT NOT NULL,key TEXT NOT NULL,fts_rowid INTEGER NOT NULL,PRIMARY KEY(kind,owner,scope_id,namespace,key));
         CREATE INDEX IF NOT EXISTS memory_fts_rowid ON memory_fts_map(fts_rowid);
-        CREATE TABLE IF NOT EXISTS memory_fts_meta(kind TEXT PRIMARY KEY,synced INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS memory_fts_scopes(kind TEXT NOT NULL,owner TEXT NOT NULL,scope TEXT NOT NULL,namespace TEXT NOT NULL,key TEXT NOT NULL,done INTEGER NOT NULL,PRIMARY KEY(kind,owner,scope));
       `);
       available = true;
-    } catch {
+    } catch (error) {
+      if (!(error instanceof Error && /no such module: fts5/i.test(error.message))) throw error;
       available = false;
     }
     this.ftsAvailable = available;
@@ -223,23 +225,46 @@ export class MemoryFts {
       .run(kind, owner, scopeId, namespace, key);
   }
 
-  private ensureSynced([kind, meta, table, scopeCol, valCol]: ScopeSpec): void {
-    if (!this.ftsAvailable || this.synced.has(meta) || !this.tableExists(table)) return;
-    this.synced.add(meta);
-    if (this.store.prepare('SELECT 1 FROM memory_fts_meta WHERE kind=?').get(meta)) return;
-    for (const r of this.store
-      .prepare(`SELECT owner,${scopeCol} AS s,namespace,key,${valCol} AS v FROM ${table}`)
-      .all()) {
-      this.upsertDoc(
-        kind,
-        String(r.owner),
-        String(r.s),
-        String(r.namespace),
-        String(r.key),
-        String(r.v),
-      );
-    }
-    this.store.prepare('INSERT OR REPLACE INTO memory_fts_meta VALUES(?,1)').run(meta);
+  private syncPage(
+    [kind, , table, scopeCol, valCol]: ScopeSpec,
+    owner: string,
+    scope: string,
+  ): boolean {
+    const cursor = this.store
+      .prepare(
+        'SELECT namespace,key,done FROM memory_fts_scopes WHERE kind=? AND owner=? AND scope=?',
+      )
+      .get(kind, owner, scope);
+    if (cursor?.done) return true;
+    return withSavepoint(this.store.db, () => {
+      const rows = this.store
+        .prepare(
+          `SELECT namespace,key,${valCol} AS v FROM ${table} WHERE owner=? AND ${scopeCol}=?
+        ${cursor ? 'AND (namespace,key)>(?,?)' : ''} ORDER BY namespace,key LIMIT 64`,
+        )
+        .all(owner, scope, ...(cursor ? [String(cursor.namespace), String(cursor.key)] : []));
+      for (const r of rows)
+        this.upsertDoc(kind, owner, scope, String(r.namespace), String(r.key), String(r.v));
+      const last = rows.at(-1) ?? cursor;
+      const done = rows.length < 64;
+      this.store
+        .prepare('INSERT OR REPLACE INTO memory_fts_scopes VALUES(?,?,?,?,?,?)')
+        .run(
+          kind,
+          owner,
+          scope,
+          String(last?.namespace ?? ''),
+          String(last?.key ?? ''),
+          Number(done),
+        );
+      return done;
+    });
+  }
+
+  async warm(scopeType: 'project' | 'private', owner: string, scope: string) {
+    const spec = scopeType === 'project' ? PROJECT_SPEC : PRIVATE_SPEC;
+    if (!this.ftsAvailable || !this.tableExists(spec[2])) return;
+    while (!this.syncPage(spec, owner, scope)) await yieldTurn();
   }
 
   private searchScope(
@@ -255,9 +280,11 @@ export class MemoryFts {
     const ns = options.namespace;
     const revSelect = hasRevision ? ', t.revision' : '';
     if (this.ftsAvailable && !options.forceFallback) {
-      this.ensureSynced(spec);
       const ftsQuery = escapeFts5Query(query);
       if (!ftsQuery) return [];
+      while (!this.syncPage(spec, owner, scopeId)) {
+        /* synchronous kernel snapshots need a complete scope */
+      }
       const rows = this.store
         .prepare(
           `SELECT t.namespace, t.key, t.${valCol} AS val, t.updated_at${revSelect},
