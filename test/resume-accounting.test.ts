@@ -132,6 +132,27 @@ test('interrupt -> resume -> complete: key tokens counted once, concurrency trac
   }
 });
 
+test('failed resume reservation leaves the run interrupted and retryable without new usage', async () => {
+  const { env, keyId, bearer, runId } = await interruptedKeyRun();
+  const g = await reopen(env);
+  try {
+    const before = g.auth.keyUsage(keyId);
+    g.store.db.exec(
+      "CREATE TEMP TRIGGER fail_rejoin BEFORE INSERT ON api_key_pending_runs BEGIN SELECT RAISE(ABORT,'fixture journal failure'); END",
+    );
+    assert.equal((await inject(g, 'POST', `/v1/runs/${runId}/resume`, bearer)).statusCode, 500);
+    assert.equal(g.store.run(runId).status, 'interrupted');
+    assert.equal(g.kernel.stats().queued, 0);
+    assert.deepEqual(g.auth.keyUsage(keyId), before);
+    g.store.db.exec('DROP TRIGGER fail_rejoin');
+    assert.equal((await inject(g, 'POST', `/v1/runs/${runId}/resume`, bearer)).statusCode, 200);
+    assert.equal((await g.kernel.wait(runId)).status, 'completed');
+    assert.deepEqual(g.auth.keyUsage(keyId), { usedRuns: 1, usedTokens: 30, activeRuns: 0 });
+  } finally {
+    await finish(env, g);
+  }
+});
+
 test('interrupt -> no resume: tokens used before the interruption are counted once', async () => {
   const { env, keyId, runId } = await interruptedKeyRun();
   const g = await reopen(env);

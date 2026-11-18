@@ -29,11 +29,13 @@ export class KeyAccounting {
   }
   rejoin(keyId: string | undefined, run: string): void {
     if (!keyId) return;
-    withSavepoint(this.store.db, () => {
-      this.usage.markPending(keyId, run);
-      if (this.accounts.has(keyId)) this.platform()?.reopenRun(run);
-    });
-    this.usage.rejoin(keyId, run);
+    withSavepoint(this.store.db, () => this.stageRejoin(keyId, run))?.();
+  }
+  stageRejoin(keyId: string | undefined, run: string) {
+    if (!keyId) return;
+    this.usage.markPending(keyId, run);
+    if (this.accounts.has(keyId)) this.platform()?.reopenRun(run);
+    return () => this.usage.rejoin(keyId, run);
   }
   finish(
     keyId: string | undefined,

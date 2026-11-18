@@ -181,6 +181,9 @@ export class Auth {
   rejoinKeyRun(...args: Parameters<KeyAccounting['rejoin']>) {
     this.accounting.rejoin(...args);
   }
+  stageRejoinKeyRun(...args: Parameters<KeyAccounting['stageRejoin']>) {
+    return this.accounting.stageRejoin(...args);
+  }
   /**
    * Before an interrupted run is resumed: the run's own key must still be allowed to run it, under
    * the same rules as a new submission (expiry, revocation, account status, the agent still

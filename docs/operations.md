@@ -174,7 +174,7 @@ An unknown external write outcome blocks Resume. An authorized operator must exp
 
 ## Data retention and backups
 
-Creating a run commits its initial event, key usage, any platform hold and its workflow stage link together. After a failed admission, retry with the same idempotency key. If only final accounting is delayed, the gateway retains the run and retries settlement, including at startup; it does not rerun the agent. An `OAASettlement` warning indicates a pending accounting write. Check storage health if it recurs.
+Creating a run commits its initial event, key usage, any platform hold and its workflow stage link together. After a failed admission, retry with the same idempotency key. If a resume reservation fails, the original run stays interrupted and can be resumed again without consuming a new run. If only final accounting is delayed, the gateway retains the run and retries settlement, including at startup; it does not rerun the agent. An `OAASettlement` warning indicates a pending accounting write. Check storage health if it recurs.
 
 On `GET /metrics`, `oaa_run_outcomes_total{agent,status}` is the counter for completion and failure rates. It counts transitions into terminal states and survives history pruning and restarts. At first upgrade it starts from the terminal runs still retained, not already-deleted history. The older `oaa_runs_total`, `oaa_run_errors_total`, `oaa_run_tokens_total` and `oaa_tokens_total` series retain their names and snapshot values, but are gauges: do not apply `rate()` to them.
 

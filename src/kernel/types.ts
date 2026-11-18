@@ -45,6 +45,7 @@ export type KernelAuth = {
   ): void;
   /** The run is active again (resumed, or re-queued at startup) without starting a new run. */
   rejoinKeyRun(keyId: string | undefined, runId: string): void;
+  stageRejoinKeyRun(keyId: string | undefined, runId: string): (() => void) | undefined;
   finishKeyRun(
     keyId: string | undefined,
     owner: string,

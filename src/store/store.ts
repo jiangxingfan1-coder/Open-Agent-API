@@ -956,18 +956,19 @@ export class Store {
       next_offset: rows.length > limit ? offset + limit : null,
     };
   }
-  save(run: Run): void {
-    this.checkpoint(run);
+  save(run: Run, stageAdmission?: () => () => void): void {
+    if (!stageAdmission) return this.checkpoint(run);
+    this.record(run, [], true, { stageAdmission });
   }
   checkpoint(run: Run, events: EventInput[] = [], final?: (view: Run) => EventInput): void {
-    this.record(run, events, true, final);
+    this.record(run, events, true, { final });
   }
   /**
    * 换用备选智能体：把运行改挂到另一个智能体名下，并在同一个事务里写入检查点和事件。
    * 目录列与摘要列一起改，避免出现「载荷说是 B、索引还是 A」的中间状态。
    */
   checkpointReassigned(run: Run, events: EventInput[]): void {
-    this.record(run, events, true, undefined, undefined, true);
+    this.record(run, events, true, { reassign: true });
   }
   checkpointStep(
     run: Run,
@@ -993,7 +994,7 @@ export class Store {
     for (const id of artifactIds)
       if (this.file(id, run.owner).runId !== run.id)
         throw new Fault('invalid_step_artifact', 'A step artifact must belong to this run.', 403);
-    this.record(run, [event], true, undefined, { step, artifactIds });
+    this.record(run, [event], true, { completion: { step, artifactIds } });
   }
   /**
    * 外部智能体一轮的收尾：步骤完成、产物 ID 与检查点（含输出收尾事件）在同一个事务里落盘。
@@ -1014,7 +1015,7 @@ export class Store {
     for (const id of artifactIds)
       if (this.file(id, run.owner).runId !== run.id)
         throw new Fault('invalid_step_artifact', 'A step artifact must belong to this run.', 403);
-    this.record(run, events, true, undefined, { step, artifactIds });
+    this.record(run, events, true, { completion: { step, artifactIds } });
   }
   recordOutput(run: Run, events: EventInput[]): void {
     if (
@@ -1028,9 +1029,17 @@ export class Store {
     run: Run,
     specs: EventInput[],
     snapshot: boolean,
-    final?: (view: Run) => EventInput,
-    completion?: { step: ExecutionStep; artifactIds: string[] },
-    reassign = false,
+    {
+      final,
+      completion,
+      reassign,
+      stageAdmission,
+    }: {
+      final?: (view: Run) => EventInput;
+      completion?: { step: ExecutionStep; artifactIds: string[] };
+      reassign?: boolean;
+      stageAdmission?: () => () => void;
+    } = {},
   ): void {
     const owner = this.ownerOf(run.id);
     if (owner !== run.owner) throw new Fault('run_not_found', 'Response not found.', 404);
@@ -1045,6 +1054,7 @@ export class Store {
       updatedAt: Date.now(),
     };
     const events: RunEvent[] = [];
+    let publishAdmission: (() => void) | undefined;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       if (completion) this.step(completion.step);
@@ -1071,11 +1081,13 @@ export class Store {
           );
         events.push(this.insertEvent(run.id, event, view.updatedAt));
       }
+      publishAdmission = stageAdmission?.();
       this.db.exec('COMMIT');
     } catch (e) {
       if (this.db.isTransaction) this.db.exec('ROLLBACK');
       throw e;
     }
+    publishAdmission?.();
     this.remember(run.id, { messages, updatedAt: view.updatedAt });
     this.appendHotEvents(run.id, events);
     run.output = view.output;

@@ -186,15 +186,19 @@ export function resume(
   run.error = null;
   delete run.checkpoint.suspension;
   if (!run.checkpoint.durability) delete run.checkpoint.deadlineAt;
-  rt.store.save(run);
-  if (providerKey !== undefined) {
-    clearTimeout(rt.byokExpiry.get(runId));
-    rt.byokExpiry.delete(runId);
-    rt.byokKeys.set(runId, providerKey);
-  }
-  rt.auth()?.rejoinKeyRun(run.checkpoint.keyId, runId);
-  rt.admission.queue.push(runId);
-  setImmediate(() => rt.admission.pump());
+  rt.store.save(run, () => {
+    const account = rt.auth()?.stageRejoinKeyRun(run.checkpoint.keyId, runId);
+    return () => {
+      account?.();
+      if (providerKey !== undefined) {
+        clearTimeout(rt.byokExpiry.get(runId));
+        rt.byokExpiry.delete(runId);
+        rt.byokKeys.set(runId, providerKey);
+      }
+      rt.admission.enqueue(runId);
+      setImmediate(() => rt.admission.pump());
+    };
+  });
   return run;
 }
 export function reconcile(
