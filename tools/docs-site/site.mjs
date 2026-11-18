@@ -45,6 +45,8 @@ export const LANGS = {
       examples: 'Examples',
       switchLabel: '中文',
       switchTitle: 'Read this page in Chinese',
+      themeToLight: 'Switch to light theme',
+      themeToDark: 'Switch to dark theme',
       footer: 'Apache-2.0 · Open Agent API documentation',
       copy: 'Copy',
       copied: 'Copied',
@@ -78,6 +80,8 @@ export const LANGS = {
       examples: '示例',
       switchLabel: 'EN',
       switchTitle: '阅读英文版',
+      themeToLight: '切换为浅色模式',
+      themeToDark: '切换为深色模式',
       footer: 'Apache-2.0 · Open Agent API 文档',
       copy: '复制',
       copied: '已复制',
@@ -111,6 +115,7 @@ export function repoUrlFrom(pkg) {
 }
 
 const BRAND_MARK = `<svg viewBox="40.11 43 175.78 170" aria-hidden="true"><g><path d="M209.89 207L150.11 49L108.57 155" /><path d="M94.7 190.38L88.19 207" /><path d="M143.36 106.65A50 50 0 1 1 119.1 78.6" /></g></svg>`;
+const THEME_ICON = `<svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.2M12 19.3v2.2M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2.5 12h2.2M19.3 12h2.2M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56" /></svg><svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 14.6A8.2 8.2 0 1 1 9.4 3.8a6.6 6.6 0 0 0 10.8 10.8z" /></svg>`;
 
 const relUrl = (fromFile, toFile) => {
   const r = posix.relative(posix.dirname(fromFile), toFile);
@@ -322,6 +327,7 @@ function renderPage(site, page) {
     ${alternates}
     <link rel="stylesheet" href="${base}/styles.css">
     <link rel="stylesheet" href="${docsAssets}/docs.css">
+    <script src="${base}/theme-init.js"></script>
     <script src="${docsAssets}/docs.js" defer></script>
   </head>
   <body data-lang="${lang}" data-index="${docsAssets}/search-index.${lang}.js" data-copy="${esc(ui.copy)}" data-copied="${esc(ui.copied)}" data-no-results="${esc(ui.noResults)}">
@@ -343,6 +349,7 @@ function renderPage(site, page) {
           ${cookbook ? `<a href="${esc(relUrl(page.out, cookbook.out))}"${page.key === COOKBOOK_KEY ? ' aria-current="page"' : ''}>${esc(ui.cookbook)}</a>` : ''}
           <a href="${esc(site.repoUrl)}">GitHub</a>
           ${switchLink}
+          <button type="button" class="theme-toggle" data-theme-toggle data-label-light="${esc(ui.themeToLight)}" data-label-dark="${esc(ui.themeToDark)}" aria-label="${esc(ui.themeToDark)}" title="${esc(ui.themeToDark)}">${THEME_ICON}</button>
         </nav>
       </div>
     </header>

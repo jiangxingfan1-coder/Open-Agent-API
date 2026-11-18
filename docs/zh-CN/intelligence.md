@@ -1,65 +1,93 @@
-# 智能 Agent API
+# 智能选路、多智能体编排与模型评测
 
 [English](../intelligence.md) · 简体中文
 
-## 本轮已实现
+当你把一个智能体发布成 API 后，调用方不仅能固定走某一条模型线路，还可以让网关根据**速度、质量、成本、实时配额与本地实测得分**自动选路，或把复杂任务拆解给多个智能体协同完成。
 
-实现已继续推进到后续能力。[持久 Agent 工作台](workstation.md) 说明了项目记忆、持久检查点、可视化／可复用工作流及触发器、媒体任务、真实任务反馈、公开 JSON 资料和跨平台桌面构建。
+---
 
-- `/v1/agents/publish-native` 新发布默认自动批准。已有发布保留显式策略；签名包发布不会被改写。需要人工审批时设置 `approvals: "ask"` 或显式 `access.approval`。宿主权限与密钥限制仍然生效。Antigravity 优先使用 ACP 审批桥，无 ACP 时使用仅本次启动的自动批准参数，不改变原智能体全局设置。
-- 新外部智能体编排发布默认使用 `scope: "agent"`。固定模型不启动编排；智能模式即使遇到短任务也先调用规划模型。规划、分析、复核只在选定 Agent 的模型池内进行。旧发布保留原有快捷路径。
-- `X-OAA-Orchestration: recommend` 或 `metadata["oaa.orchestration_action"]: "recommend"` 只规划，不执行计划阶段。返回文本为包含 `agent`、`mode`、`stages`、`executed: false` 的 JSON。正常执行用 `execute` 或省略；仅规划要求自动选模且发布已启用编排。它不是权限审批。
-- 模型评测有控制台弹窗、私有 SQLite 记录、设置版本检查、每日调用上限和单路后台队列。本机可执行文件、配置、发布定义或模型目录变化会使旧测量失效。目前测量算术推理、代码推演、指令遵循和结构化数据四个维度。小型生成题目不等于综合智力测试，也不能证明工具使用能力。
-- 至少四个有效样本后，实测分数和耗时参与选路。传输、认证失败与答案错误分开记录；七天后证据过期。不从模型名称猜测强弱。
-- 新鲜、身份无歧义的额度快照可排除智能模式的不可用线路；未知或过期信息不阻断调用。有可用订阅窗口时，API 点数为零不会阻断订阅。存在多个账号但无法对应运行身份时，不据此自动排除。固定模型不会偷偷更换。
-- 执行机器页和 API 均可导入本机 EverythingACP 的 `client.json`。导入后保持停用，启用并发布后才能调用；重启后保留，不复制或改动包装器，不导入环境密钥。转换核心仍由独立 EverythingACP 项目维护。
+## 调用时的选路语法
 
-## API 示例
+在 OpenAI、Claude、Gemini 等所有兼容入口中，`model` 字段支持统一的选路后缀：
 
-使用发现接口返回的模型，不猜测供应商模型标识：
+| `model` 写法 | 行为说明 |
+| --- | --- |
+| `agent/coder`（或 `@auto`） | **自动选路**：综合配置的线路优先级、近期延迟、上游冷却状态与本地评测分数动态选择可用模型 |
+| `agent/coder@fast` | **速度优先**：优先选择实测响应延迟最低的合格模型线路 |
+| `agent/coder@best` | **质量优先**：优先选择评测得分更高、并在启用编排时附带规划与质量复核的线路 |
+| `agent/coder@eco` | **成本优先**：优先选择单位成本更低或订阅配额充裕的线路 |
+| `agent/coder@<具体模型名>` | **固定线路**：直接指定已声明或已发现的模型标识，跳过自动编排，且绝不暗中更换模型 |
+
+### 仅输出执行方案（`recommend` 规划模式）
+
+如果你想先看网关打算怎么拆解任务、选哪个模型，而不实际执行工具调用，可以在请求中开启 `recommend` 模式：
+
+```json
+{
+  "model": "agent/coder@best",
+  "input": "重构订单导出接口并补齐并发回归测试",
+  "metadata": {
+    "oaa.orchestration_action": "recommend"
+  }
+}
+```
+
+也可以通过请求头 `X-OAA-Orchestration: recommend`（或在控制台「对话工作台」勾选「仅生成编排建议」）触发。网关会运行无工具规划器（`toolsDisabled`），直接返回包含 `agent`、`mode`、`stages` 与 `executed: false` 的结构化 JSON 方案。
+
+---
+
+## 跨引擎智能编排与多智能体流水线
+
+无论底层是内置内核智能体，还是 Codex、Antigravity、Qoder 等外部智能体，均可在发布时开启编排能力：
+
+1. **单智能体多模型池编排（`scope: "agent"`）**：在同一个智能体挂载的多条模型线路之间分工完成规划（`plan`）、执行（`execute`）与复核（`review`）。
+2. **专职规划器绑定（`orchestration.planner`）**：对于不便直接做无工具规划的外部引擎，可显式指定另一个已授权智能体担任 `planner`，将规划与复核交由规划器完成，主执行阶段仍留在目标引擎。
+3. **跨智能体协作流水线（`scope: "helpers"`）**：在发布配置中声明可协作的 `helpers` 智能体集合，由编排器按阶段自动拆分子任务、通过结构化 `handoff` 传递上下文与文件产物。
+
+### 发布配置示例（自动模型发现 + 编排开启）
 
 ```json
 {
   "id": "agent/my-agent",
   "engine": "antigravity",
-  "models": ["MODEL_FROM_DISCOVERY"],
-  "model_policy": {"mode": "discover", "allow": ["MODEL_FROM_DISCOVERY"]},
-  "access": {"modes": ["managed"], "defaultMode": "managed", "approval": "auto", "trust": "private"},
-  "orchestration": {"enabled": true, "scope": "agent"}
+  "models": ["default"],
+  "model_policy": { "mode": "discover" },
+  "access": {
+    "modes": ["managed"],
+    "defaultMode": "managed",
+    "approval": "ask",
+    "trust": "private"
+  },
+  "orchestration": {
+    "enabled": true,
+    "scope": "agent"
+  }
 }
 ```
 
-现有兼容接口接受 `agent/my-agent@<线路>` 固定模型、`agent/my-agent@fast`、`@best`、`@eco`，或 `agent/my-agent` 自动选择。仅规划请求：
+对于已发布的智能体，可在控制台智能体详情页打开 **「API 执行策略」** 弹窗（底层调用 `POST /v1/agents/policy`），一键切换人工审批 / 自动批准（`ask` / `auto`）或启停自动编排，网关会自动生成新的不可变版本。
 
-```json
-{
-  "model": "agent/my-agent@best",
-  "input": "为请求的任务制定方案",
-  "metadata": {"oaa.orchestration_action": "recommend"}
-}
-```
+---
 
-以下本机管理接口要求本地安全配置、直接回环连接、同源及所有者全域管理员：
+## 本地五维模型评测与配额感知
 
-| 接口 | 用途 |
+为了避免只靠模型名字盲猜强弱，网关内置了可选的轻量级本地评测器与配额快照联动：
+
+- **五大实测维度**：涵盖算术推理、代码推演、指令遵循、结构化数据输出与工具调用（`tool_calling`）五个维度。
+- **克制的后台预算**：默认关闭；手动开启后每 24 小时最多运行一轮（单智能体每日上限 48 次样本调用，正常业务请求始终优先插队）。累积满 4 个有效样本后，实测准确率与耗时才会纳入自动选路权重；模型配置变更或超过 7 天后旧样本自动失效。
+- **人工反馈与公开参数源**：管理员可通过 `POST /v1/local/evaluations/feedback` 对真实运行结果标记通过/未通过（不额外消耗模型调用），也可配置无凭据公开 HTTPS JSON 数据源映射上下文窗口与参考单价。
+- **实时配额避障**：当上游账号提供明确的额度快照（见 [用量与额度](usage-monitor.md)）且某条线路配额耗尽时，自动选路会主动绕开该线路。
+
+---
+
+## 导入 EverythingACP 本地适配器
+
+如果你使用 [EverythingACP](https://agentclientprotocol.com) 将其他 CLI 工具包装成了 ACP 客户端，可在控制台 **「执行机器」** 页直接选择输出目录自动发现包装器，或通过接口导入 `client.json`：
+
+| 本机管理接口 | 用途 |
 | --- | --- |
-| `GET /v1/local/evaluations?agent=...` | 设置、`settings_revision`、支持状态、分数与最近错误 |
-| `POST /v1/local/evaluations/settings` | `{agent, revision, settings:{enabled, intervalHours, maxCallsPerDay}}` |
-| `POST /v1/local/evaluations/run` | `{agent}`，在已开启的每日预算内安排评测 |
-| `POST /v1/local/everything-acp/import` | `{id, client_file}`，导入网关机器上 `client.json` 的绝对路径 |
-
-智能体详情的 **API 执行策略** 弹窗用于显式迁移已有发布。`POST /v1/agents/policy` 接受 `{agent, version, approval:"ask"|"auto", orchestration:boolean}`，创建新的不可变版本并保留其余定义和包文件，拒绝过期版本。没有 access 策略的内核智能体仍需显式编辑定义，因为其审批声明在每个工具上。
-
-评测默认关闭，开启后每 24 小时一轮，每个已发布 Agent 每日最多 48 次样本调用，每模型每轮八题。主动开启即授权这些调用；题目之间让正常任务优先。不向评测模型发送用户的私人任务正文，也不自动联网搜索榜单。
-
-## 验证与剩余工作
-
-2026-11-17 在隔离的 macOS 网关中，真实 Codex 和 Antigravity 返回了指定的固定文本；Claude Code 因命令行未登录返回 `adapter_auth_required`。独立生成的 EverythingACP Codex 包装器已通过 OAA 完成真实调用。Antigravity 使用两个发现到的模型选项，跑通固定模型、仅规划、速度和质量场景。这些小任务只证明调用路径，不证明更快或更强：固定调用约 10 秒，仅规划约 61 秒，速度模式约 83 秒，质量模式约 96 秒。质量复核来自 Agent，不是独立正确性证据。
-
-一次未完成的真实评测发现：代码题答案正确，但模型无视 JSON-only 要求套上 Markdown。更新后的题库将推理／代码正确性与严格格式遵循分开；指令和结构化输出仍严格评分。修订后的八题评测随后在 Antigravity 当前默认模型上完成，八题全部通过，平均每题约 40 秒。这只是一次小型能力采样，不是与其他模型的排名比较；测试后的临时评测设置已恢复关闭。
-
-另一次真实 Antigravity 调用在不回 OAA 审批的情况下生成 `outputs/proof.txt`，下载内容与 `OAA_ARTIFACT_OK` 完全一致，没有待处理操作。这只验证了一条真实产物流，不代表任意文件任务都可靠。
-
-原生 Codex 通道也完成了免确认的文件写入，下载的 `codex-proof.txt` 与 `OAA_CODEX_AUTO_OK` 完全一致。两次探测都没有修改已安装桌面应用的配置。
-
-Codex 与通用 ACP 适配器现已支持强制禁用工具的无工具推理轮次（`toolsDisabled`），不透明外部引擎也可绑定已授权的专职 `orchestration.planner` 智能体（`plan` / `review` 路由至规划器、`execute` 保留在主智能体）或运行 `scope: "helpers"` 跨智能体分工流水线，并配备结构化 `handoff` 与第 5 维 `tool_calling` 评测；流式大文件产物默认上限已提升至 `64 MiB`（最高可配至 `256 MiB`）。现已能在显式选定的目录里发现任意已生成的 EverythingACP 包装器，不依赖品牌白名单，也不执行它们。剩余边界包括广泛独立模型质量评测、配置 JSON 来源之外的通用网页搜索、未确认宿主副作用的恢复，以及 Windows/Linux 真机验收。本轮不宣称所有 Agent、综合智力排名、编解码质量或生产发布均已完成。
+| `GET /v1/local/evaluations?agent=...` | 查询指定智能体的评测配置、支持状态、各维度得分与最近记录 |
+| `POST /v1/local/evaluations/settings` | 更新评测开关、周期间隔与每日调用上限 |
+| `POST /v1/local/evaluations/run` | 在每日预算范围内立即排入一次后台评测 |
+| `POST /v1/local/evaluations/feedback` | 记录管理员对某次真实任务（`run_id`）的质量反馈 |
+| `POST /v1/local/everything-acp/import` | 按本机绝对路径导入 EverythingACP 的 `client.json` 描述文件（导入后默认停用，确认启用并发布后生效） |

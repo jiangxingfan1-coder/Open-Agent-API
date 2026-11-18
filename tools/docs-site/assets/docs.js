@@ -283,4 +283,39 @@
       if (h) observer.observe(h);
     }
   }
+
+  // ── Theme toggle ──────────────────────────────────────────
+  const themeApi = window.__oaaTheme;
+  const toggles = [...doc.querySelectorAll('[data-theme-toggle]')];
+  if (toggles.length && themeApi) {
+    const syncButtons = () => {
+      const active = themeApi.effective();
+      doc.documentElement.setAttribute('data-resolved-theme', active);
+      for (const btn of toggles) {
+        const toLight = btn.dataset.labelLight || 'Switch to light theme';
+        const toDark = btn.dataset.labelDark || 'Switch to dark theme';
+        const text = active === 'dark' ? toLight : toDark;
+        btn.setAttribute('aria-label', text);
+        btn.setAttribute('title', text);
+        btn.setAttribute('aria-pressed', active === 'dark' ? 'true' : 'false');
+      }
+    };
+    syncButtons();
+    themeApi.syncPictures(doc.documentElement.getAttribute('data-theme'));
+    for (const btn of toggles) {
+      btn.addEventListener('click', () => {
+        const next = themeApi.effective() === 'dark' ? 'light' : 'dark';
+        themeApi.apply(next);
+        syncButtons();
+      });
+    }
+    if (window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      if (mq.addEventListener) {
+        mq.addEventListener('change', () => {
+          if (!doc.documentElement.getAttribute('data-theme')) syncButtons();
+        });
+      }
+    }
+  }
 })();

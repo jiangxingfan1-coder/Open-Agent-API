@@ -11,14 +11,14 @@ Linux 包、`install.sh`、npm tarball 与 Docker 镜像随 0.0.64 之后发布�
 `SHA256SUMS`：Linux 用 `sha256sum -c SHA256SUMS --ignore-missing` 校验下载，macOS 用 `shasum -a 256 -c SHA256SUMS --ignore-missing`，
 Windows 用 `Get-FileHash`。
 
-| 路线 | 需要 | 适合 | 不适合 |
+| 路线 | 环境要求 | 适用场景 | 不适用场景 |
 | --- | --- | --- | --- |
-| [macOS 应用](#macos) | macOS 13+ | 想要桌面应用与控制台在一个窗口里 | 服务器 |
-| [Windows zip](#windows) | Windows 10+，x64 | 想要桌面启动器 | 服务器 |
-| [Linux tar.gz / `install.sh`](#linux) | glibc 2.28+（x64 或 arm64） | Linux 工作站或服务器，不用 root，不用 Docker | Alpine / musl |
-| [Docker](#docker) | 带 Compose v2 的 Docker | 服务器、隔离的网关、内置智能体或远程智能体 | 使用宿主机上的 Codex / Claude Code 命令行 |
-| [npm tarball](#npm) | Node.js 24.18 及以上（24 或 26 版本线） | 已经在用 Node，想让 `oaa` 在 PATH 上 | 没有 Node 的机器 |
-| [源码](#源码) | Node.js 24.18 及以上（24 或 26 版本线），git | 开发 Open Agent API 本身 | 其他人 |
+| [macOS](#macos) | macOS 13+（Apple 芯片 / Intel） | 希望使用集成控制台、Dock 角标与托盘审批面板的桌面端 | 无头服务器 |
+| [Windows](#windows) | Windows 10+（x64） | 希望一键安装桌面应用与命令行工具 | 无头服务器 |
+| [Linux](#linux) | glibc 2.28+（x64 或 arm64） | Linux 工作站或服务器，免 root、免预装 Node.js 或 Docker | Alpine / musl 环境 |
+| [Docker](#docker) | Docker 与 Compose v2 | 云服务器、容器化隔离部署、托管内置智能体或连接远程节点 | 直接调用宿主机上的 Codex / Claude Code CLI |
+| [npm tarball](#npm) | Node.js 24.18+（24 或 26 版本线） | 本机已有 Node 环境，希望将 `oaa` 加入全局 `PATH` | 未装 Node 的机器 |
+| [源码](#源码) | Node.js 24.18+（24 或 26 版本线）、git | 二次开发、调试源码或抢先体验主干分支特性 | 仅日常使用 |
 
 macOS、Windows 与 Linux 的包自带 Node.js 运行时；npm 与源码路线用本机的 Node.js（`package.json` 的 `engines`：`>=24.18.0 <27`）。
 
@@ -109,14 +109,7 @@ tar -xzf Open-Agent-API-<version>-linux-x64.tar.gz
 
 ## Docker
 
-镜像以非 root 的 `node` 用户运行网关，所有状态都在 `/data` 卷里，网关在容器**内部**监听 `0.0.0.0`。`docker-compose.yml` 只把它发布在宿主机的回环地址
-（`127.0.0.1:8787`）上，其他机器访问不到；要对外开放，请在前面放一个带 TLS 的反向代理（见 [deploy-public.md](deploy-public.md)），并设置
-`OAA_PUBLIC_BASE_URL` / `OAA_ALLOWED_HOSTS`。
-
-> **状态：这份 Dockerfile 没法在开发机上构建（那里没有 Docker），构建发生在 CI 里。**
-> `.github/workflows/docker.yml` 在每次 push 与 pull request 时构建 amd64 镜像并跑一遍容器烟雾测试（首次启动、密钥文件、一次 API 调用、重启、
-> `docker stop`），2026-11-14 在 GitHub 的 Ubuntu 运行器上通过。arm64 镜像与推送到 ghcr 只在发布 Release 时才进行，还没有运行过。构建如果失败，
-> 看那个工作流的日志；排查清单见 [releasing.md](releasing.md)。
+镜像以非 root 的 `node` 用户运行网关，所有状态持久化在 `/data` 卷里，容器内部监听 `0.0.0.0`。`docker-compose.yml` 默认仅绑定宿主机回环地址（`127.0.0.1:8787`），外部网络无法直接访问；如需公网暴露，请在前端前置 TLS 反向代理（见 [deploy-public.md](deploy-public.md)）并配置 `OAA_PUBLIC_BASE_URL` 与 `OAA_ALLOWED_HOSTS`。CI 在每次提交时自动构建镜像并运行容器启动、密钥生成、接口调用与重启烟雾测试；正式发布版本时同步推送 `linux/amd64` 与 `linux/arm64` 多架构镜像。
 
 **安装与 quickstart。** 在本仓库的检出目录里（镜像还没发布时也能用）：
 

@@ -1,113 +1,68 @@
-# Documentation map
+# Documentation Map
 
 English · [简体中文](zh-CN/README.md)
 
-Find documents by "I want to…". Every document is available in English (this folder) and in Chinese (`zh-CN/`).
+Welcome to the Open Agent API documentation. If you are setting up your first gateway, start with the **[Five-Minute Quickstart](quickstart.md)** and the copy-and-run **[Cookbook](../examples/cookbook/README.md)**.
 
-## I want to get started
+---
 
-- Install, initialize, start and open the console: [README, "Running in three minutes"](../README.md#running-in-three-minutes)
-- Installation options (installers, Linux packages, Docker, npm tarball): [install.md](install.md)
+## Getting started
+
+- **End-to-end walkthrough (publish an agent → issue a key → call via SDK)**: [quickstart.md](quickstart.md) (or see [README, "Running in three minutes"](../README.md#running-in-three-minutes))
+- Platform installers & clean uninstall steps (macOS / Windows / Linux desktop app, Linux one-liner, Docker, npm tarball): [install.md](install.md)
+- Tour of the web console (Overview, `#workbench`, Run Inspector timeline, Webhooks, and Developer Platform): [console.md](console.md)
+- CLI command reference grouped by task (gateway lifecycle, connecting agents, terminal approvals, keys, live verification): [cli.md](cli.md)
 - Running on Windows: [windows.md](windows.md)
-- Every `oaa` command, grouped by what you want to do (start and look after a gateway, connect an agent, approve from the terminal, webhooks, verify an agent, keys, publish, call): [cli.md](cli.md)
-- How to use each console page: [console.md](console.md)
-- More details on starting locally (configuration file, running in the background): [operations.md, "Local start"](operations.md#local-start)
+- Local configuration files and background daemon details: [operations.md, "Local start"](operations.md#local-start)
 
-## I want to call an agent
+## Calling agents & orchestrating work
 
-- Measured model routing, plan-only mode and EverythingACP import: [Intelligent Agent API](intelligence.md)
-- Durable tasks, project memory, reusable workflows, media deliverables and desktop builds: [Persistent Agent Workstation](workstation.md)
+- **Copy-and-run code recipes** (cURL plus Python & Node examples for OpenAI, Anthropic, and Gemini SDKs): [Cookbook](../examples/cookbook/README.md)
+- Smart model routing (`@fast` / `@best` / `@eco`), plan-only `recommend` mode, multi-agent pipelines, and local evaluations: [Intelligent Agent API](intelligence.md)
+- Shared project memory (SQLite FTS5), durable runs, visual DAG workflows (Cron & Webhook triggers), and streaming media artifacts: [Persistent Agent Workstation](workstation.md)
+- One-click wiring into local IDEs and clients (API providers for OpenCode / Codex / DSH and MCP bridges for Cursor / Windsurf / Claude Desktop / Claude Code): [Local Connections](local-connections.md)
+- Token usage tracking, per-key budgets, and upstream quota snapshots: [Usage & Quotas](usage-monitor.md)
+- Invoking via the OpenAI SDK, native `oaa/1`, and cross-agent handoffs: [operations.md, "Publish and invoke"](operations.md#publish-and-invoke)
+- Wire protocol reference, file uploads, streaming events, approvals, resume, and cancellation: [protocol.md, "Compatibility"](protocol.md#compatibility) and ["Execution and actions"](protocol.md#execution-and-actions)
+- Guaranteed JSON Schema structured output (native pushdown, bounded repair turns, and failure contracts): [structured-output.md](structured-output.md)
+- Sending screenshots and local images across protocols: [images.md](images.md)
+- Streaming live execution-phase progress in reasoning blocks: [progress.md](progress.md)
+- Letting agents call functions in your own application (`auto` / `managed` / `bridge` / `reject` dual-layer tool bridging): [Dual-Layer Harness](harness.md)
+- Live SDK compatibility lab & configuration guide for popular chat/IDE clients (Open WebUI, Dify, n8n, Continue, Cline, Zed): [compatibility.md](compatibility.md)
+- Exposing agents over MCP: [operations.md, "MCP and plugin entry"](operations.md#mcp-and-plugin-entry) and [MCP skill guide](../integrations/open-agent-api/SKILL.md)
 
-- Configure a published agent into local DSH without copying a key, with preview and rollback: [Local Connections](local-connections.md)
-- Inspect reported tokens, local key budgets and provider quota snapshots: [Usage & Quotas](usage-monitor.md)
+## Publishing & connecting agents
 
-- Call with the OpenAI SDK or `oaa/1`: [operations.md, "Publish and invoke"](operations.md#publish-and-invoke)
-- Supported protocols and fields, file upload, streaming, approvals, resume, cancellation: [protocol.md, "Compatibility"](protocol.md#compatibility) and ["Execution and actions"](protocol.md#execution-and-actions)
-- Parameters of the compatibility entries, error shapes, why 422 is not retried, and finish reasons (`finish_reason`, `stop_reason` and so on): [protocol.md, "Compatibility-endpoint parameters, errors and finish reasons"](protocol.md#compatibility-endpoint-parameters-errors-and-finish-reasons-060)
-- Inspect routing before a call: [operations.md, "Inspect routing before execution"](operations.md#inspect-routing-before-execution)
-- Switch automatically to another agent on failure, or hand a session over to another agent: [protocol.md, "Agent fallback on failure"](protocol.md#agent-fallback-on-failure-oaaagent_fallback-2026-11-10) and ["Agent handoff"](protocol.md#agent-handoff-handoff-2026-11-10)
-- Call through MCP: [operations.md, "MCP and plugin entry"](operations.md#mcp-and-plugin-entry) and the [MCP skill description](../integrations/open-agent-api/SKILL.md)
-- Which SDKs and frameworks were run live, which chat clients were replayed from their request shapes, how to configure each, which parameters are ignored or refused: [compatibility.md](compatibility.md)
-- Get JSON that is guaranteed to fit a schema (`response_format`, `text.format`, `responseSchema`, `output_config.format`), correction rounds, streaming behaviour and limits: [structured-output.md](structured-output.md)
+- Authoring built-in agents and typed flows in OAA-Lang: [language.md](language.md)
+- Connecting local LLM runners (Ollama, LM Studio, vLLM) or cloud model providers: [models.md](models.md)
+- Connecting local CLI agents, ACP presets, remote A2A nodes, or custom `oaa/1` adapters: [Connecting External Agents](adapters.md)
+- Importing selected external MCP tools into built-in agents: [operations.md, "Import selected MCP tools"](operations.md#import-selected-mcp-tools)
 
-## I want to publish an agent
+## Notifications & webhooks
 
-- Write an agent in OAA-Lang: [language.md](language.md)
-- Publish a JSON definition or an external agent: [operations.md, "Publish and invoke"](operations.md#publish-and-invoke)
-- Import selected MCP tools: [operations.md, "Import selected MCP tools"](operations.md#import-selected-mcp-tools)
-- Enable an installed agent in one step: [protocol.md, "One-step enablement of installed agents"](protocol.md#one-step-enablement-of-installed-agents-2026-11-10) and [operations.md, "Export an installed agent"](operations.md#export-an-installed-agent)
+- Pushing HMAC-SHA256 signed run events (completed, failed, awaiting approval) to your HTTPS endpoints with durable retries: [webhooks.md](webhooks.md)
 
-## I want to connect an external agent
+## Deployment, security & team distribution
 
-- The access contract and the capability differences between ways of access: [adapters.md, "AgentAPI conversion contract"](adapters.md#agentapi-conversion-contract-2026-11-08)
-- Write an `oaa/1` / `oaa/1-stream` adapter: [adapters.md, "The `oaa/1` final-result ABI"](adapters.md#the-oaa1-final-result-abi)
-- ACP and A2A agents: [adapters.md, "ACP agents"](adapters.md#acp-agents-agent-client-protocol) and ["A2A remote agents"](adapters.md#a2a-remote-agents-2026-11-08)
-- Which external agents are supported and where their limits are: [README, "Which agents can be connected"](../README.md#which-agents-can-be-connected)
+- Self-service developer portal (tenant-isolated accounts, self-serve keys, upfront credit reservation, and hybrid metering): [Developer Platform](platform.md)
+- Reverse proxy, TLS, allowed hosts, and production checklist: [Public Deployment Runbook](deploy-public.md) and [Public Deployment Design](public-deployment.md)
+- Permission boundaries, key scopes, and threat model: [Security Model](security-model.md)
+- POSIX multi-slot `srt` sandboxing architecture: [Sandboxed Execution Design](sandbox-design.md)
+- Joining remote execution machines (Workers): [operations.md, "Workers"](operations.md#workers)
+- Soak stability records, upgrade path, and retention cleanup (`oaa prune`): [Stability & Retention](stability.md)
 
-## I want to be told when a run ends or needs approval
+## Architecture, evidence & contributing
 
-- Push run events (completed, failed, waiting for approval…) to your own HTTPS endpoint, signed, with retries; route approvals into your own system: [webhooks.md](webhooks.md)
+- Layered architecture and persistent run state machine: [architecture.md](architecture.md)
+- Dated end-to-end verification records against live agents (Qoder, Antigravity, Codex) and [paired benchmarks](../bench/paired/README.md): [Verification Evidence](evidence.md)
+- Code conventions, layer ratchets, and how to add error codes or events: [Engineering Conventions](engineering.md)
+- Desktop packaging and release runbook: [Releasing](releasing.md)
+- Release history and roadmap: [CHANGELOG.md](../CHANGELOG.md) and [ROADMAP.md](../ROADMAP.md)
+- Contributing, code of conduct, and security reporting: [CONTRIBUTING.md](../CONTRIBUTING.md), [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md), and [SECURITY.md](../SECURITY.md)
+- Brand assets and usage guidelines: [brand/README.md](brand/README.md) (Chinese only for now)
 
-## I want to send screenshots and other images
+## Troubleshooting
 
-- Image parts on every entry, limits, storage, URL policy and how each agent receives them: [images.md](images.md)
-
-## I want the built-in agent to use my model
-
-- `oaa connect <preset>` (Ollama, LM Studio, OpenAI, Anthropic, Gemini, DeepSeek and more), keys, `oaa models` and provider settings: [models.md](models.md)
-
-## I want chat clients to show what the agent is doing
-
-- Run progress in each protocol's thinking / reasoning shape, the switch and the client table: [progress.md](progress.md)
-
-## I want the caller's tools to take part
-
-- The auto / managed / bridge / reject modes for caller tools and the support matrix: [harness.md](harness.md)
-- How to use bridging: [harness.md, "Using bridge (kernel agents)"](harness.md#using-bridge-kernel-agents) and ["Responses, Claude Messages, and Gemini"](harness.md#responses-claude-messages-and-gemini)
-
-## I want to deploy to the public internet or add more execution machines
-
-- The public deployment runbook: [deploy-public.md](deploy-public.md)
-- The public deployment design: [public-deployment.md](public-deployment.md)
-- Who can do what, what is exposed by default, and what to do before exposing a gateway: [security-model.md](security-model.md)
-- Sandboxed execution design: [sandbox-design.md](sandbox-design.md)
-- Hand out access to developers through the developer platform: [deploy-public.md, "Distributing through the developer platform"](deploy-public.md#distributing-through-the-developer-platform)
-- Connect a remote execution machine: [operations.md, "Workers"](operations.md#workers) and [protocol.md, "Node wire protocol"](protocol.md#node-wire-protocol)
-- Soak testing, the upgrade path and data retention: [stability.md](stability.md)
-
-## I want to open my agents to developers for self-service use
-
-- Positioning, enabling, the operator and developer flows, and the endpoints: [platform.md](platform.md)
-- Billing rules (how per-task and per-token charges settle): [platform.md, "Billing rules"](platform.md#billing-rules)
-- The endpoint overview and error codes: [platform.md, "Endpoint overview"](platform.md#endpoint-overview) and [platform.md, "Error codes"](platform.md#error-codes)
-- Connect your own payments (the `billing` key, de-duplication by external reference): [platform.md, "Connect your own payments"](platform.md#connect-your-own-payments)
-- Security notes and limits: [platform.md, "Security notes"](platform.md#security-notes) and [platform.md, "Limits"](platform.md#limits)
-- A short introduction: [README, "Offer it as a developer platform"](../README.md#offer-it-as-a-developer-platform)
-
-## I want to understand the architecture
-
-- The architecture and its rationale: [architecture.md](architecture.md)
-- The run state machine: [architecture.md, 3.2](architecture.md#32-run-state-machine)
-- What the tests and benchmarks prove and what they do not: [architecture.md, section 10](architecture.md#10-evidence-and-performance) and the [paired benchmark](../bench/paired/README.md)
-- Which real agents were integration tested, with the results and what was not verified: [evidence.md](evidence.md); to check an agent on your own machine, see [cli.md, "Verify an agent yourself"](cli.md#verify-an-agent-yourself)
-- How the gateway defends itself and where it does not: [security-model.md](security-model.md)
-- What changed between versions: [CHANGELOG.md](../CHANGELOG.md)
-- What is planned next, and what is verified and what is not: [ROADMAP.md](../ROADMAP.md)
-- Stability, the upgrade path and data retention: [stability.md](stability.md)
-
-## I want to contribute
-
-- Engineering conventions (commands, layers, coding conventions, commit format, compatibility red lines): [engineering.md](engineering.md)
-- How to add an error code or an event: [engineering.md, section 4](engineering.md#4-how-to-add-an-error-code--event)
-- Verification commands: [operations.md, "Verification"](operations.md#verification)
-- How to cut a release: [releasing.md](releasing.md)
-- The contribution process and community conventions: [CONTRIBUTING.md](../CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md); to report a security problem: [SECURITY.md](../SECURITY.md)
-- The brand mark and its rules: [brand/README.md](brand/README.md) (Chinese only for now)
-
-## I want to troubleshoot an error
-
-- The error-code table: [protocol.md, "Error codes"](protocol.md#error-codes-errorcode); at run time you can also read `GET /v1/errors`
-- The error shapes and retry headers of each compatibility protocol: [protocol.md, "Compatibility-endpoint parameters, errors and finish reasons"](protocol.md#compatibility-endpoint-parameters-errors-and-finish-reasons-060)
-- View and recover requests, and what to do with writes whose outcome is unknown: [operations.md, "Inspect and recover work"](operations.md#inspect-and-recover-work)
-- Why a request is slow or still waiting: [protocol.md, "Observable kernel"](protocol.md#observable-kernel-run-timeline-activity-pulse-queueing-and-capability-negotiation) and [console.md](console.md)
-- Windows-specific problems: [windows.md](windows.md)
+- Complete error-code and HTTP status catalog (also served live at `GET /v1/errors`): [protocol.md, "Error codes"](protocol.md#error-codes-errorcode)
+- Per-protocol error envelopes and retry headers: [protocol.md, "Compatibility-endpoint parameters, errors and finish reasons"](protocol.md#compatibility-endpoint-parameters-errors-and-finish-reasons-060)
+- Inspecting stalled runs and safely recovering interrupted writes: [operations.md, "Inspect and recover work"](operations.md#inspect-and-recover-work)

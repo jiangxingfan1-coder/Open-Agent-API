@@ -7,15 +7,22 @@
     <title>Open Agent API · Turn agents into an API</title>
     <meta
       name="description"
-      content="You call an agent, not a model: one with its own tools, skills, and permissions, and one call is one task. Compatible with the OpenAI, Claude, and Gemini protocols and their official SDKs. Self-hosted, Apache-2.0."
+      content="Dispatch complete agents with tools, project memory, and permission boundaries—not bare models. One call delivers one task. Native compatibility with OpenAI, Claude, Gemini SDKs, and MCP. Self-hosted, Apache-2.0."
     />
     <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
     <link rel="alternate" hreflang="zh-CN" href="../" />
     <link rel="alternate" hreflang="en" href="./" />
     <link rel="stylesheet" href="../styles.css" />
-    <!-- Repository address (a placeholder; replace it everywhere once the public address is settled): https://github.com/jiangxingfan1-coder/Open-Agent-API -->
+    <script src="../theme-init.js"></script>
+    <script src="../site.js" defer></script>
   </head>
   <body>
+    <div class="ambient-tide" aria-hidden="true">
+      <span class="ambient-orb ambient-orb-l1"></span>
+      <span class="ambient-orb ambient-orb-r1"></span>
+      <span class="ambient-orb ambient-orb-l2"></span>
+      <span class="ambient-orb ambient-orb-r2"></span>
+    </div>
     <a class="skip" href="#main">Skip to content</a>
     <header class="site-head">
       <div class="wrap head-inner">
@@ -29,100 +36,440 @@
           </svg>
           <span class="brand-word" translate="no">Open Agent API</span>
         </a>
-        <nav class="head-nav" aria-label="Site">
+        <nav class="head-nav" aria-label="Site navigation">
           <a href="../docs/index.html">Docs</a>
           <a href="../docs/cookbook.html">Cookbook</a>
-          <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/README.md"
-            >GitHub</a
+          <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API">GitHub</a>
+          <a class="lang" href="../" hreflang="zh-CN" lang="zh-CN" title="阅读中文版">中文</a>
+          <button
+            type="button"
+            class="theme-toggle"
+            data-theme-toggle
+            data-label-light="Switch to light theme"
+            data-label-dark="Switch to dark theme"
+            aria-label="Switch to dark theme"
+            title="Switch to dark theme"
           >
-          <a class="lang" href="../" hreflang="zh-CN" lang="zh-CN">中文</a>
+            <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4.2" />
+              <path
+                d="M12 2.5v2.2M12 19.3v2.2M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2.5 12h2.2M19.3 12h2.2M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56"
+              />
+            </svg>
+            <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20.2 14.6A8.2 8.2 0 1 1 9.4 3.8a6.6 6.6 0 0 0 10.8 10.8z" />
+            </svg>
+          </button>
         </nav>
       </div>
+      <div class="scroll-progress" data-scroll-progress aria-hidden="true"></div>
     </header>
 
     <main id="main">
       <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-glow" aria-hidden="true">
+          <span class="tide-wave tide-wave-a"></span>
+          <span class="tide-wave tide-wave-b"></span>
+          <span class="tide-wave tide-wave-c"></span>
+        </div>
         <div class="wrap">
-          <p class="eyebrow">Open source · Self-hosted · Apache-2.0</p>
-          <h1 class="display" id="hero-title">Turn agents into an API.</h1>
+          <p class="eyebrow hero-eyebrow">
+            <span class="pulse-dot" aria-hidden="true"></span>
+            <span>Open source · Self-hosted · Apache-2.0 · v0.0.70</span>
+          </p>
+          <div class="hero-lockup">
+            <svg class="hero-mark" viewBox="40.11 43 175.78 170" aria-hidden="true">
+              <g class="mark-base">
+                <path d="M209.89 207L150.11 49L108.57 155" />
+                <path d="M94.7 190.38L88.19 207" />
+                <path d="M143.36 106.65A50 50 0 1 1 119.1 78.6" />
+              </g>
+              <path
+                class="mark-glint-halo"
+                pathLength="100"
+                d="M143.36 106.65A50 50 0 1 1 119.1 78.6"
+              />
+              <path class="mark-glint" pathLength="100" d="M143.36 106.65A50 50 0 1 1 119.1 78.6" />
+            </svg>
+            <span class="hero-wordmark" translate="no">Open Agent API</span>
+          </div>
+          <h1 class="display hero-headline" id="hero-title">Turn agents into an API.</h1>
           <p class="lede">
-            You call an agent, not a model: one with its own tools, skills, and permissions. One
-            call is one task. Compatible with the OpenAI, Claude, and Gemini protocols and their
-            official SDKs; the caller needs only a Base URL and an API key.
+            Dispatch complete agents equipped with tools, project memory, and permission
+            boundaries—not bare models. One call delivers one task. Native wire compatibility with
+            official OpenAI, Claude, and Gemini SDKs plus MCP; your code needs only a Base URL and
+            an API key.
           </p>
           <div class="actions">
-            <a
-              class="btn"
-              href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/README.md"
-              >View on GitHub</a
-            >
-            <a
-              class="btn-quiet"
-              href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/README.md#running-in-three-minutes"
-              >Running in three minutes →</a
-            >
+            <a class="btn" href="https://github.com/jiangxingfan1-coder/Open-Agent-API">
+              <span>View on GitHub</span>
+              <svg class="btn-arrow" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3.5 8h9M8.5 4l4 4-4 4" />
+              </svg>
+            </a>
+            <a class="btn-surface btn-demo" href="#hero-stage" data-watch-demo="onboarding">
+              <svg class="btn-play" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M5.2 3.6l7.6 4.4-7.6 4.4V3.6z" />
+              </svg>
+              <span>Watch live setup</span>
+            </a>
+            <a class="btn-surface" href="#install">Quickstart in 3 minutes</a>
+            <a class="btn-quiet" href="../docs/index.html">Read the docs →</a>
           </div>
-          <figure class="shot-figure">
-            <div class="shot">
-              <picture>
-                <source media="(prefers-color-scheme: dark)" srcset="../assets/hero-dark-en.png" />
-                <img
-                  src="../assets/hero-light-en.png"
-                  width="2240"
-                  height="1532"
-                  alt="The Open Agent API console overview (sample data): two tasks waiting for you at the top, then task count, success rate and median duration, then recent activity and the agent list."
-                />
-              </picture>
+
+          <dl class="hero-metrics" aria-label="Engineering highlights">
+            <div class="metric-item">
+              <dt>Wire protocols</dt>
+              <dd>OpenAI · Claude · Gemini · MCP</dd>
             </div>
-          </figure>
+            <div class="metric-item">
+              <dt>Engine &amp; runner presets</dt>
+              <dd>32+ CLI / ACP / Local LLMs</dd>
+            </div>
+            <div class="metric-item">
+              <dt>CI test suite</dt>
+              <dd>1,305 tests across 3 OSes</dd>
+            </div>
+            <div class="metric-item">
+              <dt>Compatibility lab</dt>
+              <dd>14 SDKs · 456 live scenarios</dd>
+            </div>
+          </dl>
+
+          <div
+            class="hero-stage"
+            id="hero-stage"
+            data-hero-stage
+            data-active-mode="shot"
+            data-reveal
+          >
+            <div class="stage-bar">
+              <div class="stage-tabs" role="tablist" aria-label="Console preview mode">
+                <button
+                  type="button"
+                  role="tab"
+                  class="stage-tab is-active"
+                  aria-selected="true"
+                  data-stage-mode="shot"
+                >
+                  <span>Console overview</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  class="stage-tab"
+                  aria-selected="false"
+                  data-stage-mode="onboarding"
+                >
+                  <span class="stage-live-dot" aria-hidden="true"></span>
+                  <span>Publish → Key → Call · 13s</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  class="stage-tab"
+                  aria-selected="false"
+                  data-stage-mode="workbench"
+                >
+                  <span>▶ Workbench &amp; approval · 16s</span>
+                </button>
+              </div>
+              <span class="stage-hint"
+                >Click screenshot to zoom · light/dark videos stream on demand</span
+              >
+            </div>
+
+            <figure class="shot-figure" data-stage-pane="shot">
+              <div
+                class="shot shot-elevated"
+                data-zoomable
+                data-zoom-hint="Click to zoom"
+                aria-label="Zoom console overview screenshot"
+              >
+                <picture>
+                  <source
+                    media="(prefers-color-scheme: dark)"
+                    srcset="../assets/hero-dark-en.png"
+                  />
+                  <img
+                    src="../assets/hero-light-en.png"
+                    width="2640"
+                    height="1840"
+                    alt="Open Agent API console overview: sidebar navigation for Overview, Workbench, Agents, Workflows, Connections, and Usage alongside pending approvals, 24h metrics, and active agents."
+                  />
+                </picture>
+              </div>
+            </figure>
+
+            <figure class="shot-figure" data-stage-pane="onboarding" hidden>
+              <div class="shot shot-elevated video-frame">
+                <video
+                  preload="none"
+                  playsinline
+                  muted
+                  loop
+                  poster="../assets/hero-light-en.png"
+                  data-poster-light="../assets/hero-light-en.png"
+                  data-poster-dark="../assets/hero-dark-en.png"
+                  data-src-light="../assets/demo-onboarding-light-en.mp4"
+                  data-src-dark="../assets/demo-onboarding-dark-en.mp4"
+                  aria-label="Open Agent API end-to-end onboarding demo: publishing local Antigravity in the console, issuing a scoped sk-oaa API key, and executing a live OpenAI SDK call."
+                >
+                  <source src="../assets/demo-onboarding-light-en.mp4" type="video/mp4" />
+                </video>
+                <div class="video-hud">
+                  <button
+                    type="button"
+                    class="video-ctl"
+                    data-video-toggle
+                    data-playing="false"
+                    data-label-play="Resume"
+                    data-label-pause="Pause"
+                  >
+                    <span class="video-ctl-dot" aria-hidden="true"></span>
+                    <span data-video-toggle-label>Play</span>
+                  </button>
+                  <div class="video-track" aria-hidden="true">
+                    <span class="video-progress" data-video-progress></span>
+                  </div>
+                  <span class="video-caption"
+                    >1. Publish Antigravity → 2. Issue sk-oaa key → 3. OpenAI SDK call</span
+                  >
+                  <button type="button" class="video-ctl video-replay" data-video-replay>
+                    Replay ↺
+                  </button>
+                </div>
+              </div>
+            </figure>
+
+            <figure class="shot-figure" data-stage-pane="workbench" hidden>
+              <div class="shot shot-elevated video-frame">
+                <video
+                  preload="none"
+                  playsinline
+                  muted
+                  loop
+                  poster="../assets/hero-light-en.png"
+                  data-poster-light="../assets/hero-light-en.png"
+                  data-poster-dark="../assets/hero-dark-en.png"
+                  data-src-light="../assets/demo-light-en.mp4"
+                  data-src-dark="../assets/demo-dark-en.mp4"
+                  aria-label="Open Agent API live console walkthrough: switching from Overview to Workbench, dispatching an auth fix, approving the test command inline, exporting multi-SDK snippets, and inspecting the run timeline."
+                >
+                  <source src="../assets/demo-light-en.mp4" type="video/mp4" />
+                </video>
+                <div class="video-hud">
+                  <button
+                    type="button"
+                    class="video-ctl"
+                    data-video-toggle
+                    data-playing="false"
+                    data-label-play="Resume"
+                    data-label-pause="Pause"
+                  >
+                    <span class="video-ctl-dot" aria-hidden="true"></span>
+                    <span data-video-toggle-label>Play</span>
+                  </button>
+                  <div class="video-track" aria-hidden="true">
+                    <span class="video-progress" data-video-progress></span>
+                  </div>
+                  <span class="video-caption"
+                    >Overview → Workbench → Inline approval → SDK export → Timeline</span
+                  >
+                  <button type="button" class="video-ctl video-replay" data-video-replay>
+                    Replay ↺
+                  </button>
+                </div>
+              </div>
+            </figure>
+          </div>
         </div>
       </section>
 
       <section id="change-one-line" aria-labelledby="t-change">
-        <div class="wrap">
-          <p class="eyebrow">One line</p>
-          <h2 class="display" id="t-change">
-            Change one line of Base URL, and your app gains an agent that does the work
-          </h2>
+        <div class="wrap" data-reveal>
+          <p class="eyebrow">Two-line integration</p>
+          <h2 class="display" id="t-change">Keep your existing SDKs, swap the endpoint</h2>
           <p class="lede section-lede">
-            The same OpenAI SDK code with only <code class="inline">base_url</code> and
-            <code class="inline">model</code> changed goes from calling a model to calling an agent.
+            Point <code class="inline">base_url</code> at your gateway and set
+            <code class="inline">model</code> to an agent identifier. A single-turn completion call
+            becomes a multi-step agent run with tools and artifacts.
           </p>
 
-          <div class="compare">
-            <div class="code">
-              <div class="code-label">Python</div>
-              <pre
-                tabindex="0"
-                role="region"
-                aria-label="Python example; changed lines are marked with plus and minus"
-              ><code><span class="l">from openai import OpenAI</span><span class="l"> </span><span class="l">client = OpenAI(</span><span class="l del">    base_url="https://api.openai.com/v1",</span><span class="l del">    api_key=OPENAI_API_KEY,</span><span class="l add">    base_url="http://127.0.0.1:8787/v1",  <span class="c"># your gateway</span></span><span class="l add">    api_key="sk-oaa-…",  <span class="c"># key from the console</span></span><span class="l">)</span><span class="l"> </span><span class="l">resp = client.chat.completions.create(</span><span class="l del">    model="&lt;some-model&gt;",</span><span class="l add">    model="agent/research",  <span class="c"># the agent's call name</span></span><span class="l">    messages=[{"role": "user", "content": "Compare quotes"}],</span><span class="l">)</span><span class="l">print(resp.choices[0].message.content)</span></code></pre>
+          <div class="code-sandbox" data-code-sandbox>
+            <div class="sandbox-bar">
+              <div class="sandbox-tabs" role="tablist" aria-label="Protocol examples">
+                <button
+                  type="button"
+                  role="tab"
+                  id="tab-py"
+                  aria-controls="panel-py"
+                  aria-selected="true"
+                  data-tab="py"
+                >
+                  OpenAI · Python
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  id="tab-js"
+                  aria-controls="panel-js"
+                  aria-selected="false"
+                  data-tab="js"
+                >
+                  OpenAI · Node.js
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  id="tab-claude"
+                  aria-controls="panel-claude"
+                  aria-selected="false"
+                  data-tab="claude"
+                >
+                  Claude SDK
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  id="tab-gemini"
+                  aria-controls="panel-gemini"
+                  aria-selected="false"
+                  data-tab="gemini"
+                >
+                  Gemini SDK
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  id="tab-curl"
+                  aria-controls="panel-curl"
+                  aria-selected="false"
+                  data-tab="curl"
+                >
+                  cURL
+                </button>
+              </div>
+              <button
+                type="button"
+                class="copy-btn"
+                data-copy-btn
+                data-copy-default="Copy code"
+                data-copy-done="✓ Copied"
+              >
+                <span data-copy-label>Copy code</span>
+              </button>
             </div>
-            <div class="code">
-              <div class="code-label">Node.js</div>
-              <pre
-                tabindex="0"
-                role="region"
-                aria-label="Node.js example; changed lines are marked with plus and minus"
-              ><code><span class="l">import OpenAI from 'openai';</span><span class="l"> </span><span class="l">const client = new OpenAI({</span><span class="l del">  baseURL: 'https://api.openai.com/v1',</span><span class="l del">  apiKey: process.env.OPENAI_API_KEY,</span><span class="l add">  baseURL: 'http://127.0.0.1:8787/v1',  <span class="c">// your gateway</span></span><span class="l add">  apiKey: process.env.OAA_API_KEY,  <span class="c">// key from the console</span></span><span class="l">});</span><span class="l"> </span><span class="l">const resp = await client.chat.completions.create({</span><span class="l del">  model: '&lt;some-model&gt;',</span><span class="l add">  model: 'agent/research',  <span class="c">// the agent's call name</span></span><span class="l">  messages: [{ role: 'user', content: 'Compare quotes' }],</span><span class="l">});</span><span class="l">console.log(resp.choices[0].message.content);</span></code></pre>
+
+            <div class="sandbox-panels">
+              <div
+                class="code"
+                id="panel-py"
+                role="tabpanel"
+                aria-labelledby="tab-py"
+                data-code-panel="py"
+              >
+                <div class="code-label">Python · openai SDK</div>
+                <pre
+                  tabindex="0"
+                ><code><span class="l">from openai import OpenAI</span><span class="l"> </span><span class="l">client = OpenAI(</span><span class="l del">    base_url="https://api.openai.com/v1",</span><span class="l del">    api_key=OPENAI_API_KEY,</span><span class="l add">    base_url="http://127.0.0.1:8787/v1",  <span class="c"># your local or private gateway</span></span><span class="l add">    api_key="sk-oaa-…",                   <span class="c"># scoped key issued in the console</span></span><span class="l">)</span><span class="l"> </span><span class="l">resp = client.chat.completions.create(</span><span class="l del">    model="gpt-4.1",</span><span class="l add">    model="agent/research",               <span class="c"># the published agent's call name</span></span><span class="l">    messages=[{"role": "user", "content": "Reconcile these three vendor quotes and flag variances"}],</span><span class="l">)</span><span class="l">print(resp.choices[0].message.content)</span></code></pre>
+              </div>
+
+              <div
+                class="code"
+                id="panel-js"
+                role="tabpanel"
+                aria-labelledby="tab-js"
+                data-code-panel="js"
+              >
+                <div class="code-label">Node.js · openai SDK (Responses continuation)</div>
+                <pre
+                  tabindex="0"
+                ><code><span class="l">import OpenAI from 'openai';</span><span class="l"> </span><span class="l">const client = new OpenAI({</span><span class="l del">  baseURL: 'https://api.openai.com/v1',</span><span class="l del">  apiKey: process.env.OPENAI_API_KEY,</span><span class="l add">  baseURL: 'http://127.0.0.1:8787/v1',    <span class="c">// point to your gateway</span></span><span class="l add">  apiKey: process.env.OAA_API_KEY,        <span class="c">// key from the console</span></span><span class="l">});</span><span class="l"> </span><span class="l">const resp = await client.responses.create({</span><span class="l del">  model: 'gpt-4.1',</span><span class="l add">  model: 'agent/coder@best',              <span class="c">// supports @fast / @best / @eco routing</span></span><span class="l">  input: 'Run the auth unit tests and isolate the flaky timeout',</span><span class="l">});</span><span class="l">console.log(resp.output_text);</span></code></pre>
+              </div>
+
+              <div
+                class="code"
+                id="panel-claude"
+                role="tabpanel"
+                aria-labelledby="tab-claude"
+                data-code-panel="claude"
+                hidden
+              >
+                <div class="code-label">TypeScript · @anthropic-ai/sdk</div>
+                <pre
+                  tabindex="0"
+                ><code><span class="l">import Anthropic from '@anthropic-ai/sdk';</span><span class="l"> </span><span class="l">const anthropic = new Anthropic({</span><span class="l add">  baseURL: 'http://127.0.0.1:8787',       <span class="c">// native /v1/messages wire support</span></span><span class="l add">  apiKey: process.env.OAA_API_KEY,</span><span class="l">});</span><span class="l"> </span><span class="l">const msg = await anthropic.messages.create({</span><span class="l add">  model: 'agent/research',</span><span class="l">  max_tokens: 2048,</span><span class="l">  messages: [{ role: 'user', content: 'Search project memory and summarize last week’s ADR decisions' }],</span><span class="l">});</span><span class="l">console.log(msg.content);</span></code></pre>
+              </div>
+
+              <div
+                class="code"
+                id="panel-gemini"
+                role="tabpanel"
+                aria-labelledby="tab-gemini"
+                data-code-panel="gemini"
+                hidden
+              >
+                <div class="code-label">Python · google-genai SDK</div>
+                <pre
+                  tabindex="0"
+                ><code><span class="l">from google import genai</span><span class="l"> </span><span class="l">client = genai.Client(</span><span class="l add">    api_key="sk-oaa-…",</span><span class="l add">    http_options={"base_url": "http://127.0.0.1:8787"},  <span class="c"># native v1beta endpoint</span></span><span class="l">)</span><span class="l"> </span><span class="l">resp = client.models.generate_content(</span><span class="l add">    model="agent/research",</span><span class="l">    contents="Inspect the architecture diagram and return a schema-validated risk JSON",</span><span class="l">)</span><span class="l">print(resp.text)</span></code></pre>
+              </div>
+
+              <div
+                class="code"
+                id="panel-curl"
+                role="tabpanel"
+                aria-labelledby="tab-curl"
+                data-code-panel="curl"
+                hidden
+              >
+                <div class="code-label">Shell · Plain HTTP</div>
+                <pre
+                  tabindex="0"
+                ><code><span class="l">curl http://127.0.0.1:8787/v1/responses \</span><span class="l">  -H "Authorization: Bearer $OAA_API_KEY" \</span><span class="l">  -H "Content-Type: application/json" \</span><span class="l">  -d '{</span><span class="l">    "model": "agent/research",</span><span class="l">    "input": "Compare the last two changelogs and list breaking changes"</span><span class="l">  }'</span></code></pre>
+              </div>
             </div>
           </div>
 
-          <div class="aside">
+          <div class="aside" data-reveal>
             <div>
-              <h3>The caller needs only three things</h3>
+              <h3>Three values are all a caller ever needs</h3>
               <p>
-                The service address (Base URL), the API key, and the model name. After you create a
-                key in the console, the result page lists all three, each with a copy button.
+                A Base URL, an API key, and an agent name. Issuing a key in the console presents all
+                three side by side—copy them individually or export them together as environment
+                variables.
               </p>
               <p>
-                <code class="inline">model</code> holds the agent's call name, not the name of an
-                underlying model; which model runs behind it is declared by the publisher when the
-                agent is published.
+                <code class="inline">model</code> takes an agent call name like
+                <code class="inline">agent/research</code>. Which upstream model route, skill set,
+                and workspace directory run underneath stays encapsulated on the publisher side.
               </p>
+              <ul class="triad-list" aria-label="Caller triad">
+                <li>
+                  <span class="triad-idx">01</span>
+                  <span class="triad-key">Base URL</span>
+                  <code>http://127.0.0.1:8787/v1</code>
+                </li>
+                <li>
+                  <span class="triad-idx">02</span>
+                  <span class="triad-key">API Key</span>
+                  <code>sk-oaa-…</code>
+                </li>
+                <li>
+                  <span class="triad-idx">03</span>
+                  <span class="triad-key">model</span>
+                  <code>agent/research</code>
+                </li>
+              </ul>
             </div>
             <figure>
-              <div class="shot dialog">
+              <div
+                class="shot dialog shot-elevated"
+                data-zoomable
+                data-zoom-hint="Click to zoom"
+                aria-label="Zoom API key dialog screenshot"
+              >
                 <picture>
                   <source
                     media="(prefers-color-scheme: dark)"
@@ -130,16 +477,16 @@
                   />
                   <img
                     src="../assets/api-key-light-en.png"
-                    width="1120"
-                    height="870"
+                    width="1600"
+                    height="1248"
                     loading="lazy"
-                    alt="The result page after creating an API key (sample data): the service address, a sample key, and the model name agent/research, each with a copy button."
+                    alt="API key ready dialog showing the Base URL, one-time scoped key, and agent call name agent/research with copy buttons."
                   />
                 </picture>
               </div>
               <figcaption>
-                The result page after creating a key (sample data; the key is an obvious
-                placeholder).
+                The key-ready sheet—drop these three values into any SDK, IDE extension, or backend
+                service.
               </figcaption>
             </figure>
           </div>
@@ -147,115 +494,268 @@
       </section>
 
       <section id="install" aria-labelledby="t-install">
-        <div class="wrap">
-          <p class="eyebrow">Install</p>
-          <h2 class="display" id="t-install">Pick a way to install it</h2>
+        <div class="wrap" data-reveal>
+          <p class="eyebrow">Get started</p>
+          <h2 class="display" id="t-install">Pick an install path, run your first task</h2>
           <p class="lede section-lede">
-            Every route ends with one command, <code class="inline">oaa quickstart</code>: it starts
-            a gateway on 127.0.0.1, publishes an offline sample agent and makes the first call. No
-            model key is needed.
+            Every route converges on <code class="inline">oaa quickstart</code>: it boots a local
+            gateway on <code class="inline">127.0.0.1:8787</code>, publishes an offline sample
+            agent, and completes a live call without needing any cloud model key upfront.
           </p>
 
-          <div class="lists">
-            <div>
-              <h3>Packages</h3>
-              <ul class="rows">
-                <li>
-                  <b>macOS and Windows</b
-                  ><span
-                    >Installers on the Releases page, Node.js bundled; not notarized or
-                    code-signed</span
-                  >
-                </li>
-                <li>
-                  <b>Linux</b
-                  ><span
-                    >x64 and arm64, no root:<br /><code class="inline"
-                      >curl&nbsp;-fsSL&nbsp;…/install.sh&nbsp;|&nbsp;sh</code
-                    ></span
-                  >
-                </li>
-                <li>
-                  <b>npm</b
-                  ><span
-                    >The tarball on the Releases page:
-                    <code class="inline">npm&nbsp;install&nbsp;-g&nbsp;&lt;URL&gt;</code></span
-                  >
-                </li>
-              </ul>
+          <div class="install-grid">
+            <div class="install-card">
+              <div class="install-head">
+                <h3>Cross-platform desktop app</h3>
+                <span class="pill">macOS · Windows · Linux</span>
+              </div>
+              <p>
+                Unified Electron sandboxed shell bundling Node.js 24, the web console, dock approval
+                badges, and a system-tray quick-approval popover.
+              </p>
+              <div class="cmd-box">
+                <a
+                  class="cmd-link"
+                  href="https://github.com/jiangxingfan1-coder/Open-Agent-API/releases"
+                  >Download installers on GitHub Releases →</a
+                >
+              </div>
             </div>
-            <div>
-              <h3>From a checkout</h3>
-              <ul class="rows">
-                <li>
-                  <b>Docker</b
-                  ><span
-                    ><code class="inline">docker&nbsp;compose&nbsp;up&nbsp;--build&nbsp;-d</code>;
-                    the port is published on 127.0.0.1 only</span
-                  >
-                </li>
-                <li>
-                  <b>Source</b
-                  ><span
-                    >Node.js 24 or 26:
-                    <code class="inline">npm&nbsp;run&nbsp;oaa&nbsp;--&nbsp;quickstart</code></span
-                  >
-                </li>
-              </ul>
+
+            <div class="install-card">
+              <div class="install-head">
+                <h3>Linux one-liner</h3>
+                <span class="pill">x64 · arm64 · rootless</span>
+              </div>
+              <p>
+                Verifies release SHA256SUMS, bundles the Node runtime, and installs under ~/.local:
+              </p>
+              <div class="cmd-box">
+                <code
+                  >curl -fsSL
+                  https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh
+                  | sh</code
+                >
+                <button
+                  type="button"
+                  class="copy-btn copy-mini"
+                  data-copy-btn
+                  data-copy-value="curl -fsSL https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh | sh && oaa quickstart"
+                  data-copy-default="Copy"
+                  data-copy-done="✓"
+                  aria-label="Copy Linux install command"
+                >
+                  <span data-copy-label>Copy</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="install-card">
+              <div class="install-head">
+                <h3>Docker Compose</h3>
+                <span class="pill">amd64 · arm64 · loopback</span>
+              </div>
+              <p>
+                Non-root container persisting state in /data and bound strictly to 127.0.0.1—ideal
+                for built-in agents and remote worker nodes:
+              </p>
+              <div class="cmd-box">
+                <code>docker compose up --build -d</code>
+                <button
+                  type="button"
+                  class="copy-btn copy-mini"
+                  data-copy-btn
+                  data-copy-value="docker compose up --build -d"
+                  data-copy-default="Copy"
+                  data-copy-done="✓"
+                  aria-label="Copy Docker command"
+                >
+                  <span data-copy-label>Copy</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="install-card">
+              <div class="install-head">
+                <h3>From source or npm tarball</h3>
+                <span class="pill">Node.js 24 / 26</span>
+              </div>
+              <p>Install the release .tgz globally, or run directly from a repository checkout:</p>
+              <div class="cmd-box">
+                <code>npm run oaa -- quickstart</code>
+                <button
+                  type="button"
+                  class="copy-btn copy-mini"
+                  data-copy-btn
+                  data-copy-value="npm run oaa -- quickstart"
+                  data-copy-default="Copy"
+                  data-copy-done="✓"
+                  aria-label="Copy source quickstart command"
+                >
+                  <span data-copy-label>Copy</span>
+                </button>
+              </div>
             </div>
           </div>
+
           <p class="note">
-            Steps, limits and uninstalling for each route are in
-            <a
-              class="text-link"
-              href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/docs/install.md"
-              >Installing</a
-            >. The Linux package, the npm tarball and the Docker image come with releases from
-            0.0.65 on.
+            Platform requirements, first-launch OS gatekeeper prompts for unsigned builds, and clean
+            uninstall steps are covered in
+            <a class="text-link" href="../docs/install.html">Installing</a>. Ready to wire a real
+            provider? Run <code class="inline">oaa connect &lt;preset&gt;</code> to connect cloud
+            APIs or local runners.
           </p>
         </div>
       </section>
 
       <section id="points" aria-labelledby="t-points">
-        <div class="wrap">
-          <p class="eyebrow">What it is</p>
-          <h2 class="display" id="t-points">Not another model relay</h2>
+        <div class="wrap" data-reveal>
+          <p class="eyebrow">Core architecture</p>
+          <h2 class="display" id="t-points">A stateful agent runtime, not a stateless proxy</h2>
 
           <div class="points">
             <div class="point">
               <p class="num">01</p>
-              <h3>An agent, not a model</h3>
+              <h3>Execution units, not raw completions</h3>
               <p>
-                What is distributed is a complete execution unit with its own tools, skills, model
-                routes, and permissions. One call is one task: a multi-turn tool loop that produces
-                artifacts and can be resumed. No subscription pooling, and no relaying of login
-                sessions.
+                Each published endpoint wraps its own toolset, project memory, model routing, and
+                permission scope. One call runs a tracked task: multi-turn tool loops, streamed
+                reasoning progress, and streaming file artifacts up to 256 MiB—with idempotency,
+                cancellation, and resume built in.
               </p>
             </div>
             <div class="point">
               <p class="num">02</p>
-              <h3>Three protocols, as they are</h3>
+              <h3>Dual-layer tool bridging &amp; strict schemas</h3>
               <p>
-                OpenAI Chat and Responses, Claude Messages, Gemini generateContent. The official
-                SDKs only need a new service address and key; they and several frameworks are run
-                against the gateway in a compatibility lab. Images and JSON that is guaranteed to
-                fit a schema work on all of them.
+                Pushes JSON Schemas and <code class="inline">tool_choice</code> contracts natively
+                to OpenAI, Anthropic, and Gemini drivers with automatic repair turns. When a caller
+                (such as Cursor, Cline, or your app) supplies custom
+                <code class="inline">tools</code>, the gateway bridges invocations back via
+                <code class="inline">oaa-caller</code>.
               </p>
             </div>
             <div class="point">
               <p class="num">03</p>
-              <h3>A person in the loop</h3>
+              <h3>Durable human-in-the-loop checkpoints</h3>
               <p>
-                An operation that needs approval stops the task at "awaiting approval", and once you
-                approve it, in the console, the terminal or your own system through a webhook, the
-                same task carries on. Tasks can be cancelled, resumed, and made idempotent, and
-                every task's timeline and steps can be inspected.
+                Sensitive writes or shell commands pause the run cleanly at an "awaiting approval"
+                checkpoint rather than an ephemeral prompt. Approve from the console, system tray,
+                CLI, or a signed webhook—and the exact same task resumes where it paused.
               </p>
             </div>
           </div>
 
-          <figure class="figure">
-            <div class="shot">
+          <div
+            class="hitl-demo"
+            data-hitl-demo
+            data-reveal
+            data-state="awaiting"
+            data-state-awaiting="Awaiting approval"
+            data-state-running="Running…"
+            data-state-completed="Completed"
+            data-state-denied="Completed · read-only fallback"
+            data-gate-pending="Requests shell.exec in workspace · paused for operator decision"
+            data-gate-approved="Approved by operator · command exited 0 (410 ms)"
+            data-gate-denied="Denied host command · rejection signal returned to agent"
+          >
+            <div class="hitl-bar">
+              <div class="hitl-meta">
+                <span class="hitl-kicker">Interactive demo</span>
+                <strong class="hitl-agent">agent/coder</strong>
+                <span class="hitl-route">POST /v1/responses · run_8f2a91c0</span>
+              </div>
+              <div class="hitl-status-group">
+                <span class="hitl-badge" data-hitl-badge data-tone="cin">
+                  <span class="hitl-dot" aria-hidden="true"></span>
+                  <span data-hitl-badge-text>Awaiting approval</span>
+                </span>
+                <button type="button" class="hitl-reset" data-hitl-reset hidden>Replay ↺</button>
+              </div>
+            </div>
+
+            <ol class="hitl-steps">
+              <li class="hitl-step" data-step-status="done">
+                <span class="step-idx">01</span>
+                <div class="step-body">
+                  <p class="step-title">Inspect workspace &amp; auth module diff</p>
+                  <p class="step-sub">
+                    Located 3 validation messages in src/auth/login.ts and drafted unit tests · 120
+                    ms
+                  </p>
+                </div>
+              </li>
+              <li class="hitl-step" data-step-status="done">
+                <span class="step-idx">02</span>
+                <div class="step-body">
+                  <p class="step-title">Query project memory (SQLite FTS5)</p>
+                  <p class="step-sub">
+                    Matched 2 project conventions on error envelopes and test isolation · 48 ms
+                  </p>
+                </div>
+              </li>
+              <li class="hitl-step" data-hitl-step="gate" data-step-status="pending">
+                <span class="step-idx">03</span>
+                <div class="step-body">
+                  <div class="step-gate-row">
+                    <div>
+                      <p class="step-title">
+                        Approval gate: <code class="inline">npm test -- --run auth</code>
+                      </p>
+                      <p class="step-sub" data-hitl-gate-note>
+                        Requests shell.exec in workspace · paused for operator decision
+                      </p>
+                    </div>
+                    <div class="hitl-controls" data-hitl-controls>
+                      <button type="button" class="hitl-btn hitl-deny" data-hitl-deny>Deny</button>
+                      <button type="button" class="hitl-btn hitl-approve" data-hitl-approve>
+                        Approve &amp; continue
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </li>
+              <li class="hitl-step is-muted" data-hitl-step="waiting" data-step-status="idle">
+                <span class="step-idx">04</span>
+                <div class="step-body">
+                  <p class="step-title">
+                    Run paused at durable checkpoint—click "Approve &amp; continue" or "Deny" above…
+                  </p>
+                </div>
+              </li>
+              <li class="hitl-step" data-hitl-step="approved" data-step-status="done" hidden>
+                <span class="step-idx">04</span>
+                <div class="step-body">
+                  <p class="step-title">
+                    All 28 auth unit tests passed; same run resumed to completion
+                  </p>
+                  <p class="step-sub">
+                    Patch summary and test artifact delivered over the open response stream · 1.9 s
+                  </p>
+                </div>
+              </li>
+              <li class="hitl-step" data-hitl-step="denied" data-step-status="done" hidden>
+                <span class="step-idx">04</span>
+                <div class="step-body">
+                  <p class="step-title">
+                    Host shell untouched; finished via read-only static review
+                  </p>
+                  <p class="step-sub">
+                    Agent respected the denial signal and returned static patch notes for review
+                  </p>
+                </div>
+              </li>
+            </ol>
+            <p class="visually-hidden" role="status" aria-live="polite" data-hitl-live></p>
+          </div>
+
+          <figure class="figure" data-reveal>
+            <div
+              class="shot shot-elevated"
+              data-zoomable
+              data-zoom-hint="Click to zoom"
+              aria-label="Zoom task inspector screenshot"
+            >
               <picture>
                 <source
                   media="(prefers-color-scheme: dark)"
@@ -263,126 +763,390 @@
                 />
                 <img
                   src="../assets/inspector-light-en.png"
-                  width="2240"
-                  height="1214"
+                  width="2640"
+                  height="1440"
                   loading="lazy"
-                  alt="The task inspector (sample data): a coding agent's task stopped at awaiting approval, expanded to show the command it wants to run, npm test, with Reject and Approve buttons at the bottom right."
+                  alt="Task inspector in the console showing a coding run paused at awaiting approval with the exact command payload and Reject / Approve actions."
                 />
               </picture>
             </div>
             <figcaption>
-              A task stopped at "awaiting approval": the agent wants to run npm test on your
-              machine, and the same task continues once you approve (sample data).
+              The live task inspector: every tool call, critical-path span, approval decision, and
+              output artifact remains auditable.
             </figcaption>
           </figure>
         </div>
       </section>
 
-      <section id="agents" aria-labelledby="t-agents">
-        <div class="wrap">
-          <p class="eyebrow">Connections</p>
-          <h2 class="display" id="t-agents">Connected agents and protocols</h2>
+      <section id="workstation" aria-labelledby="t-workstation">
+        <div class="wrap" data-reveal>
+          <p class="eyebrow">Workbench &amp; orchestration</p>
+          <h2 class="display" id="t-workstation">
+            From single-endpoint debugging to a multi-agent workstation
+          </h2>
           <p class="lede section-lede">
-            Built-in agents and external agents installed on the machine can both be published as an
-            API. The difference is in depth of interaction, not in whether an agent can be
-            connected.
+            Alongside headless API serving, v0.0.70 ships an interactive console workbench,
+            one-click local IDE wiring, multi-agent routing pipelines, and durable workflows.
           </p>
+
+          <div class="cap-grid">
+            <article class="cap-card">
+              <div class="cap-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <rect x="3" y="4" width="18" height="16" rx="2.5" />
+                  <path d="M7.5 9.5l3 2.5-3 2.5M12.5 14.5h4" />
+                </svg>
+              </div>
+              <div class="cap-tag">#workbench</div>
+              <h3>Interactive chat &amp; bridge workbench</h3>
+              <p>
+                Test multi-turn sessions (<code class="inline">previous_response_id</code>) right in
+                the console with image paste, collapsible reasoning traces, inline approvals, custom
+                JSON Schema mock <code class="inline">bridge</code> tools, and one-click SDK snippet
+                export.
+              </p>
+            </article>
+
+            <article class="cap-card">
+              <div class="cap-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M8 7h8M8 12h5M6 3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z"
+                  />
+                  <circle cx="16.5" cy="14.5" r="2.5" />
+                </svg>
+              </div>
+              <div class="cap-tag">API + MCP</div>
+              <h3>Dual-channel local client wiring</h3>
+              <p>
+                Detects installed developer tools and wires OpenCode, Codex, and DSH via API
+                providers—or injects MCP bridges into Cursor, Windsurf, Claude Desktop, and Claude
+                Code referencing <code class="inline">0600</code> private key files with diff
+                preview and clean rollback.
+              </p>
+            </article>
+
+            <article class="cap-card">
+              <div class="cap-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <circle cx="6" cy="6" r="2.5" />
+                  <circle cx="18" cy="6" r="2.5" />
+                  <circle cx="12" cy="18" r="2.5" />
+                  <path d="M8.5 6h7M7.2 8.2l3.6 7.6M16.8 8.2l-3.6 7.6" />
+                </svg>
+              </div>
+              <div class="cap-tag">Orchestration · FTS5</div>
+              <h3>Smart routing, memory &amp; workflows</h3>
+              <p>
+                Route dynamically with <code class="inline">@fast</code> /
+                <code class="inline">@best</code> / <code class="inline">@eco</code> or
+                <code class="inline">recommend</code>, chain multi-agent
+                <code class="inline">helpers</code> with structured handoffs, search project memory
+                via SQLite FTS5, and trigger workflows via IANA-timezone Cron or signed webhooks.
+              </p>
+            </article>
+
+            <article class="cap-card">
+              <div class="cap-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <rect x="3" y="4" width="18" height="12" rx="2" />
+                  <path d="M8 20h8M12 16v4" />
+                </svg>
+              </div>
+              <div class="cap-tag">Desktop · Local LLM</div>
+              <h3>Unified desktop shell &amp; local runners</h3>
+              <p>
+                A single hardened Electron shell across macOS, Windows, and Linux with a system-tray
+                quick-approval popover; automatically discovers local Ollama, LM Studio, llama.cpp,
+                and vLLM runners to publish models as agents.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="agents" aria-labelledby="t-agents" data-matrix-section>
+        <div class="wrap" data-reveal>
+          <p class="eyebrow">Ecosystem</p>
+          <h2 class="display" id="t-agents">Local CLIs, model runners, and wire protocols</h2>
+          <p class="lede section-lede">
+            Publish OAA-Lang built-in agents alongside external coding CLIs already installed on
+            your machine—preserving their native skills and credentials behind one consistent API.
+          </p>
+
+          <div class="matrix-toolbar" role="toolbar" aria-label="Filter by capability">
+            <div class="matrix-pills">
+              <button
+                type="button"
+                class="cap-pill is-active"
+                aria-pressed="true"
+                data-cap-filter="all"
+              >
+                All capabilities
+              </button>
+              <button type="button" class="cap-pill" aria-pressed="false" data-cap-filter="stream">
+                Token streaming
+              </button>
+              <button type="button" class="cap-pill" aria-pressed="false" data-cap-filter="bridge">
+                Caller tool bridge
+              </button>
+              <button
+                type="button"
+                class="cap-pill"
+                aria-pressed="false"
+                data-cap-filter="approval"
+              >
+                Live approvals
+              </button>
+              <button type="button" class="cap-pill" aria-pressed="false" data-cap-filter="local">
+                Local &amp; host engines
+              </button>
+            </div>
+            <span
+              class="matrix-count"
+              data-cap-count
+              data-all-label="13 engines &amp; protocol surfaces"
+              data-match-template="{n} surfaces matched"
+              >13 engines &amp; protocol surfaces</span
+            >
+          </div>
 
           <div class="lists">
             <div>
-              <h3>Agents</h3>
+              <h3>Engines &amp; agents</h3>
               <ul class="rows">
-                <li>
-                  <b>Built-in agents</b
-                  ><span>Defined in OAA-Lang or JSON; approvals and caller-tool bridging</span>
+                <li data-caps="stream bridge approval local">
+                  <b class="row-title">
+                    <span class="row-glyph is-mono" aria-hidden="true">
+                      <svg viewBox="40.11 43 175.78 170">
+                        <path d="M209.89 207L150.11 49L108.57 155" />
+                        <path d="M94.7 190.38L88.19 207" />
+                        <path d="M143.36 106.65A50 50 0 1 1 119.1 78.6" />
+                      </svg>
+                    </span>
+                    <span>Built-in kernel</span>
+                  </b>
+                  <span
+                    >Defined in OAA-Lang 2.5 or JSON; token streaming, durable approvals, tool
+                    bridging, and multi-route failover</span
+                  >
                 </li>
-                <li><b>Codex</b><span>Approvals; no caller-tool bridging</span></li>
-                <li><b>Claude Code</b><span>Approvals; output streamed per message</span></li>
-                <li>
-                  <b>Antigravity</b
-                  ><span>No approvals; the only external agent validated for real so far</span>
+                <li data-caps="stream bridge local">
+                  <b class="row-title">
+                    <span class="row-glyph is-mono" aria-hidden="true">
+                      <img src="../assets/agents/codex.svg" width="16" height="16" alt="" />
+                    </span>
+                    <span>Codex CLI</span>
+                  </b>
+                  <span
+                    >Native app-server integration; token streaming, oaa-caller tool bridging,
+                    graceful turn/interrupt, and toolless planning</span
+                  >
                 </li>
-                <li><b>ACP agents</b><span>Approvals and caller-tool bridging</span></li>
-                <li><b>Your own adapter</b><span>oaa/1 over stdio, streaming, or HTTP</span></li>
-                <li>
-                  <b>A2A remote agents</b
-                  ><span>No approval bridging; resumes the same task through contextId</span>
+                <li data-caps="stream bridge approval local">
+                  <b class="row-title">
+                    <span class="row-glyph" aria-hidden="true">
+                      <img src="../assets/agents/claude.svg" width="16" height="16" alt="" />
+                    </span>
+                    <span>Claude Code</span>
+                  </b>
+                  <span
+                    >Powered by the official Agent SDK; incremental token streaming, approvals, and
+                    caller-tool bridging</span
+                  >
+                </li>
+                <li data-caps="stream bridge approval local">
+                  <b class="row-title">
+                    <span class="row-glyph" aria-hidden="true">
+                      <img src="../assets/agents/antigravity.svg" width="16" height="16" alt="" />
+                    </span>
+                    <span>Antigravity</span>
+                  </b>
+                  <span
+                    >Dual native &amp; agy acp transport; live model catalog discovery, tool
+                    bridging, and ACP approvals</span
+                  >
+                </li>
+                <li data-caps="stream bridge approval local">
+                  <b class="row-title">
+                    <span class="row-glyph" aria-hidden="true">
+                      <img src="../assets/agents/qoder.svg" width="16" height="16" alt="" />
+                    </span>
+                    <span>ACP ecosystem</span>
+                  </b>
+                  <span
+                    >32+ presets including Qoder, OpenCode, Grok, and DeepSeek Harness with
+                    approvals and caller-tool bridging</span
+                  >
+                </li>
+                <li data-caps="stream local">
+                  <b class="row-title">
+                    <span class="row-glyph is-mono" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <rect x="4" y="4" width="16" height="16" rx="3" />
+                        <rect x="9" y="9" width="6" height="6" rx="1" />
+                      </svg>
+                    </span>
+                    <span>Local LLM runners</span>
+                  </b>
+                  <span
+                    >Discovers Ollama, LM Studio, llama.cpp, Jan, LocalAI, and vLLM without touching
+                    runner configs</span
+                  >
+                </li>
+                <li data-caps="stream approval">
+                  <b class="row-title">
+                    <span class="row-glyph is-mono" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="12" r="3" />
+                        <path d="M9 12h6" />
+                      </svg>
+                    </span>
+                    <span>A2A &amp; custom adapters</span>
+                  </b>
+                  <span
+                    >oaa/1 over stdio, stream, or HTTP plus A2A contextId continuation and remote
+                    node profile sync</span
+                  >
                 </li>
               </ul>
             </div>
             <div>
-              <h3>Protocols</h3>
+              <h3>Protocols &amp; observability</h3>
               <ul class="rows">
-                <li>
-                  <b>OpenAI Chat</b
-                  ><span
-                    >Standing regression tests with the official openai SDK, streaming or not</span
+                <li data-caps="stream bridge">
+                  <b class="row-title">
+                    <span class="row-glyph is-mono" aria-hidden="true">
+                      <img src="../assets/agents/model-openai.svg" width="16" height="16" alt="" />
+                    </span>
+                    <span>OpenAI Chat &amp; Responses</span>
+                  </b>
+                  <span
+                    >Standing SDK regression suite; streamed reasoning progress,
+                    previous_response_id, images, and native JSON Schema</span
                   >
                 </li>
-                <li>
-                  <b>OpenAI Responses</b><span>Same; continues with previous_response_id</span>
-                </li>
-                <li>
-                  <b>Claude Messages</b
-                  ><span>Standing regression tests with the official @anthropic-ai/sdk</span>
-                </li>
-                <li>
-                  <b>Gemini</b
-                  ><span
-                    >generateContent; run with the official Python and Node SDKs in the lab</span
+                <li data-caps="stream bridge">
+                  <b class="row-title">
+                    <span class="row-glyph" aria-hidden="true">
+                      <img src="../assets/agents/model-claude.svg" width="16" height="16" alt="" />
+                    </span>
+                    <span>Claude Messages</span>
+                  </b>
+                  <span
+                    >Verified against official Python &amp; Node SDKs with full tool bridging and
+                    structured output contracts</span
                   >
                 </li>
-                <li><b>oaa/1 native</b><span>POST /v1/invoke</span></li>
-                <li>
-                  <b>MCP entry</b
-                  ><span>Discover and call agents; deliberately no tool for approving</span>
+                <li data-caps="stream bridge">
+                  <b class="row-title">
+                    <span class="row-glyph" aria-hidden="true">
+                      <img src="../assets/agents/model-gemini.svg" width="16" height="16" alt="" />
+                    </span>
+                    <span>Gemini</span>
+                  </b>
+                  <span
+                    >Compatible with generateContent, streamed thought blocks, and native
+                    responseSchema pushdown</span
+                  >
+                </li>
+                <li data-caps="approval local">
+                  <b class="row-title">
+                    <span class="row-glyph is-mono" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </span>
+                    <span>MCP entry</span>
+                  </b>
+                  <span
+                    >Exposes published agents to IDEs and clients while keeping approval authority
+                    isolated to the control plane</span
+                  >
+                </li>
+                <li data-caps="stream approval">
+                  <b class="row-title">
+                    <span class="row-glyph is-mono" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M18 8a4 4 0 0 0-7.4-2M6 16a4 4 0 0 0 7.4 2M8 12h8" />
+                      </svg>
+                    </span>
+                    <span>oaa/1 &amp; Webhooks</span>
+                  </b>
+                  <span
+                    >Native async run lifecycle paired with HMAC-SHA256 signed HTTPS callbacks and
+                    durable retry queues</span
+                  >
+                </li>
+                <li data-caps="local">
+                  <b class="row-title">
+                    <span class="row-glyph is-mono" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M3 12h4l3-7 4 14 3-7h4" />
+                      </svg>
+                    </span>
+                    <span>Metrics &amp; W3C tracing</span>
+                  </b>
+                  <span
+                    >Zero-dependency Prometheus GET /metrics and end-to-end W3C traceparent
+                    propagation across delegations</span
+                  >
                 </li>
               </ul>
             </div>
           </div>
           <p class="note">
-            The full comparison of streaming, approvals, cancellation, resume, and usage per
-            connection is in
-            <a
-              class="text-link"
-              href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/docs/adapters.md"
-              >Connecting external agents</a
-            >. An external agent's permissions are inherited; the gateway does not sandbox it.
+            See the full capability matrix covering streaming granularity, tool isolation, and POSIX
+            multi-slot sandboxing in
+            <a class="text-link" href="../docs/adapters.html">Connecting external agents</a> and
+            <a class="text-link" href="../docs/harness.html">Dual-layer harness</a>.
           </p>
         </div>
       </section>
 
       <section id="platform" aria-labelledby="t-platform">
-        <div class="wrap split">
+        <div class="wrap split" data-reveal>
           <div>
-            <p class="eyebrow">Developer platform</p>
-            <h2 class="display" id="t-platform">It can also be a developer platform</h2>
+            <p class="eyebrow">Team &amp; distribution</p>
+            <h2 class="display" id="t-platform">
+              Enable a self-service portal when you are ready to share
+            </h2>
             <p class="lede section-lede">
-              Click "Enable" in the console, and developers can register themselves, create their
-              own keys in a portal, and call the agents you list, billed in credits per task.
+              Turn on the Developer Platform in one click so teammates or external developers can
+              register in a dedicated portal, manage their own keys, and call listed agents against
+              credit quotas.
             </p>
             <ul class="plain-list">
               <li>
-                <b>Self-service accounts and keys</b>: developers create and delete their own keys,
-                and their data is isolated from one another.
+                <b>Tenant-isolated accounts &amp; keys</b>: each developer manages independent keys,
+                run histories, and uploaded artifacts in strict isolation.
               </li>
               <li>
-                <b>Credits per task</b>: one price per task, with an optional per-token price on
-                top.
+                <b>Upfront reservation &amp; hybrid metering</b>: price per task with optional
+                per-token rates; credits are reserved atomically at run start and refunded if a run
+                does not complete.
               </li>
               <li>
-                <b>Credits are only an accounting unit</b>: there is no real payment channel, and no
-                email is sent.
+                <b>Audited host-agent opt-in</b>: listings expose built-in agents by default, with
+                an explicit audited <code class="inline">host_execution</code> toggle per external
+                agent.
               </li>
               <li>
-                <b>External agents, one listing at a time</b>: a switch, off by default, lets
-                platform accounts call a chosen external agent.
+                <b>Clean quota ledger &amp; persistent rate limits</b>: auth rate limits persist in
+                SQLite with optional verification webhooks, while credit accounting stays cleanly
+                decoupled from external billing processors.
               </li>
-              <li><b>Off by default</b>: when it is not enabled none of this exists.</li>
             </ul>
           </div>
           <figure>
-            <div class="shot">
+            <div
+              class="shot shot-elevated"
+              data-zoomable
+              data-zoom-hint="Click to zoom"
+              aria-label="Zoom developer portal screenshot"
+            >
               <picture>
                 <source
                   media="(prefers-color-scheme: dark)"
@@ -390,94 +1154,152 @@
                 />
                 <img
                   src="../assets/portal-light-en.png"
-                  width="2240"
-                  height="1132"
+                  width="2560"
+                  height="1480"
                   loading="lazy"
-                  alt="The developer portal home page (sample data): the headline says you call an agent, not a model, followed by the service address and three differences."
+                  alt="Developer portal home page displaying the gateway endpoint, published agent catalog, and quickstart instructions."
                 />
               </picture>
             </div>
-            <figcaption>The developer portal home page (sample data).</figcaption>
+            <figcaption>
+              The self-service developer portal—enabled on demand and styled on the same design
+              system.
+            </figcaption>
           </figure>
         </div>
       </section>
 
       <section id="status" aria-labelledby="t-status">
-        <div class="wrap">
-          <p class="eyebrow">Status</p>
-          <h2 class="display" id="t-status">Status and limits</h2>
-          <p class="lede section-lede">What has been done and what has not, stated plainly.</p>
+        <div class="wrap" data-reveal>
+          <p class="eyebrow">Engineering baseline</p>
+          <h2 class="display" id="t-status">Verified baseline and architectural scope</h2>
+          <p class="lede section-lede">
+            Capabilities are backed by reproducible CI gates, protocol labs, and live-agent
+            acceptance runs, paired with deliberate architectural boundaries.
+          </p>
 
           <div class="status">
             <div>
-              <h3>Done</h3>
+              <h3>Verified baseline</h3>
               <ul>
                 <li>
-                  1,101 tests written with node:test, run in CI on Linux, macOS and Windows, on Node
-                  24 and 26.
+                  <b>1,305 automated tests across 3 OSes</b>: continuously executed on Linux, macOS,
+                  and Windows (Node.js 24 &amp; 26) alongside strict layer-ratchet and zero-<code
+                    class="inline"
+                    >any</code
+                  >
+                  checks.
                 </li>
                 <li>
-                  A compatibility lab: the official SDKs and several frameworks run against the
-                  gateway, and popular chat clients are replayed (with a sample agent, not a real
-                  one).
+                  <b>Live SDK compatibility lab</b>: 14 official Python/Node SDKs and frameworks
+                  (Vercel AI SDK, LangChain, LlamaIndex, OpenAI Agents) run 456 live scenarios
+                  against an isolated gateway, plus 12 client wire replays.
                 </li>
                 <li>
-                  One real-agent validation with Antigravity, 12 calls in all: OpenAI Chat
-                  (non-streaming and streaming), Responses continuation, Claude Messages, Gemini
-                  generateContent, cancellation, and concurrency.
+                  <b>End-to-end live agent acceptance</b>: verified against real Qoder CLI (all 11
+                  <code class="inline">oaa verify</code> scenarios plus platform billing),
+                  Antigravity 1.5.10 (native &amp; <code class="inline">agy acp</code> forced tool
+                  bridging and tracing), and Codex 0.167.0 (streaming, graceful interrupt, and
+                  routing).
                 </li>
                 <li>
-                  Approvals, interrupt and resume, idempotency, the task inspector, structured
-                  output, image input, run-event webhooks, and a developer platform you can enable
-                  in one click.
+                  <b>Soak stability &amp; multi-slot sandboxing</b>: passed 62-minute continuous
+                  load and <code class="inline">SIGKILL</code> recovery checks, backed by a
+                  per-subject multi-slot <code class="inline">srt</code> sandbox pool on POSIX.
                 </li>
               </ul>
             </div>
             <div class="todo">
-              <h3>Not yet</h3>
+              <h3>Architectural scope &amp; boundaries</h3>
               <ul>
                 <li>
-                  Codex, Claude Code, and built-in agents with a real model provider have not had
-                  end-to-end validation; image delivery to the first two is implemented from
-                  documentation only.
-                </li>
-                <li>Public deployment has not been validated in a real public environment.</li>
-                <li>
-                  A real payment channel: there is none, and credits are not connected to payments.
+                  <b>Single-node SQLite footprint</b>: engineered for personal workstations and
+                  private team gateways with embedded SQLite (including FTS5) and zero external
+                  infrastructure dependencies, rather than multi-node shared-DB clustering.
                 </li>
                 <li>
-                  The developer platform is a single gateway with SQLite; no multiple instances.
+                  <b>Quota ledger decoupled from payments</b>: portal credits track internal usage
+                  quotas without bundling payment gateways or outbound SMTP servers, keeping
+                  integration with your own billing stack straightforward.
                 </li>
                 <li>
-                  The macOS and Windows installers are not notarized or code-signed, and the desktop
-                  app was checked by hand only once.
+                  <b>Host permissions &amp; OS sandboxing</b>: external CLIs run with the host
+                  user’s privileges unless POSIX <code class="inline">srt</code> policies are
+                  enabled (local sandboxing is not yet available on Windows); desktop installers are
+                  distributed unsigned by default.
+                </li>
+                <li>
+                  <b>Extensible live verification</b>: run
+                  <code class="inline">oaa verify &lt;agent&gt;</code> on your own setup to produce
+                  redacted acceptance reports for additional cloud providers and platforms.
                 </li>
               </ul>
             </div>
           </div>
           <p class="note">
-            The tests use a local deterministic model and fixtures; they cannot prove compatibility
-            or performance with real providers. The full account is in the README's
-            <a
-              class="text-link"
-              href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/README.md#status-and-limits"
-              >Status and limits</a
-            >.
+            Dated test runs, version numbers, and raw measurements are recorded in
+            <a class="text-link" href="../docs/evidence.html">Verification evidence</a> and
+            <a class="text-link" href="../docs/stability.html">Stability &amp; retention</a>.
           </p>
+
+          <div class="closing-cta" data-reveal>
+            <div class="closing-copy">
+              <h3 class="display closing-title">Run your first agent endpoint locally today</h3>
+              <p>
+                Binds strictly to localhost out of the box with zero external dependencies—no cloud
+                model key required upfront.
+              </p>
+            </div>
+            <div class="closing-actions">
+              <div class="cmd-box closing-cmd">
+                <code>npm run oaa -- quickstart</code>
+                <button
+                  type="button"
+                  class="copy-btn copy-mini"
+                  data-copy-btn
+                  data-copy-value="npm run oaa -- quickstart"
+                  data-copy-default="Copy"
+                  data-copy-done="✓"
+                  aria-label="Copy quickstart command"
+                >
+                  <span data-copy-label>Copy</span>
+                </button>
+              </div>
+              <a class="btn" href="../docs/quickstart.html">
+                <span>Quickstart guide</span>
+                <svg class="btn-arrow" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M3.5 8h9M8.5 4l4 4-4 4" />
+                </svg>
+              </a>
+            </div>
+          </div>
         </div>
       </section>
     </main>
 
+    <dialog class="shot-lightbox" data-lightbox aria-label="High-resolution screenshot preview">
+      <div class="lightbox-frame">
+        <div class="lightbox-head">
+          <span class="lightbox-caption" data-lightbox-caption></span>
+          <button type="button" class="lightbox-close" data-lightbox-close aria-label="Close">
+            <span>ESC · Close</span>
+          </button>
+        </div>
+        <div class="lightbox-body">
+          <img data-lightbox-img src="../assets/hero-light-en.png" alt="" />
+        </div>
+      </div>
+    </dialog>
+
     <footer class="site-foot">
       <div class="wrap">
         <div class="foot-inner">
-          <p>Apache-2.0 · Open Agent API</p>
-          <nav class="foot-links" aria-label="Footer">
+          <p class="foot-brand">Apache-2.0 · Open Agent API</p>
+          <nav class="foot-links" aria-label="Footer links">
+            <a href="../docs/index.html">Documentation</a>
+            <a href="../docs/cookbook.html">Cookbook</a>
             <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/LICENSE"
               >License</a
-            >
-            <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API/tree/main/docs"
-              >Documentation</a
             >
             <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API/blob/main/SECURITY.md"
               >Security</a
@@ -489,10 +1311,10 @@
           </nav>
         </div>
         <p class="foot-note">
-          This page loads no external resources. The fonts Geist, Geist Mono, Instrument Serif, and
-          Noto Serif SC are licensed under SIL OFL 1.1; the license text is in
-          <a class="text-link" href="../fonts/LICENSE.txt">fonts/LICENSE.txt</a>. All screenshots
-          show sample data.
+          Zero external requests and zero telemetry. Geist, Geist Mono, Instrument Serif, and Noto
+          Serif SC are distributed under the SIL OFL 1.1 license; see
+          <a class="text-link" href="../fonts/LICENSE.txt">fonts/LICENSE.txt</a>. Interactive demos
+          and screenshots display sample data.
         </p>
       </div>
     </footer>

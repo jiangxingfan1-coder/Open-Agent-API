@@ -30,9 +30,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="演示：同一段 OpenAI SDK 代码只改 base_url 与 model 两处，调用本机的 Antigravity 智能体并拿到回答（真实录制，等待时间已加速）" width="100%" />
+  <img src="docs/assets/demo.gif" alt="端到端接入演示：在控制台一键发布本机 Antigravity 智能体、签发专属 API 密钥，并用官方 OpenAI SDK 发起流式任务调用、实时同步任务时间线" width="100%" />
   <br />
-  <sub>真实录制：调用的是本机的 Antigravity 智能体，实际耗时 8.5 秒，画面已加速。</sub>
+  <sub>完整接入流程演示：1. 发布本机智能体（<code>agent/antigravity</code>） → 2. 生成专属 <code>sk-oaa-…</code> 密钥 → 3. 用官方 OpenAI SDK 发起流式调用并在控制台查看完成时间线。</sub>
 </p>
 
 ## 三十秒看懂
@@ -285,7 +285,7 @@ npm run oaa -- serve --detach       # 后台启动，打印 {"url": …, "pid": 
 
 ## 文档
 
-按「我想……」组织的完整索引在 [docs/zh-CN/README.md](docs/zh-CN/README.md)。常用入口：[安装](docs/zh-CN/install.md)、[命令行](docs/zh-CN/cli.md)、[操作手册](docs/zh-CN/operations.md)、[协议](docs/zh-CN/protocol.md)、[与 SDK 和客户端的兼容](docs/zh-CN/compatibility.md)、[结构化输出](docs/zh-CN/structured-output.md)、[图片输入](docs/zh-CN/images.md)、[事件回调](docs/zh-CN/webhooks.md)、[模型提供方](docs/zh-CN/models.md)、[流式里的运行过程](docs/zh-CN/progress.md)、[稳定性与数据保留](docs/zh-CN/stability.md)、[双层 Harness](docs/zh-CN/harness.md)、[OAA-Lang](docs/zh-CN/language.md)、[接入外部智能体](docs/zh-CN/adapters.md)、[控制台](docs/zh-CN/console.md)、[Windows](docs/zh-CN/windows.md)、[公网部署](docs/zh-CN/deploy-public.md)、[安全模型](docs/zh-CN/security-model.md)、[开发者平台](docs/zh-CN/platform.md)、[架构](docs/zh-CN/architecture.md)、[验证证据](docs/zh-CN/evidence.md)、[工程规范](docs/zh-CN/engineering.md)、[变更记录](CHANGELOG.zh-CN.md)、[路线图](ROADMAP.zh-CN.md)。可复制运行的调用示例（curl、Python、Node）在[示例集](examples/cookbook/README.zh-CN.md)里。`node tools/docs-site/build.mjs` 会把全部文档（中英文，带搜索）生成为静态站点，由 Pages 工作流发布。
+按「我想……」组织的完整索引在 [docs/zh-CN/README.md](docs/zh-CN/README.md)。常用入口：[五分钟上手](docs/zh-CN/quickstart.md)、[安装](docs/zh-CN/install.md)、[命令行](docs/zh-CN/cli.md)、[操作手册](docs/zh-CN/operations.md)、[协议](docs/zh-CN/protocol.md)、[与 SDK 和客户端的兼容](docs/zh-CN/compatibility.md)、[结构化输出](docs/zh-CN/structured-output.md)、[图片输入](docs/zh-CN/images.md)、[事件回调](docs/zh-CN/webhooks.md)、[模型提供方](docs/zh-CN/models.md)、[流式里的运行过程](docs/zh-CN/progress.md)、[稳定性与数据保留](docs/zh-CN/stability.md)、[双层 Harness](docs/zh-CN/harness.md)、[OAA-Lang](docs/zh-CN/language.md)、[接入外部智能体](docs/zh-CN/adapters.md)、[控制台](docs/zh-CN/console.md)、[Windows](docs/zh-CN/windows.md)、[公网部署](docs/zh-CN/deploy-public.md)、[安全模型](docs/zh-CN/security-model.md)、[开发者平台](docs/zh-CN/platform.md)、[架构](docs/zh-CN/architecture.md)、[验证证据](docs/zh-CN/evidence.md)、[工程规范](docs/zh-CN/engineering.md)、[变更记录](CHANGELOG.zh-CN.md)、[路线图](ROADMAP.zh-CN.md)。可复制运行的调用示例（curl、Python、Node）在[示例集](examples/cookbook/README.zh-CN.md)里。`node tools/docs-site/build.mjs` 会把全部文档（中英文，带搜索）生成为静态站点，由 Pages 工作流发布。
 
 ## 现状与边界
 

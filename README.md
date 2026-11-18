@@ -30,9 +30,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo-en.gif" alt="Demo: the same OpenAI SDK code with only base_url and model changed, calling the Antigravity agent on this machine and getting an answer (recorded for real; the wait is sped up)" width="100%" />
+  <img src="docs/assets/demo-en.gif" alt="End-to-end onboarding demo: publishing the local Antigravity agent in the console, issuing a scoped sk-oaa API key, and streaming an OpenAI SDK call synced live to the task inspector" width="100%" />
   <br />
-  <sub>Recorded for real: the call goes to the Antigravity agent on this machine. Actual time 6.5 s; the wait is sped up.</sub>
+  <sub>End-to-end flow: 1. Publish local agent (<code>agent/antigravity</code>) → 2. Issue a scoped <code>sk-oaa-…</code> key → 3. Stream an official OpenAI SDK call and inspect the completed timeline.</sub>
 </p>
 
 ## Thirty seconds
@@ -285,7 +285,7 @@ Credits are an accounting unit that the operator issues; the platform has no pay
 
 ## Documentation
 
-The full index, organized by what you want to do, is in [docs/README.md](docs/README.md). Common entry points: [Installing](docs/install.md), [Command line](docs/cli.md), [Operations](docs/operations.md), [Protocol](docs/protocol.md), [Compatibility with SDKs and clients](docs/compatibility.md), [Structured output](docs/structured-output.md), [Image input](docs/images.md), [Webhooks](docs/webhooks.md), [Model providers](docs/models.md), [Run progress in streams](docs/progress.md), [Stability and data retention](docs/stability.md), [Two-layer harness](docs/harness.md), [OAA-Lang](docs/language.md), [Connecting external agents](docs/adapters.md), [Console](docs/console.md), [Windows](docs/windows.md), [Public deployment](docs/deploy-public.md), [Security model](docs/security-model.md), [Developer platform](docs/platform.md), [Architecture](docs/architecture.md), [Evidence](docs/evidence.md), [Engineering conventions](docs/engineering.md), [Changelog](CHANGELOG.md) and [Roadmap](ROADMAP.md). Copy-and-run calls (curl, Python, Node) are in the [cookbook](examples/cookbook/README.md). `node tools/docs-site/build.mjs` generates the whole documentation, in English and Chinese with search, as a static site, and the Pages workflow publishes it. Every document is also available in Chinese under [`docs/zh-CN/`](docs/zh-CN/README.md).
+The full index, organized by what you want to do, is in [docs/README.md](docs/README.md). Common entry points: [Five-Minute Quickstart](docs/quickstart.md), [Installing](docs/install.md), [Command line](docs/cli.md), [Operations](docs/operations.md), [Protocol](docs/protocol.md), [Compatibility with SDKs and clients](docs/compatibility.md), [Structured output](docs/structured-output.md), [Image input](docs/images.md), [Webhooks](docs/webhooks.md), [Model providers](docs/models.md), [Run progress in streams](docs/progress.md), [Stability and data retention](docs/stability.md), [Two-layer harness](docs/harness.md), [OAA-Lang](docs/language.md), [Connecting external agents](docs/adapters.md), [Console](docs/console.md), [Windows](docs/windows.md), [Public deployment](docs/deploy-public.md), [Security model](docs/security-model.md), [Developer platform](docs/platform.md), [Architecture](docs/architecture.md), [Evidence](docs/evidence.md), [Engineering conventions](docs/engineering.md), [Changelog](CHANGELOG.md) and [Roadmap](ROADMAP.md). Copy-and-run calls (curl, Python, Node) are in the [cookbook](examples/cookbook/README.md). `node tools/docs-site/build.mjs` generates the whole documentation, in English and Chinese with search, as a static site, and the Pages workflow publishes it. Every document is also available in Chinese under [`docs/zh-CN/`](docs/zh-CN/README.md).
 
 ## Status and limits
 

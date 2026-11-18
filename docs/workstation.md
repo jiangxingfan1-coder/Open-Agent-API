@@ -1,96 +1,94 @@
-# Persistent Agent Workstation
+# Workstation: Project Memory, Durable Runs & Workflows
 
 English · [简体中文](zh-CN/workstation.md)
 
-These capabilities are available in the current source worktree. They do not imply that an installed application or published release has been updated.
+Beyond serving single-turn agent calls, Open Agent API provides cross-session **shared project memory**, crash-resilient **durable runs**, **reusable DAG workflows** with Cron and inbound Webhook triggers, **streaming media artifacts**, and a unified **cross-platform Electron desktop app**.
 
-## Projects And Shared Memory
+---
 
-The console has a Projects view and each task can select a shared project. Private tasks and existing caller-private memory stay separate. An owner-wide administrator creates a project and grants `read` or `write` access to individual caller subjects; a key ID is its default subject. Project access does not grant permission to invoke additional agents.
+## Projects & Shared Memory (SQLite FTS5)
 
-| Endpoint | Operation |
+The **Projects** view in the console lets multiple sessions and agents share structured context while keeping caller-private memory strictly isolated:
+
+- **Subject-level access control**: An owner-admin creates a project and grants `read`, `write`, or `none` permissions per caller subject (defaulting to the API key ID).
+- **Zero-dependency BM25 search**: Powered by embedded SQLite FTS5. Built-in kernel agents with `memory_read` / `memory_write` / `memory_search` tools can pass `scope: "project"` to read and write shared entries; external agents running inside a project automatically receive a bounded reference snapshot ranked by BM25 relevance to the current prompt.
+- **Selecting a project**: Pass `metadata["oaa.project"] = "<project-id>"` on any compatible endpoint (or choose the project in `#workbench`). Set `metadata["oaa.project.remember"] = "false"` on a call to skip recording its final output summary.
+
+| Project & Memory Endpoint | Operation |
 | --- | --- |
-| `GET /v1/projects` | List only visible projects |
-| `POST /v1/projects` | Owner-admin creates `{id,name}` |
-| `GET /v1/projects/{id}/members` | Owner-admin inspects grants |
-| `POST /v1/projects/{id}/members` | `{subject,access}` with `read`, `write` or `none` |
-| `GET /v1/projects/{id}/memory` | Read shared entries |
-| `GET /v1/projects/{id}/memory/search` | BM25 full-text search (`?q=...&namespace=...&limit=...`) |
-| `PUT /v1/projects/{id}/memory` | `{namespace,key,value,revision?}`; `"new"` requires absence |
-| `DELETE /v1/projects/{id}/memory` | `{namespace,key,revision}` prevents stale deletion |
+| `GET /v1/projects` | Lists projects visible to the current key |
+| `POST /v1/projects` | Creates `{id, name}` (owner-admin) |
+| `GET /v1/projects/{id}/members` | Lists member access grants |
+| `POST /v1/projects/{id}/members` | Sets `{subject, access: "read" \| "write" \| "none"}` |
+| `GET /v1/projects/{id}/memory` | Reads shared memory entries |
+| `GET /v1/projects/{id}/memory/search` | Runs BM25 full-text search (`?q=...&namespace=...&limit=...`) |
+| `PUT /v1/projects/{id}/memory` | Creates or updates `{namespace, key, value, revision?}` |
+| `DELETE /v1/projects/{id}/memory` | Deletes `{namespace, key, revision}` with optimistic concurrency |
 
-Select a project with `metadata["oaa.project"]`. Kernel agents with published `memory_read` / `memory_write` / `memory_search` tools can use `scope:"project"`; the default remains private. Other agents receive a bounded reference snapshot ranked by SQLite FTS5 BM25 relevance to the current task input (falling back to the most recently updated entries when no terms match). Completed root-task output is retained as an **agent claim**, not verified fact, when the caller has write access; opt out with `oaa.project.remember=false`. A turn cannot move a project conversation into a different project. Raw private memory, system instructions and native session handles are not copied across callers.
+---
 
-## Durable Tasks
+## Durable Runs
 
-`metadata["oaa.durable"]="true"` retains an absolute deadline and a bounded recovery-attempt budget. `oaa.timeout_ms` must fit the publication limit; `oaa.max_resume_attempts` accepts 1-100 (default 10). The API Execution Policy dialog can explicitly raise the publication task limit to at most 168 hours. This does not remove turn, token, key or execution restrictions.
+Long-running engineering or research jobs run as persistent state machines rather than fragile HTTP transactions:
 
-Disconnecting an HTTP client does not cancel accepted work. Quitting the desktop leaves its background gateway running. After a gateway restart, completed checkpoints are reused and safe workspace/tool-free work can resume automatically after the original key is revalidated. The deadline is not reset on recovery. Revoked keys, missing caller-provided credentials, expired deadlines and unconfirmed host side effects prevent automatic recovery. An opaque native process is not blindly replayed; some interrupted native work needs a new explicit run after investigation rather than automatic resume.
+- **Client-disconnect resilience**: Dropping an HTTP stream or closing the desktop window never aborts accepted work running on the gateway.
+- **Checkpoints & bounded recovery**: Set `metadata["oaa.durable"] = "true"` to enable bounded recovery (`oaa.max_resume_attempts` defaults to 10, up to 100; task ceilings scale up to 168 hours via **API Execution Policy**). Across gateway restarts, completed checkpoints are reused; if a run was interrupted mid-flight during an unconfirmed host write, it pauses for explicit operator review rather than blindly replaying side effects.
 
-## Reusable Workflows
+---
 
-The Workflows view provides an agent-stage graph, dependency editing, JSON editing and natural-language drafting. Drafting uses a verified tool-free path and never publishes or enables the generated workflow. The existing graph engine validates cycles and references and handles transforms, conditions, bounded foreach and parallel dependencies.
+## Reusable Workflows (Visual DAG · Cron · Webhooks)
 
-On 2026-11-17, a real Sonnet call through the installed Agent returned a schema-validated two-stage draft, still disabled and manually triggered. A separate two-stage offline sample passed the visual editor, execution, child approval and artifact inspection flow. These checks do not establish general model reliability or unattended native-process recovery.
-
-Definitions are private to their creator unless explicitly attached to a shared project. Every caller still needs access to all referenced agents. Each execution freezes its definition and records child run IDs before waiting; restarting reattaches instead of redoing completed stages. There are at most four concurrent stages and 64 expanded agent calls per execution.
+In the **Workflows** view, you can chain multiple agents into repeatable pipelines using the visual stage graph, JSON editor, or tool-free natural-language drafter:
 
 ```json
 {
   "definition": {
     "id": "report-review",
-    "name": "Report Review",
+    "name": "Weekly Report & Review",
     "graph": {
       "steps": [
-        {"id":"write","tool":"agent/writer","arguments":{"input":{"$ref":"input#/task"}}},
-        {"id":"review","tool":"agent/reviewer","arguments":{"input":{"$ref":"write#/output"}},"depends_on":["write"]}
+        { "id": "write", "tool": "agent/writer", "arguments": { "input": { "$ref": "input#/task" } } },
+        { "id": "review", "tool": "agent/reviewer", "arguments": { "input": { "$ref": "write#/output" } }, "depends_on": ["write"] }
       ],
-      "output": {"$ref":"review#/output"}
+      "output": { "$ref": "review#/output" }
     },
-    "trigger": {"kind":"manual"},
-    "enabled": false
+    "trigger": { "kind": "cron", "expression": "0 9 * * 1", "timezone": "America/Los_Angeles" },
+    "enabled": true
   },
   "revision": "new"
 }
 ```
 
-Publish at `POST /v1/workflows`; start with `POST /v1/workflows/{id}/run` and `{input,file_ids?}`. Inspect `/v1/workflow-runs` and `/v1/workflow-runs/{id}`; `/cancel` cancels active children and `/resume` reattaches a blocked execution after child outcomes are resolved. Existing uncertain-effect rules still apply.
+### Four Trigger Modes
 
-Manual/API triggers are always available. Explicitly enabled interval triggers use 1-10080 minutes and skip missed slots rather than causing catch-up bursts. Standard 5-field cron triggers (`{kind:"cron",expression,timezone?}`, defaulting to `UTC`) evaluate IANA time zones per minute slot and skip missed downtime windows. Inbound webhook triggers (`{kind:"webhook"}`) issue a one-time high-entropy `webhook_token` on creation or rotation (`POST /v1/workflows/{id}/webhook-token`) while storing only its SHA-256 hash; `POST /v1/webhooks/workflows/{id}` verifies `Authorization: Bearer <webhook_token>` or `X-OAA-Webhook-Token` in constant time, enforces rate limits and a 64 KiB JSON limit, revalidates the creator's key, and rejects archived (409) or disabled (403) definitions. Completion-event triggers name an agent and default to the creator's subject; workflow child runs do not recursively trigger other workflows. Schedules revalidate the stored key, never store bearer credentials, and expose admission errors in trigger status. Caller-supplied provider credentials are not persisted for scheduled workflows.
+1. **Manual & API**: Run anytime from the console or via `POST /v1/workflows/{id}/run` with `{input, file_ids?}`.
+2. **Fixed interval (`interval`)**: Schedules runs every `1`–`10080` minutes, skipping missed downtime windows cleanly without catch-up bursts.
+3. **Timezone-aware Cron (`cron`)**: Evaluates standard 5-field cron expressions in any IANA timezone (e.g. `Asia/Shanghai`, `America/Los_Angeles`) with per-minute deduplication.
+4. **Authenticated inbound Webhook (`webhook`)**: Issues a one-time high-entropy `webhook_token` on creation or rotation (`POST /v1/workflows/{id}/webhook-token`), storing only its SHA-256 digest. External services trigger runs at `POST /v1/webhooks/workflows/{id}` using `Authorization: Bearer <webhook_token>` or `X-OAA-Webhook-Token`.
 
-`POST /v1/workflows/{id}/archive` and `/restore` require `{revision}` and owner-admin authority. Archiving pauses triggers and hides the definition from the default list, without cancelling accepted executions or deleting history. `GET /v1/workflows?archived=true` lists archived definitions. Restoring leaves triggers disabled; archived definitions cannot be edited or started until restored. Manual/API invocation remains available for unarchived definitions even when their automatic triggers are disabled.
+Each execution runs up to 4 parallel stages and 64 expanded agent calls, surfaces child approval gates directly inside the workflow inspector, and supports clean archiving (`/archive`) and restoration (`/restore`).
 
-Execution lists include bounded `progress` counts and owner/caller waiting information; execution details include per-stage states. The inspector follows these states automatically and opens existing child-run approval controls. Cancellation persists a `cancelling` intent before draining child calls, so restart can finish cleanup. A failed cleanup stays `blocked` with `cancel_requested=true`: retry cancellation instead of resuming task execution. Cancelling a completed, failed or cancelled execution is a no-op and cannot rewrite its result. Cancellation jobs take priority over queued workflows; otherwise active workflow jobs are admitted oldest first.
+---
 
-## Media Deliverables
+## Streaming Media & Large Artifacts
 
-The task dialog can request an image, document, audio or video file. `GET /v1/media/formats` lists supported format signatures. `POST /v1/media/jobs` accepts `{agent,model?,input,kind,format?,file_ids?,metadata?}` and starts a normal persistent run; `GET /v1/media/jobs/{id}` exposes its actual artifacts. Existing compatibility APIs can instead set `oaa.output_kind` and `oaa.output_format` metadata. Workflow stages support `output_kind` and `format` arguments too.
+Files generated by agents—reports, images, audio, or video—stream straight back to callers as verified deliverables:
 
-This uses the selected agent's installed tools, not a new OAA-owned image, speech or video model. A missing or mismatched new artifact fails the output contract. Signature checks do not certify a document's full structure, codec correctness, creative quality or factual content. Artifact exports stream with chunked SHA-256 verification up to 64 MiB by default (configurable via `maxArtifactBytes` up to 256 MiB), while regular uploads remain capped at 8 MiB. Image, text, audio and video artifact previews use authenticated fetches and temporary local blob URLs; keys are never put into media URLs and playback does not auto-start.
+- **Typed output contracts**: Request specific media deliverables via `POST /v1/media/jobs` or `oaa.output_kind` / `oaa.output_format` metadata (`GET /v1/media/formats` lists supported binary signatures).
+- **Up to 256 MiB chunked streaming**: Artifacts are written and served with chunked SHA-256 verification, defaulting to a **64 MiB** ceiling and configurable up to **256 MiB** via `maxArtifactBytes`. The console previews images, text, audio, and video via authenticated fetches into temporary local Blob URLs so API keys never appear in media URLs.
 
-On 2026-11-17, real Codex tasks generated and downloaded a one-second PCM WAV and H.264 MP4; independent `ffprobe` decoding recognized both. These are technical test signals/patterns, not evidence of artistic AI media quality.
+---
 
-## Model Evidence
+## Unified Cross-Platform Desktop App
 
-Owner-admin task feedback is recorded at `POST /v1/local/evaluations/feedback` with `{run_id,passed}`. It is deduplicated per run, bound to the captured execution identity and separated from test samples. It stores no task body and consumes no evaluation calls. Authentication, transport and cancellation failures do not become false quality failures. At least four scored samples are required before measured scores affect routing.
+Located in `desktop/cross-platform`, a single hardened Electron shell serves **macOS** (`arm64` / `x64`), **Windows** (`x64`), and **Linux** (`x64` / `arm64`):
 
-Public facts are optional at `/v1/local/evaluations/sources` and `/sources/refresh`, keyed by `{agent,route}`. Sources must be public credential-free HTTPS JSON without query strings or redirects. DNS is checked at the connection, responses are bounded, and collection is off by default. Owners map JSON pointers to bounded context-window, input/output price or image-support fields; `priceScale` makes the source unit explicit. A selector can match a model ID in a JSON array. Changing mappings clears the old reports; evidence expires after seven days.
+- **Zero-config loopback lifecycle**: Bundles Node.js 24, automatically starting or adopting an orphaned gateway belonging to the same data directory while refusing foreign processes on conflicting ports.
+- **System-tray quick approvals**: Click the menu-bar / system-tray icon to inspect active runs and approve or deny pending actions without opening the main window—paired with live Dock/tray badges and bilingual OS notifications.
+- **Hardened renderer sandbox**: Runs with `nodeIntegration: false`, `contextIsolation: true`, and OS process sandboxing enabled. Common development and packaging scripts:
 
-Only extracted numbers and booleans, freshness and a source hash reach the planner. Raw web instructions, arbitrary source text and URL paths do not. These are publisher reports, not measured quality, actual billing guarantees or host capability grants. As a network/parser probe, the public reader extracted the declared context-window field from [OpenAI's published gpt-oss configuration](https://huggingface.co/openai/gpt-oss-20b/raw/main/config.json); it did not treat that report as a performance benchmark.
-
-## Cross-Platform Desktop
-
-The unified cross-platform Electron shell lives under `desktop/cross-platform`, absorbing all capabilities of the archived macOS Swift shell (`hiddenInset` traffic lights at `{ x: 20, y: 18 }`, live Dock & tray badges, bilingual approval notifications, three-state port ownership & orphan-gateway adoption, `.seeded` first-run seeding) and adding a sandboxed Tray Quick Approvals Panel plus Launch at Login across macOS (`arm64` / `x64`), Windows (`x64`), and Linux. It starts or attaches to a matching private loopback gateway, injects the local key only into its own top frame, and keeps renderer Node integration off with context isolation and process sandboxing. The design follows [Electron's security guidance](https://www.electronjs.org/docs/latest/tutorial/security).
-
-```sh
-npm install --prefix desktop/cross-platform
-npm run desktop:dev
-npm run desktop:smoke
-npm run desktop:smoke:matrix
-node desktop/cross-platform/fetch-runtime.mjs --platform win32 --arch x64 --version 24.18.0
-npm run desktop:package -- --platform win32 --arch x64 --node-dir ABSOLUTE_RUNTIME_DIRECTORY --node-version 24.18.0
+```bash
+npm run desktop:dev           # launch the desktop shell in development
+npm run desktop:smoke         # run automated Playwright desktop smoke checks
+npm run package:mac           # build macOS bundle (also package:win / package:release:linux)
 ```
-
-The runtime downloader checks the official Node SHA-256 list before extraction. Packaging uses the root product version, filters production gateway dependencies, preserves third-party notices, and writes only new output directories. It does not install, publish, alter global CLI links or sign/notarize a release. Supported build targets are Windows, Linux and macOS; the local work produced Windows x64 and Linux x64 archives and a macOS arm64 app. Both `desktop:smoke` and `desktop:smoke:matrix` (second-start seeding check, orphan gateway attachment, live `#workbench` + Tray quick approval + Dock badge, `zh`/`en` reload preservation, disconnect + reload recovery, and port/config conflict error probes) were verified locally on macOS arm64; Windows and Linux physical-device UI acceptance remains outstanding.
-
-Use `--oaa-data-dir ABSOLUTE_PATH` for a separate local data directory. Closing the window hides to the tray when available; **Quit desktop** leaves accepted gateway work alive. **Stop gateway and quit** is available only when this shell started that gateway, and verifies its recorded process through the existing CLI stop path.

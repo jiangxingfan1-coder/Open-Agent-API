@@ -1,96 +1,94 @@
-# 持久 Agent 工作台
+# 工作台、共享项目记忆与可复用工作流
 
 [English](../workstation.md) · 简体中文
 
-以下能力已进入当前源码工作区，不代表已安装应用或公开发布版本已经更新。
+除了把单个智能体包装成无状态 HTTP 接口，Open Agent API 还提供跨会话的**共享项目记忆**、抗中断的**持久长任务**、支持定时与事件触发的**可视化 DAG 工作流**、大体积**流式媒体产物**以及三端统一的 **Electron 桌面应用**。
 
-## 项目与共享记忆
+---
 
-控制台有项目视图，任务可选择共享项目。私人任务及原有调用方私人记忆仍然隔离。全域所有者管理员创建项目，按调用方 subject 授予只读或读写权限；默认 subject 是密钥 ID。项目权限不会额外授予调用其他智能体的权限。
+## 项目空间与共享记忆（SQLite FTS5）
 
-| 接口 | 操作 |
+控制台左侧的 **「项目」** 视图用于管理多轮任务与多智能体之间的共享上下文，同时与调用方各自的私人记忆严格隔离：
+
+- **细粒度成员授权**：所有者管理员创建项目后，可按调用方身份（默认为 API 密钥 ID）授予 `read`（只读）、`write`（读写）或 `none` 权限。
+- **零外部依赖的全文检索**：内置基于 SQLite FTS5 的 BM25 全文检索引擎。配置了 `memory_read` / `memory_write` / `memory_search` 工具的内核智能体可传入 `scope: "project"` 读写共享记忆；外部智能体在执行关联项目的任务时，会自动获得按当前提示词相关性排序的项目记忆摘要。
+- **调用方式**：在任意协议请求中传入 `metadata["oaa.project"] = "<项目 ID>"`（或在控制台「对话工作台」左侧下拉框选择项目）即可关联；若某次任务不希望自动沉淀摘要，可传 `metadata["oaa.project.remember"] = "false"`。
+
+| 项目与记忆接口 | 说明 |
 | --- | --- |
-| `GET /v1/projects` | 只列出有权限的项目 |
-| `POST /v1/projects` | 所有者管理员创建 `{id,name}` |
-| `GET /v1/projects/{id}/members` | 管理员查看授权 |
-| `POST /v1/projects/{id}/members` | `{subject,access}`，权限为 `read`、`write` 或 `none` |
-| `GET /v1/projects/{id}/memory` | 读取共享条目 |
+| `GET /v1/projects` | 列出当前密钥有权访问的项目 |
+| `POST /v1/projects` | 管理员创建项目：`{id, name}` |
+| `GET /v1/projects/{id}/members` | 查看项目成员权限列表 |
+| `POST /v1/projects/{id}/members` | 设置成员权限：`{subject, access: "read" \| "write" \| "none"}` |
+| `GET /v1/projects/{id}/memory` | 读取项目共享记忆条目 |
 | `GET /v1/projects/{id}/memory/search` | BM25 全文检索（`?q=...&namespace=...&limit=...`） |
-| `PUT /v1/projects/{id}/memory` | `{namespace,key,value,revision?}`；`"new"` 要求条目不存在 |
-| `DELETE /v1/projects/{id}/memory` | `{namespace,key,revision}`，拒绝过期删除 |
+| `PUT /v1/projects/{id}/memory` | 新增或按修订号更新条目：`{namespace, key, value, revision?}` |
+| `DELETE /v1/projects/{id}/memory` | 按 `{namespace, key, revision}` 安全删除条目 |
 
-用 `metadata["oaa.project"]` 选择项目。已发布 `memory_read` / `memory_write` / `memory_search` 的内核智能体可传 `scope:"project"`，默认仍是私人记忆。其他智能体获得按 SQLite FTS5 BM25 与当前任务输入动态排序的相关记忆参考快照（无匹配时回退至最近更新条目）。调用方有写权限时，完成的根任务输出会保存为**智能体陈述**，不是已经验证的事实；可用 `oaa.project.remember=false` 关闭。项目会话不能在下一轮移动到另一个项目。私人记忆、系统指令和原生会话句柄不会被复制给其他调用方。
+---
 
-## 持久任务
+## 持久长任务（Durable Runs）
 
-`metadata["oaa.durable"]="true"` 保留绝对截止时间及有上限的恢复次数。`oaa.timeout_ms` 不能超过发布定义的上限；`oaa.max_resume_attempts` 接受 1-100，默认 10 次。API 执行策略弹窗可显式把任务上限提高到最多 168 小时，但不会解除轮次、Token、密钥或执行级别限制。
+对于耗时数十分钟甚至跨天的大型研发或数据处理任务，网关将其作为持久化状态机托管，而非绑死在单条 HTTP 连接上：
 
-HTTP 调用方断开不会取消已接受任务，退出桌面也不会停止后台网关。网关重启后复用已完成检查点，安全的工作区／强制无工具阶段可在重新检查原密钥后自动恢复，截止时间不会重新起算。密钥撤销、调用方提供的凭据丢失、截止时间过期或宿主副作用未确认时，不会自动恢复。不透明的原生进程不会被盲目重放；某些原生中断需要调查后显式新建任务，而非自动续跑。
+- **客户端断连不丢任务**：调用方网络断开或关闭桌面主窗口，都不会中断后台正在执行的任务。
+- **检查点与重启恢复**：传入 `metadata["oaa.durable"] = "true"` 可启用持久恢复预算（`oaa.max_resume_attempts` 默认 10 次，最高 100 次；通过「API 执行策略」可将任务总时长上限放宽至最高 168 小时）。网关重启后会复用已落盘的步骤检查点；若中断发生在结果未确认的宿主机写操作阶段，任务会安全停下等待人工确认，绝不盲目重放副作用。
 
-## 可复用工作流
+---
 
-工作流视图提供智能体阶段图、依赖编辑、JSON 编辑及自然语言建模。建模使用经过验证的无工具入口，不会自动发布或开启生成的工作流。复用现有图执行引擎检查循环与引用，并支持变换、条件、有上限的 foreach 和并行依赖。
+## 可复用工作流（DAG 编排 · Cron · 入站 Webhook）
 
-2026-11-17，通过已安装智能体发起的真实 Sonnet 调用返回了通过 Schema 校验的两阶段草稿，仍保持禁用、手动触发。另一个两阶段离线样例跑通了可视化编辑、执行、子任务审批及成果检查。这些检查不代表普遍的模型可靠性，也不代表不透明原生进程可无人值守恢复。
-
-定义默认归创建者私有，显式绑定共享项目后才随项目授权共享；调用者仍需有权调用所有引用的智能体。每次执行冻结定义，并在等待前记录子运行 ID，重启时重新挂接而非重做完成的阶段。每次最多并行四阶段、展开 64 次智能体调用。
+在控制台 **「工作流」** 视图中，你可以用可视化阶段图、JSON 编辑器或自然语言草稿，把多个智能体串联/并联成固定流水线：
 
 ```json
 {
   "definition": {
     "id": "report-review",
-    "name": "Report Review",
+    "name": "周报撰写与交叉复核",
     "graph": {
       "steps": [
-        {"id":"write","tool":"agent/writer","arguments":{"input":{"$ref":"input#/task"}}},
-        {"id":"review","tool":"agent/reviewer","arguments":{"input":{"$ref":"write#/output"}},"depends_on":["write"]}
+        { "id": "write", "tool": "agent/writer", "arguments": { "input": { "$ref": "input#/task" } } },
+        { "id": "review", "tool": "agent/reviewer", "arguments": { "input": { "$ref": "write#/output" } }, "depends_on": ["write"] }
       ],
-      "output": {"$ref":"review#/output"}
+      "output": { "$ref": "review#/output" }
     },
-    "trigger": {"kind":"manual"},
-    "enabled": false
+    "trigger": { "kind": "cron", "expression": "0 9 * * 1", "timezone": "Asia/Shanghai" },
+    "enabled": true
   },
   "revision": "new"
 }
 ```
 
-用 `POST /v1/workflows` 发布，`POST /v1/workflows/{id}/run` 以 `{input,file_ids?}` 启动。通过 `/v1/workflow-runs`、`/v1/workflow-runs/{id}` 查看检查点；`/cancel` 取消活跃子调用，`/resume` 在子运行结果解决后重新挂接阻塞执行。原有副作用核对规则仍然生效。
+### 四类触发方式
 
-手动和 API 触发始终可用。显式开启的定时间隔为 1-10080 分钟，错过的时间槽不会形成补跑洪峰。标准 5 段 Cron 触发器（`{kind:"cron",expression,timezone?}`，默认 `UTC`）按 IANA 时区分钟槽去重执行，停机重启后自动跳过已错过窗口。入站 Webhook 触发器（`{kind:"webhook"}`）在启用或轮换（`POST /v1/workflows/{id}/webhook-token`）时生成一次性高熵 `webhook_token` 且数据库仅存 SHA-256 哈希；公开入站端点 `POST /v1/webhooks/workflows/{id}` 通过 `Authorization: Bearer <webhook_token>` 或 `X-OAA-Webhook-Token` 常数时间校验，实施限流与 64 KiB JSON 负载上限，重验创建者密钥权限，并在归档（409）或停用（403）时拒绝触发。完成事件指定来源智能体，默认限于创建者 subject，工作流子运行不会递归触发其他工作流。调度时重新验证原密钥，不保存 Bearer 凭据，并在触发状态中显示准入错误。不会为定时任务持久化调用方提供的模型凭据。
+1. **手动与 API 触发**：随时在控制台点击运行，或调用 `POST /v1/workflows/{id}/run` 传入 `{input, file_ids?}`。
+2. **固定间隔触发（`interval`）**：按 `1`–`10080` 分钟周期调度，停机恢复后自动跳过历史错过的窗口，不产生补跑洪峰。
+3. **时区感知 Cron 触发（`cron`）**：支持标准 5 段 Cron 表达式与 IANA 时区（如 `Asia/Shanghai`），按分钟槽精准去重。
+4. **签名入站 Webhook 触发（`webhook`）**：启用或轮换（`POST /v1/workflows/{id}/webhook-token`）时生成一次性高熵 `webhook_token`（数据库仅存 SHA-256 哈希）。外部系统向 `POST /v1/webhooks/workflows/{id}` 发送请求并携带 `Authorization: Bearer <webhook_token>` 或 `X-OAA-Webhook-Token` 即可安全触发。
 
-`POST /v1/workflows/{id}/archive` 与 `/restore` 需要 `{revision}` 及所有者管理员权限。归档会停用触发器并从默认列表隐藏定义，不会取消已接受的执行或删除历史；`GET /v1/workflows?archived=true` 查看归档项。恢复后触发器仍保持关闭，归档定义须恢复后才能编辑或新建执行。未归档定义即使停用自动触发器，仍可手动／API 执行。
+单次工作流运行最多并行推进 4 个阶段、展开 64 次子智能体调用；任何子任务进入「待审批」时，都可直接在工作流检查器内点开处理，也支持归档（`/archive`）与恢复（`/restore`）。
 
-执行列表的 `progress` 提供有上限的阶段计数及等待发布者／调用方的信息，执行详情另有逐阶段状态。检查器自动跟进状态，并可打开已有子任务审批界面。取消前先持久化 `cancelling` 意图，重启后继续清理子调用；清理失败保留 `blocked` 与 `cancel_requested=true`，应重试取消，而不是恢复执行。取消已完成、失败或已取消的执行不会改写其结果。取消清理优先于排队工作流，其余活跃执行按较早提交优先准入。
+---
 
-## 媒体成果
+## 流式媒体与大文件产物
 
-任务弹窗可选择图片、文档、音频或视频文件。`GET /v1/media/formats` 列出格式签名；`POST /v1/media/jobs` 接受 `{agent,model?,input,kind,format?,file_ids?,metadata?}` 并建立普通持久任务，`GET /v1/media/jobs/{id}` 返回实际产物。现有兼容接口也可传 `oaa.output_kind`、`oaa.output_format` 元数据。工作流阶段支持 `output_kind`、`format` 参数。
+智能体在工作区生成的报告、图片、音频或视频可作为受管产物直接流式交付给调用方：
 
-它使用所选智能体已安装的工具，不是 OAA 新增了一套图片、语音或视频模型。没有新的匹配产物时输出契约失败。格式签名检查不能证明文档结构、编解码完整性、创意质量或事实正确性；产物落盘与下载采用分块 SHA-256 流式校验，默认上限提升至 64 MiB（可通过 `maxArtifactBytes` 配置至最高 256 MiB），普通上传仍保持 8 MiB 上限。图片、文本、音频、视频预览通过鉴权下载及临时本地 Blob URL 展示，不把密钥放入媒体 URL，也不自动播放声音。
+- **输出契约校验**：可通过 `POST /v1/media/jobs`（或兼容入口的 `oaa.output_kind` / `oaa.output_format` 元数据）声明期望交付的文件类型（`GET /v1/media/formats` 查看支持格式签名）。
+- **最高 256 MiB 流式传输**：产物落盘与下载全程采用分块 SHA-256 流式校验，默认单文件上限 **64 MiB**，可在配置中通过 `maxArtifactBytes` 调高至 **256 MiB**。控制台支持通过带鉴权的本地临时 Blob URL 直接在线预览图片、文本、音视频产物，不在 URL 中拼接任何密钥。
 
-2026-11-17 的真实 Codex 任务生成并下载了一秒 PCM WAV 和 H.264 MP4，独立 `ffprobe` 识别成功。它们是技术测试信号与画面，不是艺术性 AI 生成质量的证明。
+---
 
-## 模型证据
+## 三端统一跨平台桌面端
 
-管理员可用 `POST /v1/local/evaluations/feedback` 和 `{run_id,passed}` 记录人工任务反馈。每个运行去重，绑定调用时捕获的执行身份，并与测试样本分别标记来源；不存任务正文、不增加评测调用。认证、传输和取消失败不会被当作模型质量差。至少四条有效样本后才参与实测选路。
+`desktop/cross-platform` 提供面向 **macOS**（`arm64` / `x64`）、**Windows**（`x64`）与 **Linux**（`x64` / `arm64`）的统一 Electron 安全沙箱外壳：
 
-公开资料在 `/v1/local/evaluations/sources` 与 `/sources/refresh` 中按 `{agent,route}` 配置，默认关闭。仅获取无凭据、无查询字符串、无重定向的公开 HTTPS JSON；连接时检查 DNS 和目标地址，限制响应体。所有者用 JSON Pointer 映射有上限的上下文长度、输入／输出价格和图片支持字段，以 `priceScale` 明确单位；可按模型 ID 选择 JSON 数组记录。修改映射会清空旧报告，七天后证据过期。
+- **开箱即用与进程接管**：内置独立 Node.js 24 运行时，自动启动或接管同数据目录的本机回环网关（绝不误连其他程序占用的端口）。
+- **系统托盘快捷审批小窗**：无需切回主窗口，点击菜单栏 / 系统托盘图标即可查看运行态势、待审批详情并一键点击「批准 / 拒绝」，配合 Dock 与托盘角标及双语系统通知，让后台长任务协作顺手自然。
+- **严格沙箱隔离**：渲染进程全面关闭 `nodeIntegration`，强制开启 `contextIsolation` 与操作系统级进程沙箱。日常开发与打包命令：
 
-规划器只获得提取后的数字、布尔值、时效和来源哈希，不接收任意网页指令、全文或 URL 路径。这些是发布方资料，不是实测质量、实际扣费承诺或宿主能力授权。网络与解析探测已从 [OpenAI 发布的 gpt-oss 配置](https://huggingface.co/openai/gpt-oss-20b/raw/main/config.json) 提取声明的上下文长度，但没有把它当作性能评测。
-
-## 跨平台桌面
-
-跨平台统一 Electron 外壳位于 `desktop/cross-platform`，已完整吸收原归档 macOS Swift 外壳的全部体验（52pt `hiddenInset` 内嵌红绿灯顶栏、Dock 与托盘实时角标、双语审批通知、端口归属三态诊断与自家孤儿网关接管、`.seeded` 首次启动引导），并新增沙箱化系统托盘快捷审批小窗与开机自启开关，统一承载 macOS（`arm64` / `x64`）、Windows（`x64`）与 Linux 三端构建。它只启动或连接匹配的私人回环网关，只向自己的顶层窗口注入本地密钥，关闭渲染进程 Node 集成并开启上下文隔离、进程沙箱，参照 [Electron 安全指南](https://www.electronjs.org/docs/latest/tutorial/security)。
-
-```sh
-npm install --prefix desktop/cross-platform
-npm run desktop:dev
-npm run desktop:smoke
-npm run desktop:smoke:matrix
-node desktop/cross-platform/fetch-runtime.mjs --platform win32 --arch x64 --version 24.18.0
-npm run desktop:package -- --platform win32 --arch x64 --node-dir ABSOLUTE_RUNTIME_DIRECTORY --node-version 24.18.0
+```bash
+npm run desktop:dev           # 本地开发模式启动桌面外壳
+npm run desktop:smoke         # 运行桌面端自动化烟雾测试
+npm run package:mac           # 打包 macOS 应用（另提供 package:win / package:release:linux）
 ```
-
-运行时下载器在解压前核验官方 Node SHA-256 清单。打包沿用根项目版本、筛选网关生产依赖、保留第三方声明，只写新输出目录，不安装、不发布、不改全局 CLI 链接，也不代替签名／公证。本地已构建 Windows x64、Linux x64 压缩包和 macOS arm64 应用；并在 macOS arm64 上实测通过了 `desktop:smoke` 与全矩阵 `desktop:smoke:matrix`（含同目录二次启动不重复引导、自家孤儿网关接管、工作台内联审批 + 托盘快捷面板 + Dock 角标、`zh`/`en` 切换刷新保活、断开连接再刷新重连以及三类端口/配置错误弹窗检测）。Windows 与 Linux 真机 GUI 验收仍待完成。
-
-可用 `--oaa-data-dir ABSOLUTE_PATH` 选择独立本地数据目录。有托盘时关闭窗口只隐藏；**Quit desktop** 保留已接受的网关任务。只有本外壳确实启动了网关时才提供 **Stop gateway and quit**，并沿用 CLI 通过记录和实际健康信息核对进程。

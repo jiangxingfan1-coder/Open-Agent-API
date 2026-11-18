@@ -12,14 +12,14 @@ Release files live on the project's GitHub Releases page
 Docker image are attached to releases published after 0.0.64; 0.0.64 itself has only the macOS and Windows installers. Each release has a `SHA256SUMS` file: check a download with `sha256sum -c SHA256SUMS --ignore-missing`
 (Linux), `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS) or `Get-FileHash` (Windows).
 
-| Route | Needs | Pick it when | Not for |
+| Route | Requirements | Best for | Not suited for |
 | --- | --- | --- | --- |
-| [macOS app](#macos) | macOS 13+ | you want the desktop app and the console in one window | servers |
-| [Windows zip](#windows) | Windows 10+, x64 | you want the desktop launcher | servers |
-| [Linux tar.gz / `install.sh`](#linux) | glibc 2.28+ (x64 or arm64) | a Linux workstation or server, no root, no Docker | Alpine / musl |
-| [Docker](#docker) | Docker with Compose v2 | a server, an isolated gateway, built-in or remote agents | using the Codex / Claude Code CLIs of the host |
-| [npm tarball](#npm) | Node.js 24.18+ (24 or 26 line) | you already live in Node and want `oaa` on your PATH | machines without Node |
-| [Source](#source) | Node.js 24.18+ (24 or 26 line), git | developing Open Agent API itself | everyone else |
+| [macOS](#macos) | macOS 13+ (Apple silicon / Intel) | Desktop app with integrated console, Dock badges & tray approvals | Headless servers |
+| [Windows](#windows) | Windows 10+, x64 | Desktop app & CLI installer on Windows workstations | Headless servers |
+| [Linux](#linux) | glibc 2.28+ (x64 or arm64) | Linux workstations or servers without root, Node, or Docker | Alpine / musl |
+| [Docker](#docker) | Docker with Compose v2 | Servers, containerized gateways, built-in or remote agents | Invoking host-installed Codex / Claude Code CLIs directly |
+| [npm tarball](#npm) | Node.js 24.18+ (24 or 26 line) | Existing Node setups wanting `oaa` on `PATH` | Machines without Node |
+| [Source](#source) | Node.js 24.18+ (24 or 26 line), git | Contributing to or customizing Open Agent API | Routine deployments |
 
 The macOS, Windows and Linux packages ship their own Node.js runtime. The npm and source routes use the Node.js on
 your machine (`engines` in `package.json`: `>=24.18.0 <27`).
@@ -126,16 +126,7 @@ tar -xzf Open-Agent-API-<version>-linux-x64.tar.gz
 
 ## Docker
 
-The image runs the gateway as the non-root `node` user, keeps all state in the `/data` volume and listens on
-`0.0.0.0` **inside** the container. `docker-compose.yml` publishes it on the host's loopback address only
-(`127.0.0.1:8787`), so it is not reachable from other machines; to expose it put a TLS reverse proxy in front
-(see [deploy-public.md](deploy-public.md)) and set `OAA_PUBLIC_BASE_URL` / `OAA_ALLOWED_HOSTS`.
-
-> **Status: the Dockerfile cannot be built on a developer machine (there is no Docker there); CI is where it is built.**
-> `.github/workflows/docker.yml` builds the amd64 image on every push and pull request and runs a container smoke test
-> (first start, key files, an API call, restart, `docker stop`); that passed on GitHub's Ubuntu runner on 2026-11-14.
-> The arm64 image and the push to ghcr only happen when a release is published and have not run yet. If a build fails,
-> the log of that workflow is the place to look; the troubleshooting list is in [releasing.md](releasing.md).
+The image runs the gateway as the non-root `node` user, persists all state in `/data`, and listens on `0.0.0.0` inside the container. `docker-compose.yml` binds strictly to host loopback (`127.0.0.1:8787`); to serve external traffic, place a TLS reverse proxy in front (see [deploy-public.md](deploy-public.md)) and configure `OAA_PUBLIC_BASE_URL` and `OAA_ALLOWED_HOSTS`. CI builds and smoke-tests the container on every push and publishes multi-arch `linux/amd64` and `linux/arm64` images on releases.
 
 **Install and quickstart.** From a checkout of this repository (this works before an image has been published):
 

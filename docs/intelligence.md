@@ -1,65 +1,93 @@
-# Intelligent Agent API
+# Smart Routing, Multi-Agent Orchestration & Model Evaluation
 
 English · [简体中文](zh-CN/intelligence.md)
 
-## Implemented In This Increment
+Once an agent is published as an API, callers can either pin a specific model route or let the gateway select routes dynamically based on **latency, quality, cost, live quota windows, and local evaluation scores**—or coordinate multi-stage pipelines across helper agents.
 
-The implementation continued beyond this initial increment. [Persistent Agent Workstation](workstation.md) documents project memory, durable checkpoints, visual/reusable workflows and triggers, media jobs, real-task feedback, public JSON facts and cross-platform desktop builds.
+---
 
-- New `/v1/agents/publish-native` publications default to automatic approval. Existing publications keep their explicit policy; signed bundle publication does not rewrite its manifest. Use `approvals: "ask"` or an explicit `access.approval` to request human approval. Host authority and key restrictions still apply. Antigravity uses its ACP approval bridge when available, otherwise its per-invocation automatic-permission flag; no global agent settings change.
-- New native orchestration publications default to `scope: "agent"`. Fixed models bypass orchestration; automatic modes call a planner even for short tasks. Planning, analysis and review stay within the selected agent's model pool. Legacy publications keep their previous shortcut behavior.
-- `X-OAA-Orchestration: recommend` or `metadata["oaa.orchestration_action"]: "recommend"` runs the planner but not its execution stages. The response text is JSON containing `agent`, `mode`, `stages` and `executed: false`. Use `execute` or omit the field for normal execution. Recommendation requires automatic selection and an orchestration-enabled publication. It is not a permission approval.
-- Model evaluations have a console dialog, private SQLite records, revision-checked settings, a daily call cap, and a single background lane. Changes to a local executable, its configuration, the published agent or model catalog invalidate earlier measurements. Four measured dimensions are available: arithmetic reasoning, code tracing, instruction following and structured data. These small generated samples are not a general intelligence benchmark or proof of tool proficiency.
-- Measured scores and latency contribute to routing after four scored samples. Transport/authentication failures are recorded separately from wrong answers. Evidence expires after seven days. Model names never determine measured strength.
-- Fresh, unambiguous account-quota snapshots can exclude automatic routes. Unknown/stale snapshots do not block execution. A zero API-credit balance does not disable a subscription with usable quota windows. Multiple accounts without an explicit runtime identity mapping are not used for automatic exclusion. Fixed selection never silently changes models.
-- A local EverythingACP `client.json` can be imported from the execution-machines page or API. The descriptor is stored disabled until enabled and published. It survives restart without modifying or copying the wrapper. Environment secrets are not imported. The conversion core remains owned by the separate EverythingACP project.
+## Routing Selectors at Call Time
 
-## API Examples
+Across OpenAI, Claude, Gemini, and native endpoints, the `model` field accepts intuitive routing suffixes:
 
-Publish using a model returned by discovery, rather than guessing a provider model identifier:
+| `model` Value | Behavior |
+| --- | --- |
+| `agent/coder` (or `@auto`) | **Automatic routing**: balances configured route priority, recent latency, cooldown state, and local evaluation scores |
+| `agent/coder@fast` | **Latency-first**: prefers healthy routes with the lowest measured response time |
+| `agent/coder@best` | **Quality-first**: prefers top-scoring routes and, when orchestration is enabled, runs planning and review stages |
+| `agent/coder@eco` | **Cost-first**: prefers lower-cost routes or subscriptions with ample remaining quota |
+| `agent/coder@<route-id>` | **Pinned route**: targets a declared or discovered model directly, bypassing orchestration and never substituting another model |
+
+### Plan-Only Mode (`recommend`)
+
+To inspect how the gateway plans to decompose a task and which routes it would pick—without executing any tools—set `recommend` in request metadata:
+
+```json
+{
+  "model": "agent/coder@best",
+  "input": "Refactor the order export endpoint and add concurrency regression tests",
+  "metadata": {
+    "oaa.orchestration_action": "recommend"
+  }
+}
+```
+
+You can also pass the `X-OAA-Orchestration: recommend` header or check **Recommend plan only** in `#workbench`. The gateway runs a tool-free planning turn (`toolsDisabled`) and returns structured JSON containing `agent`, `mode`, `stages`, and `executed: false`.
+
+---
+
+## Universal Orchestration & Multi-Agent Pipelines
+
+Orchestration works across built-in kernel agents as well as external engines such as Codex, Antigravity, and ACP presets:
+
+1. **Single-agent model pool (`scope: "agent"`)**: Splits `plan`, `execute`, and `review` stages across the published agent's own discovered or configured model routes.
+2. **Dedicated planner agent (`orchestration.planner`)**: Binds an authorized planner agent to handle tool-free `plan` and `review` turns while keeping `execute` on the primary external engine.
+3. **Multi-agent helper pipelines (`scope: "helpers"`)**: Chains authorized `helpers` agents across stages, passing context and file deliverables via structured `handoff` envelopes.
+
+### Publication Example (Live Discovery + Orchestration)
 
 ```json
 {
   "id": "agent/my-agent",
   "engine": "antigravity",
-  "models": ["MODEL_FROM_DISCOVERY"],
-  "model_policy": {"mode": "discover", "allow": ["MODEL_FROM_DISCOVERY"]},
-  "access": {"modes": ["managed"], "defaultMode": "managed", "approval": "auto", "trust": "private"},
-  "orchestration": {"enabled": true, "scope": "agent"}
+  "models": ["default"],
+  "model_policy": { "mode": "discover" },
+  "access": {
+    "modes": ["managed"],
+    "defaultMode": "managed",
+    "approval": "ask",
+    "trust": "private"
+  },
+  "orchestration": {
+    "enabled": true,
+    "scope": "agent"
+  }
 }
 ```
 
-The existing compatible endpoints accept `agent/my-agent@<route>` for a fixed model, `agent/my-agent@fast`, `@best`, `@eco`, or `agent/my-agent` for automatic selection. A recommendation request is:
+Existing publications can be updated in place from the agent detail sheet's **API Execution Policy** dialog (`POST /v1/agents/policy`), which creates a new immutable version with updated `approval` (`ask` / `auto`) or `orchestration` settings.
 
-```json
-{
-  "model": "agent/my-agent@best",
-  "input": "Plan the requested task",
-  "metadata": {"oaa.orchestration_action": "recommend"}
-}
-```
+---
 
-Local management endpoints require a directly connected, same-origin, owner-wide administrator in the local security profile:
+## Five-Dimension Local Evaluation & Quota Awareness
 
-| Endpoint | Purpose |
+Instead of guessing model capability from marketing names, the gateway includes an opt-in local evaluator and quota-aware router:
+
+- **Five scored dimensions**: Arithmetic reasoning, code tracing, instruction following, strict structured data, and `tool_calling`.
+- **Bounded background budget**: Disabled by default. When enabled, runs at most once every 24 hours (capped at 48 sample calls/day per agent, always yielding to live user requests). Scores and latency enter routing weights once 4 valid samples are recorded, and expire automatically after 7 days or when agent configuration changes.
+- **Operator feedback & public metadata**: Admins can record pass/fail feedback on real runs via `POST /v1/local/evaluations/feedback` at zero token cost, and map context-window or pricing fields from public HTTPS JSON catalogs.
+- **Live quota avoidance**: When unambiguous upstream quota snapshots indicate an exhausted window (see [Usage & Quotas](usage-monitor.md)), automatic routing steers around the depleted route while leaving pinned `@<route-id>` calls untouched.
+
+---
+
+## Importing EverythingACP Wrappers
+
+If you wrap local CLIs with [EverythingACP](https://agentclientprotocol.com), you can scan an output directory from **Execution machines** in the console or import a `client.json` descriptor via the local management API:
+
+| Local Management Endpoint | Purpose |
 | --- | --- |
-| `GET /v1/local/evaluations?agent=...` | Settings, `settings_revision`, support status, scores and latest errors |
-| `POST /v1/local/evaluations/settings` | `{agent, revision, settings:{enabled, intervalHours, maxCallsPerDay}}` |
-| `POST /v1/local/evaluations/run` | `{agent}` schedules work within the enabled daily budget |
-| `POST /v1/local/everything-acp/import` | `{id, client_file}` imports an absolute `client.json` path on the gateway machine |
-
-The agent sheet's **API Execution Policy** dialog migrates an existing publication explicitly. Its `POST /v1/agents/policy` call takes `{agent, version, approval:"ask"|"auto", orchestration:boolean}` and creates a new immutable version while preserving the remaining definition and bundle files. It rejects stale versions. Kernel definitions without an access policy must still be edited explicitly because their approvals are declared per tool.
-
-Evaluation defaults are disabled, every 24 hours, at most 48 sample calls per day per published agent; each cycle has eight questions per model. Enabling it explicitly authorizes these calls. User work takes priority between questions. No public web lookup or private task transcript is sent to an evaluator.
-
-## Verification And Remaining Work
-
-On 2026-11-17 in an isolated macOS gateway, a real Codex and a real Antigravity returned the requested fixed response; Claude Code returned `adapter_auth_required` because its CLI was not signed in. A separately generated EverythingACP Codex wrapper completed a real call through OAA. Antigravity completed fixed, recommendation-only, speed and quality scenarios using two discovered model choices. These small tasks prove those paths, not superior speed or quality: the measured fixed call took about 10 seconds, recommendation about 61 seconds, speed about 83 seconds, and quality about 96 seconds. The quality check was an agent review, not independent correctness evidence.
-
-A partial real evaluation exposed an important scoring distinction: code answers were correct but wrapped in Markdown despite the JSON-only instruction. The updated suite tolerates fences for reasoning/code correctness, but keeps instruction and structured-output scoring strict. The revised eight-question suite subsequently completed on Antigravity's current default model with eight passes, averaging about 40 seconds per question. This is one small capability sample, not a comparison against other models; its temporary evaluation setting was restored to disabled.
-
-A further real Antigravity call created `outputs/proof.txt` without an OAA approval stop. The downloaded file matched `OAA_ARTIFACT_OK` exactly, with no pending action. This verifies one real artifact flow, not arbitrary filesystem task reliability.
-
-The native Codex path also completed an automatically approved file-writing call: the downloaded `codex-proof.txt` matched `OAA_CODEX_AUTO_OK` exactly. Neither probe changed the installed desktop application's configuration.
-
-Codex and general ACP adapters now support enforced tool-free reasoning turns (`toolsDisabled`), and opaque external engines can also bind an authorized `orchestration.planner` agent (`plan` / `review` routed to the planner while `execute` stays on the primary agent) or run multi-agent `scope: "helpers"` pipelines with structured handoffs and a 5th `tool_calling` evaluation dimension; streaming artifacts scale up to `64 MiB` by default (configurable up to `256 MiB`). Generated EverythingACP wrappers can also be discovered in an explicitly selected output directory without a brand allowlist or execution. Remaining limits include broad independent model-quality evaluation, general web search beyond configured JSON sources, recovery of unconfirmed host effects, and Windows/Linux physical-device acceptance. No all-agent, comprehensive-intelligence, codec-quality or production-release claim is made.
+| `GET /v1/local/evaluations?agent=...` | Reads evaluation settings, support status, dimension scores, and recent errors |
+| `POST /v1/local/evaluations/settings` | Updates `{agent, revision, settings: {enabled, intervalHours, maxCallsPerDay}}` |
+| `POST /v1/local/evaluations/run` | Queues an evaluation pass within the configured daily call cap |
+| `POST /v1/local/evaluations/feedback` | Records operator `{run_id, passed}` feedback on a completed run |
+| `POST /v1/local/everything-acp/import` | Imports a local EverythingACP `client.json` descriptor (stored disabled until explicitly enabled and published) |
