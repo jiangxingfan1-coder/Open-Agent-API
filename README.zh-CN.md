@@ -29,10 +29,12 @@
   </picture>
 </p>
 
+## 接入实录：发布智能体 → 签发密钥 → SDK 调用
+
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="端到端接入演示：在控制台一键发布本机 Antigravity 智能体、签发专属 API 密钥，并用官方 OpenAI SDK 发起流式任务调用、实时同步任务时间线" width="100%" />
+  <img src="docs/assets/demo-light.gif" width="830" height="525" alt="端到端接入演示（浅色模式）：在控制台一键发布本机 Antigravity 智能体、签发专属 API 密钥，并用官方 OpenAI SDK 发起流式任务调用、实时同步任务时间线" />
   <br />
-  <sub>完整接入流程演示：1. 发布本机智能体（<code>agent/antigravity</code>） → 2. 生成专属 <code>sk-oaa-…</code> 密钥 → 3. 用官方 OpenAI SDK 发起流式调用并在控制台查看完成时间线。</sub>
+  <sub>浅色模式完整流程演示：1. 发布本机智能体（<code>agent/antigravity</code>） → 2. 签发专属 <code>sk-oaa-…</code> 密钥 → 3. 用官方 OpenAI SDK 流式跑任务并在检查器查看耗时明细 · 详见 <a href="docs/zh-CN/quickstart.md">五分钟上手指南</a></sub>
 </p>
 
 ## 三十秒看懂

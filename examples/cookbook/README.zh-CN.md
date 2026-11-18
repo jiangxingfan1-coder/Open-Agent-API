@@ -104,17 +104,18 @@ sh 05-structured-output/structured.sh
 
 | 客户端 / 平台 | 配置入口 | Base URL 填法 | 模型名字段填法 | 现成配置模板 |
 | --- | --- | --- | --- | --- |
-| **Open WebUI** | Admin Settings → Connections → OpenAI | `http://<host>:8787/v1` | 自动拉取 `/models`，或填入 Model IDs | — |
-| **LibreChat** | `librechat.yaml` → `endpoints.custom[]` | `http://<host>:8787/v1` | `models.default` 或开启 `models.fetch: true` | [`librechat.yaml`](08-connect-tools/librechat.yaml) |
-| **Chatbox** | Provider → API Host | `http://<host>:8787/v1` | 拉取模型列表或手动填入智能体名 | — |
-| **Cherry Studio** | Model Provider → Add → OpenAI → API Host | `http://<host>:8787` 或带 `/v1` | 拉取列表或手动添加 | — |
-| **LobeChat** | AI Service Provider → OpenAI → API Proxy URL | `http://<host>:8787/v1` | 拉取模型列表或手动添加 | — |
-| **NextChat** | Settings → Custom Endpoint → OpenAI Endpoint | `http://<host>:8787`（不带 `/v1`） | Settings → Custom Models | — |
-| **Dify** | Model Provider → OpenAI-API-compatible | Docker 部署填 `http://host.docker.internal:8787/v1` | Model Name 填智能体调用名 | — |
-| **n8n** | Credentials → OpenAI | `http://<host>:8787/v1` | 从列表选择或按 ID 填写 | — |
-| **Continue** | `config.yaml` → `models[]` | `http://<host>:8787/v1` | `model: agent/sample`（或真实智能体名） | [`continue.config.yaml`](08-connect-tools/continue.config.yaml) |
-| **Cline / Roo Code** | API Provider 选 `OpenAI Compatible` | `http://<host>:8787/v1` | 智能体调用名 | — |
-| **Zed** | `settings.json` → `language_models.openai_compatible` | `http://<host>:8787/v1` | `available_models[].name` | [`zed.settings.json`](08-connect-tools/zed.settings.json) |
+| Open WebUI | Admin Settings → Connections → OpenAI | `http://<host>:8787/v1` | 自动拉取 `/models`，或填入 Model IDs | — |
+| LibreChat | `librechat.yaml` → `endpoints.custom[]` | `http://<host>:8787/v1` | `models.default` 或开启 `models.fetch: true` | [`librechat.yaml`](08-connect-tools/librechat.yaml) |
+| Chatbox | Provider → API Host | `http://<host>:8787/v1` | 拉取模型列表或手动填入智能体名 | — |
+| Cherry Studio | Model Provider → Add → OpenAI → API Host | `http://<host>:8787` 或带 `/v1` | 拉取列表或手动添加 | — |
+| LobeChat | AI Service Provider → OpenAI → API Proxy URL | `http://<host>:8787/v1` | 拉取模型列表或手动添加 | — |
+| NextChat | Settings → Custom Endpoint → OpenAI Endpoint | `http://<host>:8787`（不带 `/v1`） | Settings → Custom Models | — |
+| Dify | Model Provider → OpenAI-API-compatible | Docker 部署填 `http://host.docker.internal:8787/v1` | Model Name 填智能体调用名 | — |
+| n8n | Credentials → OpenAI | `http://<host>:8787/v1` | 从列表选择或按 ID 填写 | — |
+| Continue | `config.yaml` → `models[]` | `http://<host>:8787/v1` | `model: agent/sample`（或真实智能体名） | [`continue.config.yaml`](08-connect-tools/continue.config.yaml) |
+| Cline / Roo Code | API Provider 选 `OpenAI Compatible` | `http://<host>:8787/v1` | 智能体调用名 | — |
+| Zed | `settings.json` → `language_models.openai_compatible` | `http://<host>:8787/v1` | `available_models[].name` | [`zed.settings.json`](08-connect-tools/zed.settings.json) |
+| Cursor | Override OpenAI Base URL（经云端转发，本机建议走「本地互联」MCP 桥） | 本机地址**未验证** | 自定义模型名 | — |
 
 **常见配置小贴士**：
 1. **注意 `/v1` 后缀差异**：OpenAI 生态 SDK 与绝大多数第三方客户端的 Base URL 以 `/v1` 结尾；Anthropic 与 Gemini 官方 SDK 的 Base URL **不带** `/v1`：

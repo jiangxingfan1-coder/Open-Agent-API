@@ -29,10 +29,12 @@
   </picture>
 </p>
 
+## Live Walkthrough: Publish → Key → SDK Call
+
 <p align="center">
-  <img src="docs/assets/demo-en.gif" alt="End-to-end onboarding demo: publishing the local Antigravity agent in the console, issuing a scoped sk-oaa API key, and streaming an OpenAI SDK call synced live to the task inspector" width="100%" />
+  <img src="docs/assets/demo-light-en.gif" width="830" height="525" alt="End-to-end onboarding demo (light mode): publishing the local Antigravity agent in the console, issuing a scoped sk-oaa API key, and streaming an OpenAI SDK call synced live to the task inspector" />
   <br />
-  <sub>End-to-end flow: 1. Publish local agent (<code>agent/antigravity</code>) → 2. Issue a scoped <code>sk-oaa-…</code> key → 3. Stream an official OpenAI SDK call and inspect the completed timeline.</sub>
+  <sub>Light-mode end-to-end flow: 1. Publish local agent (<code>agent/antigravity</code>) → 2. Issue a scoped <code>sk-oaa-…</code> key → 3. Stream an official OpenAI SDK call and inspect the completed timeline · See the <a href="docs/quickstart.md">Five-Minute Quickstart</a></sub>
 </p>
 
 ## Thirty seconds

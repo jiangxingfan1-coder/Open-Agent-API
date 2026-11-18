@@ -104,17 +104,18 @@ Exit code convention across scripts: `0` = completed target flow; `2` = request 
 
 | Tool / Platform | Where to Configure | Base URL | Model Field | Config Template |
 | --- | --- | --- | --- | --- |
-| **Open WebUI** | Admin Settings → Connections → OpenAI | `http://<host>:8787/v1` | Fetched from `/models` or entered under Model IDs | — |
-| **LibreChat** | `librechat.yaml` → `endpoints.custom[]` | `http://<host>:8787/v1` | `models.default` or `models.fetch: true` | [`librechat.yaml`](08-connect-tools/librechat.yaml) |
-| **Chatbox** | Provider → API Host | `http://<host>:8787/v1` | Fetch models or add agent name manually | — |
-| **Cherry Studio** | Model Provider → Add → OpenAI → API Host | `http://<host>:8787` or `.../v1` | Fetch list or add manually | — |
-| **LobeChat** | AI Service Provider → OpenAI → API Proxy URL | `http://<host>:8787/v1` | Fetch models or add manually | — |
-| **NextChat** | Settings → Custom Endpoint → OpenAI Endpoint | `http://<host>:8787` (no `/v1`) | Settings → Custom Models | — |
-| **Dify** | Model Provider → OpenAI-API-compatible | `http://host.docker.internal:8787/v1` when Dify runs in Docker | Agent call name | — |
-| **n8n** | Credentials → OpenAI | `http://<host>:8787/v1` | Select from list or enter ID | — |
-| **Continue** | `config.yaml` → `models[]` | `http://<host>:8787/v1` | `model: agent/sample` | [`continue.config.yaml`](08-connect-tools/continue.config.yaml) |
-| **Cline / Roo Code** | API Provider → `OpenAI Compatible` | `http://<host>:8787/v1` | Agent call name | — |
-| **Zed** | `settings.json` → `language_models.openai_compatible` | `http://<host>:8787/v1` | `available_models[].name` | [`zed.settings.json`](08-connect-tools/zed.settings.json) |
+| Open WebUI | Admin Settings → Connections → OpenAI | `http://<host>:8787/v1` | Fetched from `/models` or entered under Model IDs | — |
+| LibreChat | `librechat.yaml` → `endpoints.custom[]` | `http://<host>:8787/v1` | `models.default` or `models.fetch: true` | [`librechat.yaml`](08-connect-tools/librechat.yaml) |
+| Chatbox | Provider → API Host | `http://<host>:8787/v1` | Fetch models or add agent name manually | — |
+| Cherry Studio | Model Provider → Add → OpenAI → API Host | `http://<host>:8787` or `.../v1` | Fetch list or add manually | — |
+| LobeChat | AI Service Provider → OpenAI → API Proxy URL | `http://<host>:8787/v1` | Fetch models or add manually | — |
+| NextChat | Settings → Custom Endpoint → OpenAI Endpoint | `http://<host>:8787` without `/v1` | Settings → Custom Models | — |
+| Dify | Model Provider → OpenAI-API-compatible | `http://host.docker.internal:8787/v1` when Dify runs in Docker | Agent call name | — |
+| n8n | Credentials → OpenAI | `http://<host>:8787/v1` | Select from list or enter ID | — |
+| Continue | `config.yaml` → `models[]` | `http://<host>:8787/v1` | `model: agent/sample` | [`continue.config.yaml`](08-connect-tools/continue.config.yaml) |
+| Cline / Roo Code | API Provider → `OpenAI Compatible` | `http://<host>:8787/v1` | Agent call name | — |
+| Zed | `settings.json` → `language_models.openai_compatible` | `http://<host>:8787/v1` | `available_models[].name` | [`zed.settings.json`](08-connect-tools/zed.settings.json) |
+| Cursor | Override OpenAI Base URL (cloud-relayed; use MCP via Local Connections for localhost) | **unverified** for `127.0.0.1` | Custom model ID | — |
 
 **Quick tips**:
 1. **`/v1` path convention**: OpenAI SDKs and most OpenAI-compatible apps expect `/v1` at the end of the Base URL; Anthropic and Gemini SDKs take the root origin **without** `/v1`:
