@@ -189,47 +189,55 @@ async function handleTurn(params, instructions) {
 
   const parts = [];
   for (const group of spec.groups ?? []) {
-    const answers = await Promise.all(
+    // Wait for every per-tool approval round-trip in the batch before issuing any client.callTool so
+    // two slow IPC replies on Windows cannot push the first tool call out past setImmediate alone.
+    const prechecked = await Promise.all(
       group.map(async (call, callIdx) => {
-        if (spec.askMcpApproval) {
-          if (callIdx === 0) {
-            const elic = await askHost('mcpServer/elicitation/request', {
-              threadId,
-              turnId,
-              serverName: 'oaa-caller',
-              mode: 'form',
-              _meta: {
-                codex_approval_kind: 'mcp_tool_call',
-                persist: ['session', 'always'],
-                tool_name: call.name,
-                tool_params: call.arguments ?? {},
-              },
-              message: 'Allow the oaa-caller MCP server to run tool "' + call.name + '"?',
-              requestedSchema: { type: 'object', properties: {} },
-            });
-            log('mcp-approval:' + call.name + ':' + JSON.stringify(elic));
-            if (
-              elic?.action !== 'accept' ||
-              JSON.stringify(elic?.content) !== '{}' ||
-              elic?._meta !== null
-            )
-              return { isError: true, content: [{ type: 'text', text: 'declined-elicitation' }] };
-          } else {
-            const perm = await askHost('item/mcpToolCall/requestApproval', {
-              threadId,
-              turnId,
-              server: 'oaa-caller',
-              tool: call.name,
-            });
-            log('mcp-approval:' + call.name + ':' + JSON.stringify(perm));
-            if (perm?.decision !== 'accept')
-              return { isError: true, content: [{ type: 'text', text: 'declined' }] };
-          }
+        if (!spec.askMcpApproval) return null;
+        if (callIdx === 0) {
+          const elic = await askHost('mcpServer/elicitation/request', {
+            threadId,
+            turnId,
+            serverName: 'oaa-caller',
+            mode: 'form',
+            _meta: {
+              codex_approval_kind: 'mcp_tool_call',
+              persist: ['session', 'always'],
+              tool_name: call.name,
+              tool_params: call.arguments ?? {},
+            },
+            message: 'Allow the oaa-caller MCP server to run tool "' + call.name + '"?',
+            requestedSchema: { type: 'object', properties: {} },
+          });
+          log('mcp-approval:' + call.name + ':' + JSON.stringify(elic));
+          if (
+            elic?.action !== 'accept' ||
+            JSON.stringify(elic?.content) !== '{}' ||
+            elic?._meta !== null
+          )
+            return { isError: true, content: [{ type: 'text', text: 'declined-elicitation' }] };
+        } else {
+          const perm = await askHost('item/mcpToolCall/requestApproval', {
+            threadId,
+            turnId,
+            server: 'oaa-caller',
+            tool: call.name,
+          });
+          log('mcp-approval:' + call.name + ':' + JSON.stringify(perm));
+          if (perm?.decision !== 'accept')
+            return { isError: true, content: [{ type: 'text', text: 'declined' }] };
         }
-        return client.callTool({ name: call.name, arguments: call.arguments ?? {} }, undefined, {
-          timeout: 60000,
-        });
+        return null;
       }),
+    );
+    const answers = await Promise.all(
+      group.map(
+        (call, callIdx) =>
+          prechecked[callIdx] ??
+          client.callTool({ name: call.name, arguments: call.arguments ?? {} }, undefined, {
+            timeout: 60000,
+          }),
+      ),
     );
     answers.forEach((ans, idx) => {
       const txt = ans.content.map((c) => c.text).join('');
@@ -439,17 +447,24 @@ async function onPrompt(promptText) {
 
   const results = [];
   for (const group of spec.groups ?? []) {
-    const batch = await Promise.all(
+    const prechecked = await Promise.all(
       group.map(async (call) => {
         const perm = await askCanUseTool('mcp__oaa-caller__' + call.name, call.arguments ?? {});
         const behavior = perm?.response?.response?.behavior ?? perm?.response?.behavior;
         log('caller-perm:' + call.name + ':' + behavior);
         if (behavior !== 'allow')
           return { isError: true, content: [{ type: 'text', text: 'denied' }] };
-        return client.callTool({ name: call.name, arguments: call.arguments ?? {} }, undefined, {
-          timeout: 60000,
-        });
+        return null;
       }),
+    );
+    const batch = await Promise.all(
+      group.map(
+        (call, idx) =>
+          prechecked[idx] ??
+          client.callTool({ name: call.name, arguments: call.arguments ?? {} }, undefined, {
+            timeout: 60000,
+          }),
+      ),
     );
     batch.forEach((res, idx) => {
       const txt = res.content.map((c) => c.text).join('');
