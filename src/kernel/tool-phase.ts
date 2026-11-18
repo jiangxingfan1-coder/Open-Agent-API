@@ -8,7 +8,13 @@ import type {
   ToolCall,
   ToolResult,
 } from '../core/contracts.js';
-import { executeGraph, graphToolEffects, parseGraph, projectGraphOutput } from '../lang/graph.js';
+import {
+  executeGraph,
+  graphToolEffects,
+  parseGraph,
+  parsePublishedGraph,
+  projectGraphOutput,
+} from '../lang/graph.js';
 import { Fault, canonical, checkAbort, faultOf, sha } from '../core/util.js';
 import type { EventInput } from '../store/output.js';
 import {
@@ -187,11 +193,10 @@ export async function callStep(
       ...(bundle.agent.delegates ?? []).map((d) => d.name),
     ]);
     const bindings = { $input: call.arguments, input: call.arguments };
-    const steps = parseGraph(
+    const steps = parsePublishedGraph(
       { steps: workflow.steps, output: workflow.output },
       allowedInFlow,
       effectMap,
-      new Set(Object.keys(bindings)),
     );
     if (workflow.outputSchema) rt.ajv.compile(workflow.outputSchema);
     rt.store.emit(run.id, 'workflow.started', {

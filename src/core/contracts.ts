@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GRAPH_LIMITS } from './limits.js';
 import { modelPolicySchema, modelRouteSchema, isRoutingModeId } from './model-catalog.js';
 import { MAX_AGENT_MODELS } from './model-catalog.js';
 import { agentAccessSchema, type ConnectionDefaults, type ToolBoundary } from './agent-access.js';
@@ -86,7 +87,7 @@ export const workflowSchema = z
       properties: {},
       additionalProperties: false,
     }),
-    steps: z.array(jsonObject).min(1).max(32),
+    steps: z.array(jsonObject).min(1).max(GRAPH_LIMITS.publishedSteps),
     output: z.unknown().optional(),
     outputSchema: jsonObject.optional(),
   })

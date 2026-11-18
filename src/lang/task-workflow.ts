@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { graphSchema, parseGraph, compileGraphPlan } from './graph.js';
+import { parsePublishedGraph, compileGraphPlan } from './graph.js';
+import { publishedGraphSchema } from './graph-schema.js';
 import { parseCron, validateTimeZone } from './cron.js';
 import { Fault } from '../core/util.js';
 
@@ -7,7 +8,7 @@ export const taskWorkflowSchema = z
   .object({
     id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,119}$/),
     name: z.string().min(1).max(200),
-    graph: graphSchema,
+    graph: publishedGraphSchema,
     concurrency: z.number().int().min(1).max(4).default(2),
     project: z
       .string()
@@ -79,11 +80,10 @@ export function validateTaskWorkflow(value: unknown, agents: Set<string>) {
     if (step.fallback?.tool && step.fallback.tool !== '$transform')
       argumentsOf(step.fallback.arguments ?? {});
   }
-  const steps = parseGraph(
+  const steps = parsePublishedGraph(
     definition.graph,
     agents,
     new Map([...agents].map((a) => [a, 'unknown' as const])),
-    new Set(['input', '$input']),
   );
   return {
     definition: { ...definition, graph: { ...definition.graph, steps } },

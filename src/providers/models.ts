@@ -1,4 +1,5 @@
 import type { AgentDefinition, ModelMessage, ModelResult, ToolCall } from '../core/contracts.js';
+import { GRAPH_LIMITS } from '../core/limits.js';
 import type {
   AnthropicBlock,
   AnthropicDelta,
@@ -60,7 +61,7 @@ export const graphTool = {
       steps: {
         type: 'array',
         minItems: 1,
-        maxItems: 32,
+        maxItems: GRAPH_LIMITS.adHocSteps,
         items: {
           type: 'object',
           properties: {
@@ -91,7 +92,7 @@ export const graphTool = {
               properties: {
                 $ref: { type: 'string' },
                 as: { type: 'string' },
-                max_items: { type: 'integer', minimum: 1, maximum: 32 },
+                max_items: { type: 'integer', minimum: 1, maximum: GRAPH_LIMITS.foreachItems },
               },
               required: ['$ref'],
               additionalProperties: false,

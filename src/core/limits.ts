@@ -53,6 +53,14 @@ export const LIMITS = {
   nodeMessageBytes: 24 * 1024 * 1024,
 } as const;
 
+/** Published plans may contain more static nodes, without enlarging a single model dispatch. */
+export const GRAPH_LIMITS = {
+  adHocSteps: 32,
+  publishedSteps: 64,
+  foreachItems: 32,
+  expandedItems: 1024,
+} as const;
+
 /**
  * 外部智能体接入的上限：内核（kernel/text-sink、kernel/agent-events）与接入层（engines/shared）
  * 引用同一份数值。单独导出、不并入 LIMITS，以免改变限额目录本身。

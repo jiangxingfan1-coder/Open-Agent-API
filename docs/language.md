@@ -256,6 +256,8 @@ agent "agent/delegates" {
 
 A step is written `step ID = tool(argument = value, ...)`. The tool can be a name declared by `use builtin`, `tool`, or `delegate`, a flow declared earlier, or the built-in pure transform `$transform` (its result is its arguments). A step ID cannot be `input`; an ID that is not a plain identifier is quoted (`step "1a" = ...`).
 
+An authored flow can declare up to 64 static steps. A model-generated `execute_graph` remains limited to 32. Before publication, the primary-item budget counts each non-loop step once and each loop at its declared `max_items`; the sum may not exceed 1,024. This does not increase tool concurrency or the run's tool-call allowance. Use upgraded gateways and workers when publishing a flow larger than 32 steps.
+
 A step can be followed by modifiers, in any order, each at most once:
 
 | Modifier | Description |

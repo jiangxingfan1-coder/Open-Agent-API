@@ -1,4 +1,6 @@
-import { z } from 'zod';
+import { GRAPH_LIMITS } from '../core/limits.js';
+import { graphSchema, publishedGraphSchema, type GraphStep } from './graph-schema.js';
+export { graphSchema, type GraphStep } from './graph-schema.js';
 import type {
   AgentDefinition,
   DelegateBinding,
@@ -13,62 +15,6 @@ import {
   collectSuspensions,
 } from '../core/suspension.js';
 import { JsonSchemas } from '../core/schemas.js';
-
-const foreachSchema = z
-  .object({
-    $ref: z.string(),
-    as: z
-      .string()
-      .regex(/^[a-zA-Z_][a-zA-Z0-9_]{0,31}$/)
-      .default('item'),
-    max_items: z.number().int().min(1).max(32).default(16),
-  })
-  .strict();
-
-const fallbackSchema = z
-  .object({
-    value: z.unknown().optional(),
-    tool: z.string().optional(),
-    arguments: z.record(z.string(), z.unknown()).optional(),
-  })
-  .strict()
-  .refine(
-    (f) => f.value !== undefined || f.tool !== undefined,
-    'Fallback requires either a static/reference value or a fallback tool.',
-  );
-
-export const graphSchema = z
-  .object({
-    steps: z
-      .array(
-        z
-          .object({
-            id: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/),
-            tool: z.string(),
-            arguments: z.record(z.string(), z.unknown()),
-            depends_on: z.array(z.string()).default([]),
-            when: z.unknown().optional(),
-            foreach: foreachSchema.optional(),
-            fallback: fallbackSchema.optional(),
-            // 步骤级容错：失败后再试几次、每次最多等多久。只允许用在重复执行无害的工具上。
-            retry: z
-              .object({
-                attempts: z.number().int().min(1).max(3),
-                backoff_ms: z.number().int().min(0).max(5000).optional(),
-              })
-              .strict()
-              .optional(),
-            timeout_ms: z.number().int().min(100).max(600_000).optional(),
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(32),
-    output: z.unknown().optional(),
-  })
-  .strict();
-
-export type GraphStep = z.infer<typeof graphSchema>['steps'][number];
 
 export function graphEffect(
   steps: readonly { tool?: unknown; fallback?: unknown }[],
@@ -820,7 +766,32 @@ export function parseGraph(
   toolEffects?: Map<string, Effect>,
   bindings: ReadonlySet<string> = new Set(),
 ): GraphStep[] {
-  const { steps, output } = graphSchema.parse(value);
+  return checkGraph(graphSchema.parse(value), allowedTools, toolEffects, bindings);
+}
+
+export function parsePublishedGraph(
+  value: unknown,
+  allowedTools: Set<string>,
+  toolEffects?: Map<string, Effect>,
+): GraphStep[] {
+  const graph = publishedGraphSchema.parse(value);
+  if (
+    graph.steps.reduce((n, step) => n + (step.foreach?.max_items ?? 1), 0) >
+    GRAPH_LIMITS.expandedItems
+  )
+    throw new Fault(
+      'invalid_graph',
+      `Published graph expands beyond ${GRAPH_LIMITS.expandedItems} primary items.`,
+    );
+  return checkGraph(graph, allowedTools, toolEffects, new Set(['input', '$input']));
+}
+
+function checkGraph(
+  { steps, output }: { steps: GraphStep[]; output?: unknown },
+  allowedTools: Set<string>,
+  toolEffects: Map<string, Effect> | undefined,
+  bindings: ReadonlySet<string>,
+): GraphStep[] {
   if (new Set(steps.map((s) => s.id)).size !== steps.length)
     throw new Fault('invalid_graph', 'Graph step IDs must be unique.');
   // Expanded IDs are durable checkpoint identities, not just display labels.
@@ -1018,12 +989,7 @@ export function validateWorkflows(
   for (const wf of target.workflows ?? []) {
     schemaCompiler.compile(wf.inputSchema);
     if (wf.outputSchema) schemaCompiler.compile(wf.outputSchema);
-    const steps = parseGraph(
-      { steps: wf.steps, output: wf.output },
-      allowed,
-      effects,
-      new Set(['$input', 'input']),
-    );
+    const steps = parsePublishedGraph({ steps: wf.steps, output: wf.output }, allowed, effects);
     if (options.normalizeSteps) {
       wf.steps = steps as unknown as Record<string, unknown>[];
     }
