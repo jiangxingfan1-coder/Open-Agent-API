@@ -1183,7 +1183,6 @@ export async function executeGraph(
     mapped?: unknown[];
   };
   type Completion = {
-    ticket: number;
     state: State;
     index: number;
     outcome: PromiseSettledResult<unknown>;
@@ -1211,11 +1210,21 @@ export async function executeGraph(
     }
   }
   const ready = [...states.values()].filter((state) => state.waiting === 0);
-  const active = new Map<number, Promise<Completion>>();
+  const completions: Completion[] = [];
+  let wake: ((result: Completion) => void) | undefined;
+  let active = 0;
+  // Each leaf publishes one completion. Slow siblings do not acquire a new reaction every turn.
+  const publish = (result: Completion) => {
+    if (!wake) completions.push(result);
+    else {
+      const resume = wake;
+      wake = undefined;
+      resume(result);
+    }
+  };
   const failures: PromiseRejectedResult[] = [];
   const approvals = new Set<string>();
   let remaining = steps.length;
-  let ticket = 0;
   let stopping = false;
   const complete = (state: State, value: unknown) => {
     results.set(state.step.id, value);
@@ -1231,10 +1240,10 @@ export async function executeGraph(
     } else stopping = true;
   };
 
-  while (ready.length || active.size) {
+  while (ready.length || active) {
     try {
       checkAbort(signal);
-      while (!stopping && active.size < concurrency && ready.length) {
+      while (!stopping && active < concurrency && ready.length) {
         const state = ready.shift()!;
         if (state.blocked) continue;
         const step = state.step;
@@ -1281,33 +1290,26 @@ export async function executeGraph(
           // One item per visit keeps sibling maps inside the same concurrency budget.
           if (state.next < state.items!.length) ready.push(state);
         }
-        const current = ticket++;
-        active.set(
-          current,
-          runSingleInvocation(invocation, scope, signal, execute).then(
-            (value): Completion => ({
-              ticket: current,
-              state,
-              index,
-              outcome: { status: 'fulfilled', value },
-            }),
-            (reason): Completion => {
-              // Fence admission as soon as rejection is known, even if another settled
-              // sibling wins Promise.race before this completion is consumed.
-              state.blocked = true;
-              fail(reason);
-              return { ticket: current, state, index, outcome: { status: 'rejected', reason } };
-            },
-          ),
+        active++;
+        void runSingleInvocation(invocation, scope, signal, execute).then(
+          (value) => publish({ state, index, outcome: { status: 'fulfilled', value } }),
+          (reason) => {
+            // Fence admissions immediately, before the consumer drains a successful sibling.
+            state.blocked = true;
+            fail(reason);
+            publish({ state, index, outcome: { status: 'rejected', reason } });
+          },
         );
       }
     } catch (error) {
       fail(error);
     }
-    if (!active.size) break;
-
-    const { ticket: finished, state, index, outcome } = await Promise.race(active.values());
-    active.delete(finished);
+    if (!active) break;
+    const { state, index, outcome } = await (completions.shift() ??
+      new Promise<Completion>((resolve) => {
+        wake = resolve;
+      }));
+    active--;
     if (outcome.status === 'fulfilled') {
       if (state.mapped) {
         state.mapped[index] = outcome.value;
@@ -1316,9 +1318,9 @@ export async function executeGraph(
     }
 
     // A boundary may stop admission immediately, but never returns while siblings are active.
-    if (!stopping && ready.some((state) => !state.blocked)) {
+    if (boundary && !stopping && ready.some((state) => !state.blocked)) {
       try {
-        boundary?.([...approvals]);
+        boundary([...approvals]);
       } catch (error) {
         fail(error);
         stopping = true;

@@ -8,6 +8,43 @@ const signal = () => new AbortController().signal;
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 const graph = (steps: unknown[]) => parseGraph({ steps }, new Set(['work']));
 
+test('wide maps drain every leaf once while a slow sibling holds a slot', async () => {
+  const items = Array.from({ length: 32 }, (_, i) => i);
+  const steps = graph(
+    items.map((i) => ({
+      id: 'b' + i,
+      tool: 'work',
+      arguments: { index: { $ref: '$index' } },
+      foreach: { $ref: '$input', max_items: 32 },
+    })),
+  );
+  for (const width of [4, 32]) {
+    const seen = new Set<string>();
+    let running = 0,
+      peak = 0;
+    const out = await executeGraph(
+      steps,
+      width,
+      signal(),
+      async (step, args) => {
+        assert.ok(!seen.has(step.id));
+        seen.add(step.id);
+        peak = Math.max(peak, ++running);
+        if (step.id === 'b0_0') await tick();
+        else await Promise.resolve();
+        running--;
+        return args.index;
+      },
+      undefined,
+      { $input: items },
+    );
+    assert.equal(seen.size, 1024);
+    assert.equal(peak, width);
+    assert.equal(running, 0);
+    for (const s of steps) assert.deepEqual(out[s.id], items);
+  }
+});
+
 test('a simultaneous success cannot admit more work after a sibling has already failed', async () => {
   const started: string[] = [];
   await assert.rejects(
