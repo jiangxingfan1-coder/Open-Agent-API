@@ -86,10 +86,11 @@ HTTP 调用方断开不会取消已接受任务，退出桌面也不会停止后
 npm install --prefix desktop/cross-platform
 npm run desktop:dev
 npm run desktop:smoke
+npm run desktop:smoke:matrix
 node desktop/cross-platform/fetch-runtime.mjs --platform win32 --arch x64 --version 24.18.0
 npm run desktop:package -- --platform win32 --arch x64 --node-dir ABSOLUTE_RUNTIME_DIRECTORY --node-version 24.18.0
 ```
 
-运行时下载器在解压前核验官方 Node SHA-256 清单。打包沿用根项目版本、筛选网关生产依赖、保留第三方声明，只写新输出目录，不安装、不发布、不改全局 CLI 链接，也不代替签名／公证。本地已构建 Windows x64、Linux x64 压缩包和 macOS arm64 应用；macOS 已验证启动、私人自动连接、创建项目及退出桌面后网关存活。Windows/Linux 真机验收仍未完成，新增桌面 smoke 矩阵本轮没有远程运行。
+运行时下载器在解压前核验官方 Node SHA-256 清单。打包沿用根项目版本、筛选网关生产依赖、保留第三方声明，只写新输出目录，不安装、不发布、不改全局 CLI 链接，也不代替签名／公证。本地已构建 Windows x64、Linux x64 压缩包和 macOS arm64 应用；并在 macOS arm64 上实测通过了 `desktop:smoke` 与全矩阵 `desktop:smoke:matrix`（含同目录二次启动不重复引导、自家孤儿网关接管、工作台内联审批 + 托盘快捷面板 + Dock 角标、`zh`/`en` 切换刷新保活、断开连接再刷新重连以及三类端口/配置错误弹窗检测）。Windows 与 Linux 真机 GUI 验收仍待完成。
 
 可用 `--oaa-data-dir ABSOLUTE_PATH` 选择独立本地数据目录。有托盘时关闭窗口只隐藏；**Quit desktop** 保留已接受的网关任务。只有本外壳确实启动了网关时才提供 **Stop gateway and quit**，并沿用 CLI 通过记录和实际健康信息核对进程。

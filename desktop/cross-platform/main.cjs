@@ -979,10 +979,26 @@ ipcMain.on('oaa:desktop', (event, message) => {
   }
 });
 
+function presentStartupError(title, body, problem = null) {
+  const reportFile = process.env.OAA_DESKTOP_ERROR_REPORT;
+  if (reportFile) {
+    try {
+      fsSync.mkdirSync(path.dirname(reportFile), { recursive: true });
+      fsSync.writeFileSync(
+        reportFile,
+        JSON.stringify({ kind: problem?.kind || null, title, body }, null, 2),
+        'utf8',
+      );
+      return;
+    } catch {}
+  }
+  dialog.showErrorBox(title, body);
+}
+
 if (launchOptions.problem) {
   app.whenReady().then(() => {
     const msg = launchProblemText(launchOptions.problem, currentLang());
-    dialog.showErrorBox(msg.title, msg.body);
+    presentStartupError(msg.title, msg.body, launchOptions.problem);
     quitting = true;
     app.quit();
   });
@@ -1063,6 +1079,15 @@ if (launchOptions.problem) {
         callbacks: sharedCallbacks,
       });
       trayController.init();
+      if (!app.isPackaged && process.env.OAA_DESKTOP_TEST_BRIDGE === '1') {
+        globalThis.__oaaTestBridge = {
+          toggleTrayPanel: () => trayController?.togglePanel(),
+          getTrayState: () => trayController?.getState(),
+          pollNow: () => pollGatewayState(),
+          attachedPid: () => attachedPid,
+          started: () => started,
+        };
+      }
       rebuildApplicationMenu();
       await createWindow();
       if (launchOptions.enableNotifications) {
@@ -1083,7 +1108,7 @@ if (launchOptions.problem) {
             title: 'Open Agent API',
             body: String(error?.message || error).slice(0, 3000),
           };
-      dialog.showErrorBox(localized.title, localized.body);
+      presentStartupError(localized.title, localized.body, problem);
       quitting = true;
       app.quit();
     });

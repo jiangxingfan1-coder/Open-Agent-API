@@ -62,7 +62,7 @@ MCP 不提供批准/拒绝工具是有意的安全边界：调用方往往本身
 1. **四类接入方式都能把智能体变成 AgentAPI**：内置原生、ACP、`oaa/1`（stdio / 流式 / HTTP）、A2A。10 种具体路径在同一套假智能体测试里通过了基本回合、续接（或诚实拒绝）、审批、产物、失败、取消六类检查，6 种外部协议加 MCP 桥渲染同一条运行。
 2. **差异在「交互深度」，不在「能不能接入」**：现在由 `conversion` 画像显式说明，调用方不必靠试错。分三级：`basic`（最终结果 + 稳定错误 + 取消）、`streaming`（再加增量文本）、`interactive`（再加运行中审批）。当前 `interactive`：内核、Codex、Claude、ACP、`oaa/1-stream`；`streaming`：Antigravity、A2A；`basic`：DSH、`oaa/1` stdio / HTTP。
 3. **已修正的不一致**：Codex 中被 owner 拒绝的操作原来报 `native_incomplete`，现在与其它引擎一致报 `permission_denied`；Claude 的工具调用原来不可见，现在记为进度（只记工具名）；`oaa/1` 适配器返回的错误文本原来原样写入运行记录，现在脱敏；流式 Responses 在等待审批时原来完全静默，现在报告待审批状态；自定义适配器原来只能交付最终结果，现在可选 `oaa/1-stream` 获得流式、审批与协作式取消；新增 A2A 远程接入。
-4. **已补齐的缺口与保留边界**：Codex 取消现已先发协议级 `turn/interrupt` 并在有界宽限期后再终止进程；Claude 已支持 token 级增量流式（`includePartialMessages: true`）且与末尾快照严格去重；Codex 与 Claude 原生引擎均已通过 `oaa-caller` MCP 支持调用方工具桥接（`permission_auto_allowed`）；协商了 `conversion-profiles-v1` 的远程节点会同步自定义 `adapter/<名称>` 的静态 `ConversionProfile` 画像，网关侧不再显示为 `unknown`。保留边界：Antigravity 旧版 stream-json 路径没有无头审批桥接（混合桥接请走其 `agy acp` 路径）；Chat / Claude / Gemini 因协议本身无状态，无法原生续接会话或展示 OAA 工具事件。真机端到端实测记录见 [evidence.md](evidence.md)。
+4. **已补齐的缺口与保留边界**：Codex 取消现已先发协议级 `turn/interrupt` 并在有界宽限期后再终止进程；Claude 已支持 token 级增量流式（`includePartialMessages: true`）且与末尾快照严格去重；Codex、Claude 与 Antigravity 原生引擎均已通过 `oaa-caller` MCP 支持调用方工具桥接（`permission_auto_allowed`）；协商了 `conversion-profiles-v1` 的远程节点会同步自定义 `adapter/<名称>` 的静态 `ConversionProfile` 画像，网关侧不再显示为 `unknown`。保留边界：Antigravity 旧版 stream-json 路径仍不支持运行中无头权限审批桥接（需要交互审批请走其 `agy acp` 路径）；Chat / Claude / Gemini 因协议本身无状态，无法原生续接会话或展示 OAA 工具事件。真机端到端实测记录见 [evidence.md](evidence.md)。
 
 ### 转换能力画像（`conversion`）
 

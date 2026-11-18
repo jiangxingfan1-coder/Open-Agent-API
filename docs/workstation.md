@@ -86,10 +86,11 @@ The unified cross-platform Electron shell lives under `desktop/cross-platform`, 
 npm install --prefix desktop/cross-platform
 npm run desktop:dev
 npm run desktop:smoke
+npm run desktop:smoke:matrix
 node desktop/cross-platform/fetch-runtime.mjs --platform win32 --arch x64 --version 24.18.0
 npm run desktop:package -- --platform win32 --arch x64 --node-dir ABSOLUTE_RUNTIME_DIRECTORY --node-version 24.18.0
 ```
 
-The runtime downloader checks the official Node SHA-256 list before extraction. Packaging uses the root product version, filters production gateway dependencies, preserves third-party notices, and writes only new output directories. It does not install, publish, alter global CLI links or sign/notarize a release. Supported build targets are Windows, Linux and macOS; the local work produced Windows x64 and Linux x64 archives and a macOS arm64 app. macOS startup, private auto-connection, project creation and gateway survival after desktop exit were exercised. Windows/Linux physical-device acceptance is still outstanding; the added desktop smoke matrix has not been run remotely by this task.
+The runtime downloader checks the official Node SHA-256 list before extraction. Packaging uses the root product version, filters production gateway dependencies, preserves third-party notices, and writes only new output directories. It does not install, publish, alter global CLI links or sign/notarize a release. Supported build targets are Windows, Linux and macOS; the local work produced Windows x64 and Linux x64 archives and a macOS arm64 app. Both `desktop:smoke` and `desktop:smoke:matrix` (second-start seeding check, orphan gateway attachment, live `#workbench` + Tray quick approval + Dock badge, `zh`/`en` reload preservation, disconnect + reload recovery, and port/config conflict error probes) were verified locally on macOS arm64; Windows and Linux physical-device UI acceptance remains outstanding.
 
 Use `--oaa-data-dir ABSOLUTE_PATH` for a separate local data directory. Closing the window hides to the tray when available; **Quit desktop** leaves accepted gateway work alive. **Stop gateway and quit** is available only when this shell started that gateway, and verifies its recorded process through the existing CLI stop path.

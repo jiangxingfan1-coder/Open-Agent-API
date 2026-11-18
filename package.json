@@ -38,6 +38,7 @@
   "scripts": {
     "desktop:dev": "node desktop/cross-platform/launch.mjs",
     "desktop:smoke": "node desktop/cross-platform/smoke.mjs",
+    "desktop:smoke:matrix": "node desktop/cross-platform/smoke-matrix.mjs",
     "desktop:package": "node desktop/cross-platform/build.mjs",
     "build": "tsc -p tsconfig.json",
     "prepack": "node scripts/prepack.mjs",

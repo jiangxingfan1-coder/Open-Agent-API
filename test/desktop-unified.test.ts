@@ -922,10 +922,10 @@ test('unified packaging pipeline --dry-run covers macOS, Windows and Linux witho
       assert.doesNotMatch(stdout, /swiftc/, `${target}-${arch} must not invoke swiftc`);
       assert.match(
         stdout,
-        /desktop[/\\]cross-platform[/\\]build\.mjs/,
+        /desktop[/\\]+cross-platform[/\\]+build\.mjs/,
         `${target}-${arch} must delegate desktop shell build to cross-platform Electron`,
       );
-      assert.doesNotMatch(stdout, /-> .*[/\\]Applications[/\\]Open Agent API\.app/);
+      assert.doesNotMatch(stdout, /-> .*[/\\]+Applications[/\\]+Open Agent API\.app/);
     }
   } finally {
     await rm(fakeNodeDir, { recursive: true, force: true });

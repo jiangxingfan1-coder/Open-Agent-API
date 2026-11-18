@@ -46,7 +46,7 @@ export function openNodeEnrollDialog() {
 
   const nodeId = el('input');
   nodeId.required = true;
-  nodeId.pattern = '[A-Za-z0-9_-]{1,64}';
+  nodeId.pattern = '[A-Za-z0-9_\\-]{1,64}';
   nodeId.value = `worker-${Math.random().toString(36).slice(2, 6)}`;
   nodeId.autocomplete = 'off';
 

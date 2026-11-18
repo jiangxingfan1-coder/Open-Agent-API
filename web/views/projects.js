@@ -68,7 +68,7 @@ export async function renderProjects(parent) {
           form = el('form');
         const id = field(form, t('project.id')),
           name = field(form, t('project.name'));
-        id.pattern = '[A-Za-z0-9][A-Za-z0-9_.-]{0,119}';
+        id.pattern = '[A-Za-z0-9][A-Za-z0-9_.\\-]{0,119}';
         const save = button(t('evaluation.save'), 'check', () => {}, 'primary');
         save.type = 'submit';
         form.append(save);

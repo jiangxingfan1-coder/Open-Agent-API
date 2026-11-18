@@ -52,7 +52,7 @@ export function openEverythingAcpImport() {
   form.append(folderLabel, scan, found);
   const name = el('input');
   name.required = true;
-  name.pattern = '[a-z0-9][a-z0-9_-]{0,63}';
+  name.pattern = '[a-z0-9][a-z0-9_\\-]{0,63}';
   name.value = 'wrapped-agent';
   const path = el('input');
   path.required = true;

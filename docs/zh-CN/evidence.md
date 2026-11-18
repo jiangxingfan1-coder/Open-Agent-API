@@ -132,7 +132,17 @@ node dist/examples/live-agents-acceptance.js --agent claude|codex|antigravity --
 
 - 用真实 Codex 端到端的 S8 调用方工具桥接（被 Codex 账户额度耗尽阻塞至 2026-11-21，非代码问题）
 - Windows 和 Linux 上的真实智能体
-- 用真实外部智能体的 S10 计费成功路径（仍被 `isolation_required` 阻塞）
+
+### 遗留测试补齐验证（2026-11-18，0.0.70）
+
+在 `0.0.70` 发布构建完成后，在同一台 Apple 芯片 macOS 机器上对剩余未测项补齐了真实智能体、真机桌面 GUI、发布版 `.dmg`、沙盒与有界压测验证：
+
+- **Qoder CLI 1.1.52（`adapter/qoder`）完整 `oaa verify`（11 场景、14 次真实调用、0 失败）**：S1 非流式（8.7 秒）、S2 流式（8.6 秒）、S3 Responses 与 `previous_response_id` 续接（15.4 秒）、S4 Claude Messages 非流式与流式（17.2 秒）、S5 Gemini `generateContent`（8.0 秒）、S6 批准/拒绝审批写文件（30.8 秒）、S7 取消（4.6 秒）、S8 调用方工具桥接（10.3 秒）、S9 并发 3 路（7.9 秒）、S11 错误面与 S12 收尾（17 个衍生子进程全部退出、0 秘密泄露）全部通过。实测观测到 Qoder CLI 当前在 ACP 响应中未上报非零 token 用量（返回 `null` 或 `0`），网关按未知处理、不编造数值。
+- **真实外部智能体 S10 开发者平台 `host_execution` 计费闭环**：使用真实 `qoder-cli 1.1.52` 完成实测。按默认安全策略拦截未放开宿主执行的开发者密钥请求（HTTP `403 isolation_required`，余额维持 `10` 点） -> 管理员开通 `host_execution: true` 并写 `platform_listing_host_execution` 审计日志 -> 开发者密钥通过 `POST /v1/chat/completions` 调用真实 Qoder 返回 `LIVE-S10-OK` -> 余额精确扣至 `8` 点并在 `/v1/portal/ledger` 记入已结算 `-2` 流水。
+- **Antigravity（`agy` 1.5.10）在 `0.0.70` 下全场景复验**：S1（6.6 秒，用量 `13325`）、S2 增量流式（8.7 秒，用量 `13334`）、S3 同会话续接、S4 Messages 双模、S5 Gemini（用量 `13332`）、S7 取消（4.2 秒）、**S8 原生引擎调用方工具桥接**（`get_order_status`，12.1 秒）、S9 并发 3 路（7.9 秒）、S11 错误面及 S12 收尾（15 个进程干净退出、0 残留与泄露）全部通过；仅 S6 运行中权限审批按预期为引擎不支持（`approvals_not_bridged`）。已同步更新 `src/client/verify-env.ts`（`bridge: true`）及 [adapters.md](adapters.md)。
+- **其余本机 ACP 代理探针（各 1 次调用、不重试）**：`opencode-acp`（`OpenCode 1.18.29`）ACP 握手成功并在 S1 如实透传 API 密钥过期（HTTP `422 native_protocol_error`，密钥片段已脱敏）；`grok-build-acp`（`grok 1.0.77`）握手成功并在未登录态 S1 返回 HTTP `422 adapter_auth_required`；`deepseek-harness`（`dsh`）在本机因 `~/.dsh/profiles/node_modules.lock` 写锁超时退出（与 OAA 无关）。
+- **macOS 发布版 `.dmg` 完整烟雾测试与真机桌面端 Playwright E2E 矩阵（`desktop:smoke:matrix`）**：挂载 `--release` 构建的 `Open-Agent-API-0.0.70-macOS-arm64.dmg`，核验 `codesign --verify --deep --strict`、包内不含 `@anthropic-ai/claude-agent-sdk` 与 `typescript`，并跑通 `scripts/smoke-release.mjs` 与 `scripts/smoke-flow.mjs` 全流程（`--help`、含空格中文路径 `init`、`doctor` 将 Claude 标为 `requires_separate_install`、随机端口 `serve` + `/healthz`、用包内 Node 逐个 import `dist/src` 全部 353 个模块、`quickstart`、OpenAI/Claude/Gemini 三协议首调、控制台页面与图标库、API 与 `oaa approvals`/`oaa approve` 审批生成 `sample-note.txt`、`oaa status`、幂等 `quickstart` 及 `oaa stop` 释放端口零残留）。同时在源码（9 项实测场景）和 `/Applications/Open Agent API.app`（8 项打包可测场景）上通过 `npm run desktop:smoke:matrix`：同数据目录二次启动不重复弹出首次引导且保留持久化项目；自家孤儿网关 `attach` 复用并在退出桌面后保留运行；`#workbench` 内联审批 + 托盘快捷审批小窗（源码模式）+ macOS Dock 角标随审批联动清零；控制台 `zh`/`en` 双向切换重载保留 `sessionStorage` 令牌；「断开连接」后再刷新自动恢复连接；以及 `portHeldByOther`、`portHeldByGateway`、`invalidConfigPort` 三类端口/配置错误诊断。过程中定位并修复了 Chromium `/v` 正则下控制台 3 处 `<input pattern>` 未转义 `-` 的隐蔽 `SyntaxError`（已在 `test/console-assets.test.ts` 加护栏）和 `test/desktop-unified.test.ts` Windows 路径反斜杠匹配。
+- **沙盒与压测抽样复验**：`test/sandbox-srt.test.ts` 5/5 通过；2 分钟 4 并发压测（`npm run soak -- --minutes 2 --concurrency 4 --retention-minutes 1`）通过全部判据（`ok=2357`、`unexpected=0`（0.000%）、`p50/p95/p99 = 104/159/219 ms`，覆盖 SIGTERM × 2 + SIGKILL × 1 重启恢复、在线 `oaa prune` 及 `integrity_check ok`）。
 
 ## CI 里的自动检查（2026-11-14）
 
@@ -145,14 +155,14 @@ node dist/examples/live-agents-acceptance.js --agent claude|codex|antigravity --
 | Windows 发布包 | v0.0.64 的发布工作流在 Windows 运行器上：zip 解压到含空格与中文的路径，经 `oaa.cmd` 启动，`/healthz` 报告了版本 | v0.0.64 的包通过 | 0.0.65 的 Windows 包还没有走过这条工作流（见下面的发布包烟雾测试） |
 | Docker 镜像 | `docker.yml`：构建 amd64 镜像，再跑容器烟雾测试（首次启动、密钥文件、一次 API 调用、日志里没有密钥、Host 检查、重启、`docker stop` 退出码为 0） | 在 `ubuntu-latest` 上通过 | Dockerfile 能构建，容器配合离线示例智能体工作正常。没有运行的：arm64 镜像、推送到 ghcr（这两步只在发布 Release 时进行）、任何智能体命令行（容器里没有） |
 | 兼容性实验室 | `compat.yml`（每次 push 与 pull request，以及每周一次）：十一类软件包对着一个隔离网关运行（网关里是离线示例智能体和确定性夹具模型），并把十二个聊天客户端记录下来的请求形状回放给它。2026-11-18 独立验证者在本地两次独立运行结果一致：456 个场景（较 2026-11-14 的 374 增长），覆盖 14 个客户端 | 456 个场景通过、0 失败、4 个按设计不适用（客户端本来就做不到）、0 跳过 | 实际运行部分是真实的软件包经真实套接字；回放只说明网关接受客户端发来的请求、并以它能解析的形式回答，不说明整个应用可用。过程中没有真实模型或智能体。Cursor 未核实。各客户端的版本、证据等级与配置见 [compatibility.md](compatibility.md) |
-| 开发者平台与外部智能体 | 离线的端到端测试，把示例智能体当作外部运行的上架项：逐项的 `host_execution` 开关、委派或故障转移链、并发调用、取消、拒绝审批、流式断开，以及每种情况下的扣费或退回 | 离线测试通过 | 对不上报用量的外部智能体，计费规则成立。真实外部智能体的计费成功路径（上面的场景 S10）仍然没有见到过 |
-| 发布包烟雾测试 | `scripts/smoke-release.mjs` 与 `scripts/smoke-flow.mjs`，每个安装包都跑：启动器 `--help`、在含空格与中文的路径里 `init`、在随机端口 `serve` 并核对 `/healthz` 版本、`doctor` 把 Claude 引擎标为需要另行安装、用包内 Node 逐个 import `dist/src` 下的每个模块，然后 `quickstart`、在三种协议上各调用一次并由示例智能体回答、控制台页面与图标库、一个停在审批的任务经 API 批准、同样的流程经 `oaa approvals` 与 `oaa approve`、`oaa status`、第二次 `quickstart` 不重复创建任何东西，以及 `oaa stop` 释放端口且没有残留进程 | 第一部分在 v0.0.64 的发布工作流里跑过；其余是之后加的，还没有在发布运行器上跑过 | 包里带齐了需要的东西，第一次使用的人能从示例智能体得到回答。没有运行的：任何真实智能体 |
+| 开发者平台与外部智能体 | 离线的端到端测试，把示例智能体当作外部运行的上架项：逐项的 `host_execution` 开关、委派或故障转移链、并发调用、取消、拒绝审批、流式断开，以及每种情况下的扣费或退回 | 离线测试通过 + 真实 `qoder-cli 1.1.52` S10 通过 | 离线套件覆盖全分支；2026-11-18 已用真实 `qoder-cli 1.1.52` 补足默认 `403 isolation_required` 拦截与开启 `host_execution: true` 后的真实扣费记账全路径（`10 -> 8`） |
+| 发布包烟雾测试 | `scripts/smoke-release.mjs` 与 `scripts/smoke-flow.mjs`，每个安装包都跑：启动器 `--help`、在含空格与中文的路径里 `init`、在随机端口 `serve` 并核对 `/healthz` 版本、`doctor` 把 Claude 引擎标为需要另行安装、用包内 Node 逐个 import `dist/src` 下的每个模块，然后 `quickstart`、在三种协议上各调用一次并由示例智能体回答、控制台页面与图标库、一个停在审批的任务经 API 批准、同样的流程经 `oaa approvals` 与 `oaa approve`、`oaa status`、第二次 `quickstart` 不重复创建任何东西，以及 `oaa stop` 释放端口且没有残留进程 | macOS arm64 `0.0.70` 发布 `.dmg` 于 2026-11-18 本机全量通过；Linux 与 Windows 待发布工作流运行 | 已在 Apple 芯片本机挂盘验证完整发布版 `.dmg` 全流程（353 个 ESM 模块逐一 import、三协议、API/CLI 审批、幂等、停服零残留）；Linux 与 Windows 仍待后续发布运行器验证 |
 
 ## 还没有任何检查覆盖的
 
 - **真实的 Codex 与 Claude Code 端到端（已有部分进展）。** 2026-11-18，Codex 0.167.0 通过了 S2 流式、S7 优雅取消与无工具编排，并上报了真实用量；Claude Code 2.1.318 在未登录态正确返回 `adapter_auth_required`。对 Codex 的 S8 调用方工具桥接重测因账户额度耗尽未能完成（非代码问题，2026-11-21 重置）。图片交付（Codex 的 `localImage` 条目与 Claude Code 的图片块）仍然只是按厂商文档实现的（[images.md](images.md#验证状况)）。结构化输出的修复轮用替身测试，没有用这两个真实智能体测过。
 - **向真实的公网 HTTPS 端点投递事件回调。** 测试只用本机的明文 http 接收端；HTTPS 投递走同一段代码，但没有被覆盖（[webhooks.md](webhooks.md#限制与未覆盖的情况)）。
-- **桌面应用，一次人工检查之外的部分。** 项目所有者于 2026-11-14 在一台 Apple 芯片的 Mac 上，用隔离方式打开了一个发布模式构建的 macOS 应用包（只做了一次），确认了五处：控制台直接是已连接状态、没有连接对话框；首次启动的一次性说明出现；刷新（⌘R）后仍然已连接（管理员密钥经 `sessionStorage` 交接）；「关于」里的版本号正确；菜单与对话框跟随系统语言（只看了所有者当前的系统语言）。没有验证的：端口被占用时的三种提示；系统语言两个方向的切换；同一数据目录第二次启动不再弹首次启动说明；应用崩溃后遗留网关的识别与复用；Intel 芯片的包；这个版本在正常的、非隔离安装下（数据目录在默认位置、端口 8787）的表现；Windows 启动器的双语提示（没有 Windows 机器，CI 里只有 PowerShell 语法检查）；审批通知。离线测试运行的是壳的纯逻辑（语言、端口与数据目录的处理、端口上是谁的网关、让控制台登录的页面脚本）。
+- **Apple 芯片桌面端自动化与单次手测以外的桌面覆盖范围。** 2026-11-18 已在 Apple 芯片 macOS 上通过 `desktop:smoke` 与 Playwright E2E 矩阵 `desktop:smoke:matrix`（源码 + 打包安装版 `/Applications/Open Agent API.app`）实测补齐：同数据目录二次启动不重复引导、自家孤儿网关接管与保活、`#workbench` 内联审批 + 托盘快捷面板（源码模式）+ macOS Dock 角标、控制台 `zh`/`en` 切换刷新保活、断开连接再刷新重连，以及 `portHeldByOther` / `portHeldByGateway` / `invalidConfigPort` 错误提示。仍未在物理机覆盖的部分：Intel 芯片（`x64`）包、macOS 系统级「语言与地区」重启后原生系统菜单语言实测、OS 原生审批通知点击跳转、常规非隔离 8787 端口安装下的完整人工 UI 走查，以及 Windows 与 Linux 真机桌面验收（Windows CI 仅运行核心逻辑与 PowerShell 语法验证）。
 - **Windows 与 Linux 上的真实智能体**、Linux 包与 `install.sh` 在发布运行器上的表现、arm64 的 Docker 镜像，以及从发布页安装的 npm tarball。
 - **本地运行器烟测以外的内置智能体能力**、反向代理后的公网部署、跨机器调用，以及 Cursor、Cline 等把网关当模型来调的客户端。
 - **广泛的真实模型提供方覆盖。** 2026-11-17 已用微型测试模型验证真实 Ollama 和 llama.cpp 经内核调用及重启持久化；不代表模型质量、视觉、工具调用或其余预设都有同等真实验证（见[本地运行器识别](models.md#本地运行器识别)）。

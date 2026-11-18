@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { setup } from './helpers.js';
 
@@ -89,4 +89,32 @@ test('console serves every local script the page imports and nothing else', asyn
   } finally {
     await s.cleanup();
   }
+});
+
+function walkWebFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkWebFiles(full));
+    else if (entry.name.endsWith('.js') || entry.name.endsWith('.html')) out.push(full);
+  }
+  return out;
+}
+
+test('all HTML input pattern attributes under web/ compile cleanly under RegExp /v mode', () => {
+  const checked: string[] = [];
+  for (const file of walkWebFiles('web')) {
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/\.pattern\s*=\s*'((?:[^'\\]|\\.)+)'/g)) {
+      const raw = m[1]!.replace(/\\\\/g, '\\').replace(/\\'/g, "'");
+      assert.doesNotThrow(() => new RegExp(raw, 'v'), `${file}: invalid /v pattern ${raw}`);
+      checked.push(`${file}:${raw}`);
+    }
+    for (const m of src.matchAll(/\spattern="([^"]+)"/g)) {
+      const raw = m[1]!;
+      assert.doesNotThrow(() => new RegExp(raw, 'v'), `${file}: invalid /v HTML pattern ${raw}`);
+      checked.push(`${file}:${raw}`);
+    }
+  }
+  assert.ok(checked.length >= 6, `expected at least 6 checked patterns, found ${checked.length}`);
 });
