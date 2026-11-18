@@ -184,7 +184,7 @@ function tokenizeExpr(expr: string): ExprToken[] {
 
     // Two-character operators
     const two = expr.slice(i, i + 2);
-    if (['||', '&&', '==', '!=', '>=', '<='].includes(two)) {
+    if (['??', '||', '&&', '==', '!=', '>=', '<='].includes(two)) {
       tokens.push({ type: 'OP', value: two });
       i += 2;
       continue;
@@ -288,6 +288,7 @@ type AstNode =
   | { kind: 'call'; name: string; args: AstNode[] };
 
 const PRECEDENCE: Record<string, number> = {
+  '??': 15,
   '||': 20,
   '&&': 30,
   '==': 40,
@@ -590,6 +591,11 @@ function evalAstNode(
     }
     case 'binary': {
       // Short-circuit logical operators
+      if (node.op === '??')
+        return (
+          evalAstNode(node.left, scope, budget, bareIdentAsLiteral) ??
+          evalAstNode(node.right, scope, budget, bareIdentAsLiteral)
+        );
       if (node.op === '||') {
         const l = evalAstNode(node.left, scope, budget, bareIdentAsLiteral);
         return l ? true : Boolean(evalAstNode(node.right, scope, budget, bareIdentAsLiteral));

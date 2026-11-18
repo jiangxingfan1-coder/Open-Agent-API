@@ -310,6 +310,7 @@ agent "agent/step-block" {
   - `$( ... )` is a safe expression, for example `$(slice(doc.text, 0, 200))`. In expressions (and templates), `input` and `$input` are equivalent and both mean the flow input, creating no dependency on a step; this holds only in a flow, and an `execute_graph` the model initiates directly has no flow input. If a flow published directly as JSON has a step named `input`, the step wins.
   - A string containing `{{...}}` is a template, for example `"{{$input.prefix}}:{{doc.title}}"`; to write ordinary text that contains `{{`, use `literal("...")` (it accepts only a string).
   - An explicit JSON descriptor `{ "$ref": "doc#/text", "$default": "none" }` is kept as is and is no longer parsed as shorthand.
+  - In `$(input.limit ?? 10)`, use 10 only when the field is missing or null. The operator returns the value itself, preserving 0, false and empty strings, and does not evaluate an unused default. Both operands are still checked at compile time. It binds below `||` and above `? :`; parenthesize mixed expressions for readability. Older runtimes need an upgrade before using this syntax.
 
 ```oaa
 agent "agent/values" {
