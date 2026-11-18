@@ -519,6 +519,7 @@ export class Store {
     idem?: string,
     fingerprint?: string,
     initial?: EventInput,
+    stageAdmission?: () => () => void,
   ): { run: Run; created: boolean } {
     const subject = run.subject ?? LEGACY_SUBJECT;
     run.subject = subject;
@@ -556,7 +557,9 @@ export class Store {
       );
       this.saveSummary(run);
       const event = initial ? this.insertEvent(run.id, initial) : undefined;
+      const publishAdmission = stageAdmission?.();
       this.db.exec('COMMIT');
+      publishAdmission?.();
       this.rememberOwner(run.id, run.owner);
       this.remember(run.id, {
         messages: run.output.map((m) => ({ ...m })),

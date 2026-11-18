@@ -105,11 +105,14 @@ function candidates(db: DatabaseSync, cutoff: number, owner: string | undefined,
     ? `AND (r.owner,r.id) NOT IN (SELECT w.owner,n.value FROM workflow_executions w,
         json_each(w.payload,'$.nodes') n WHERE w.status IN ${RECOVERABLE_WORKFLOW_STATES} AND n.type='text')`
     : '';
+  const pendingKey = hasTable(db, 'api_key_pending_runs')
+    ? 'AND NOT EXISTS (SELECT 1 FROM api_key_pending_runs k WHERE k.run_id=r.id)'
+    : '';
   return db
     .prepare(
       `SELECT r.id,r.owner,r.session_id FROM runs r WHERE ${old('r')} ${owner === undefined ? '' : 'AND r.owner=?'}
        AND NOT EXISTS (SELECT 1 FROM runs p WHERE p.id=json_extract(r.payload,'$.metadata."oaa.parent_run_id"') AND NOT (${old('p')}))
-       ${unsettled} ${workflowStages}
+       ${unsettled} ${workflowStages} ${pendingKey}
        ORDER BY r.rowid LIMIT ?`,
     )
     .all(...(owner === undefined ? [cutoff, cutoff, limit] : [cutoff, owner, cutoff, limit]))

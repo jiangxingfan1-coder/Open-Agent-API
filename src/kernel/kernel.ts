@@ -11,6 +11,7 @@ import type { DelegateRuntime } from './delegate.js';
 import { Admission } from './admission.js';
 import type { KernelRuntime } from './runtime.js';
 import type { KernelAuth, KernelLimits, QueueInsight } from './types.js';
+import { linkWorkflowStage } from '../store/task-workflows.js';
 import { authorize, preview, submit } from './submission.js';
 import { context } from './model-turn.js';
 import { execute } from './execute.js';
@@ -145,6 +146,22 @@ export class Kernel {
     trace?: TraceContext,
   ): Run {
     return submit(this.rt, principal, invocation, idem, providerKey, trace);
+  }
+  submitWorkflowStage(
+    principal: Principal,
+    invocation: Invocation,
+    execution: string,
+    stage: string,
+  ): Run {
+    return submit(
+      this.rt,
+      principal,
+      invocation,
+      `workflow:${execution}:${stage}`,
+      undefined,
+      undefined,
+      (child) => linkWorkflowStage(this.store, execution, stage, child),
+    );
   }
   /** 工作区上下文。保留为实例方法：诊断工具（bench/paired/diagnostics.ts）按名字包装它。 */
   private context(run: Run): Promise<WorkContext> {

@@ -7,17 +7,16 @@ import type {
   NodePolicy,
   NodePolicyState,
   Principal,
-  RunStatus,
 } from '../core/contracts.js';
 import {
   allowedExecution,
   executionPermits,
-  terminal,
   keyQuotaSchema,
   nodePolicySchema,
   type ExecutionLevel,
 } from '../core/contracts.js';
 import { Store } from '../store/store.js';
+import { KeyAccounting } from './key-accounting.js';
 import { Fault, RetryLaterFault, id, safeEqual, secret, sha } from '../core/util.js';
 import { permits } from '../fabric/network.js';
 import { KeyUsage, type KeyUsageView } from './key-usage.js';
@@ -35,11 +34,13 @@ export class Auth {
   private managedByHash = new Map<string, StoredKey>();
   private counts = new Map<string, { start: number; count: number }>();
   private readonly usage: KeyUsage;
+  readonly accounting: KeyAccounting;
   constructor(readonly store: Store) {
     store.db.exec(
       'CREATE TABLE IF NOT EXISTS api_keys(id TEXT PRIMARY KEY,owner TEXT NOT NULL,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS node_credentials(id TEXT PRIMARY KEY,owner TEXT NOT NULL,payload TEXT NOT NULL)',
     );
     this.usage = new KeyUsage(store);
+    this.accounting = new KeyAccounting(store, this.usage, this.accountOfKey, () => this.platform);
     this.reloadManagedKeys();
   }
   private reloadManagedKeys(): void {
@@ -171,17 +172,14 @@ export class Auth {
     if (p.accountId && agent !== undefined) this.platform?.checkRun(p.accountId, agent);
     this.usage.checkQuota(p);
   }
-  beginKeyRun(keyId: string | undefined, owner: string, runId: string, agent?: string): void {
-    if (!keyId) return;
-    const accountId = this.accountOfKey.get(keyId);
-    if (accountId && agent !== undefined) this.platform?.beginRun(accountId, runId, agent);
-    this.usage.begin(keyId, owner, runId);
+  beginKeyRun(...args: Parameters<KeyAccounting['begin']>) {
+    this.accounting.begin(...args);
   }
-  /** A resumed run, or a run re-queued at startup, counts against its key's concurrency again. */
-  rejoinKeyRun(keyId: string | undefined, runId: string): void {
-    if (!keyId) return;
-    this.usage.rejoin(keyId, runId);
-    if (this.accountOfKey.has(keyId)) this.platform?.reopenRun(runId);
+  stageKeyRun(...args: Parameters<KeyAccounting['stage']>) {
+    return this.accounting.stage(...args);
+  }
+  rejoinKeyRun(...args: Parameters<KeyAccounting['rejoin']>) {
+    this.accounting.rejoin(...args);
   }
   /**
    * Before an interrupted run is resumed: the run's own key must still be allowed to run it, under
@@ -249,19 +247,8 @@ export class Auth {
       throw error;
     }
   }
-  finishKeyRun(
-    keyId: string | undefined,
-    owner: string,
-    runId: string,
-    addTokens = 0,
-    status?: RunStatus,
-  ): void {
-    if (!keyId) return;
-    // `interrupted` is terminal here: it settles the tokens used so far; if the run is resumed,
-    // the next settlement charges only the difference (settleRun is idempotent).
-    if (status && terminal(status) && this.accountOfKey.has(keyId))
-      this.platform?.settleRun(runId, status, Math.max(0, Math.floor(addTokens)));
-    this.usage.finish(keyId, owner, runId, addTokens);
+  finishKeyRun(...args: Parameters<KeyAccounting['finish']>) {
+    this.accounting.finish(...args);
   }
   require(p: Principal, scope: string): void {
     if (!p.scopes.includes('admin') && !p.scopes.includes(scope))
@@ -440,6 +427,7 @@ export class Auth {
     resetUsage = false,
   ): Record<string, unknown> {
     this.require(p, 'admin');
+    if (resetUsage) this.accounting.beforeReset(p.owner, keyId);
     const row = this.store.db
       .prepare('SELECT payload FROM api_keys WHERE id=? AND owner=?')
       .get(keyId, p.owner);

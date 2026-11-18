@@ -31,7 +31,13 @@ export type QueueInsight = {
  */
 export type KernelAuth = {
   checkQuotaForRun(p: Principal, agent?: string): void;
-  beginKeyRun(keyId: string | undefined, owner: string, runId: string, agent?: string): void;
+  /** Writes on the run creation transaction. The returned cache update runs only after commit. */
+  stageKeyRun(
+    keyId: string | undefined,
+    owner: string,
+    runId: string,
+    agent?: string,
+  ): (() => void) | undefined;
   /** Throws when the run's own key may not continue it (see Auth.checkResume). */
   checkResume(
     p: Principal,

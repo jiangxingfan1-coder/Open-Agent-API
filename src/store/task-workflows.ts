@@ -69,6 +69,22 @@ export function workflowAllowsChildRecovery(
     ['queued', 'running'].includes(String(parent.status))
   );
 }
+/** Called within child admission, before a child (or its key usage) can become visible. */
+export function linkWorkflowStage(store: Database, execution: string, stage: string, child: Run) {
+  const field = '$.nodes.' + JSON.stringify(stage);
+  if (
+    child.metadata['oaa.workflow_execution'] !== execution ||
+    !child.subject ||
+    !store
+      .prepare(
+        `UPDATE workflow_executions SET payload=json_set(payload,?,?) WHERE id=? AND owner=? AND subject=?
+        AND status='running' AND json_extract(payload,'$.cancellation') IS NULL
+        AND (json_type(payload,?) IS NULL OR json_extract(payload,?)=?)`,
+      )
+      .run(field, child.id, execution, child.owner, child.subject, field, field, child.id).changes
+  )
+    throw new Fault('not_resumable', 'Workflow is no longer accepting this stage.', 409);
+}
 export class TaskWorkflows<T extends { id: string }> {
   constructor(private readonly store: Database) {
     store.db.exec(`

@@ -228,7 +228,9 @@ export class WorkflowRunner {
           const current = this.refresh(execution.authority);
           this.kernel.authorize(current, step.tool, 'invoke');
           let child: Run;
-          const existing = execution.nodes[step.id];
+          const existing = Object.hasOwn(execution.nodes, step.id)
+            ? execution.nodes[step.id]
+            : undefined;
           if (existing) child = this.store.run(existing, execution.owner, execution.subject);
           else {
             if (Object.keys(execution.nodes).length >= 64)
@@ -252,9 +254,8 @@ export class WorkflowRunner {
                   : {}),
               },
             });
-            child = this.kernel.submit(current, body, `workflow:${execution.id}:${step.id}`);
-            execution.nodes[step.id] = child.id;
-            this.records.save(execution);
+            child = this.kernel.submitWorkflowStage(current, body, execution.id, step.id);
+            execution.nodes = { ...execution.nodes, [step.id]: child.id };
           }
           if (child.status === 'interrupted')
             throw new Fault(

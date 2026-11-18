@@ -20,6 +20,9 @@ export class KeyUsage {
     store.db.exec(
       'CREATE TABLE IF NOT EXISTS api_key_usage(key_id TEXT PRIMARY KEY,owner TEXT NOT NULL,used_tokens INTEGER NOT NULL DEFAULT 0,used_runs INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS api_key_run_tokens(run_id TEXT PRIMARY KEY,key_id TEXT NOT NULL,tokens INTEGER NOT NULL)',
     );
+    store.db.exec(
+      'CREATE TABLE IF NOT EXISTS api_key_pending_runs(run_id TEXT PRIMARY KEY,owner TEXT NOT NULL,key_id TEXT NOT NULL)',
+    );
     // 升级前的版本在运行中断时已经把它的累计 token 整体计入密钥：第一次建表时据此补记，
     // 这些运行之后恢复并结束，只再计差额。终态的运行不会再收尾，不需要补记。
     if (!seeded)
@@ -80,22 +83,26 @@ export class KeyUsage {
       );
     }
   }
-  begin(keyId: string, owner: string, runId: string): void {
-    let active = this.activeByKey.get(keyId);
-    if (!active) {
-      active = new Set();
-      this.activeByKey.set(keyId, active);
-    }
-    if (active.has(runId)) return;
-    active.add(runId);
-    const current = this.usageCache.get(keyId) ?? { usedTokens: 0, usedRuns: 0 };
-    const next = { usedTokens: current.usedTokens, usedRuns: current.usedRuns + 1 };
-    this.usageCache.set(keyId, next);
-    this.store
+  stageBegin(keyId: string, owner: string, runId: string): (() => void) | undefined {
+    if (this.activeByKey.get(keyId)?.has(runId)) return;
+    this.markPending(keyId, runId);
+    const row = this.store
       .prepare(
-        'INSERT INTO api_key_usage(key_id,owner,used_tokens,used_runs,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(key_id) DO UPDATE SET used_runs=excluded.used_runs,updated_at=excluded.updated_at',
+        'INSERT INTO api_key_usage(key_id,owner,used_tokens,used_runs,updated_at) VALUES(?,?,0,1,?) ON CONFLICT(key_id) DO UPDATE SET used_runs=api_key_usage.used_runs+1,updated_at=excluded.updated_at RETURNING used_tokens,used_runs',
       )
-      .run(keyId, owner, next.usedTokens, next.usedRuns, Date.now());
+      .get(keyId, owner, Date.now())!;
+    return () => {
+      this.usageCache.set(keyId, {
+        usedRuns: Number(row.used_runs),
+        usedTokens: Number(row.used_tokens),
+      });
+      this.rejoin(keyId, runId);
+    };
+  }
+  markPending(keyId: string, runId: string) {
+    this.store
+      .prepare('INSERT OR IGNORE INTO api_key_pending_runs SELECT id,owner,? FROM runs WHERE id=?')
+      .run(keyId, runId);
   }
   /** Counts a resumed or re-queued run as active again; its run was counted when it started. */
   rejoin(keyId: string, runId: string): void {
@@ -107,35 +114,41 @@ export class KeyUsage {
     active.add(runId);
   }
   /** `totalTokens` is the run's cumulative usage; only what was not counted before is added. */
-  finish(keyId: string, owner: string, runId: string, totalTokens: number): void {
-    this.activeByKey.get(keyId)?.delete(runId);
+  stageFinish(keyId: string, owner: string, runId: string, totalTokens: number): () => void {
+    const release = () => {
+      this.activeByKey.get(keyId)?.delete(runId);
+    };
     const total = Math.max(0, Math.floor(totalTokens));
     const row = this.store
       .prepare('SELECT tokens FROM api_key_run_tokens WHERE run_id=?')
       .get(runId);
     const counted = Number(row?.tokens ?? 0);
     const delta = total - counted;
-    if (delta <= 0) return;
+    if (delta <= 0) return release;
     this.store
       .prepare(
         'INSERT INTO api_key_run_tokens(run_id,key_id,tokens) VALUES(?,?,?) ON CONFLICT(run_id) DO UPDATE SET tokens=excluded.tokens',
       )
       .run(runId, keyId, total);
-    const current = this.usageCache.get(keyId) ?? { usedTokens: 0, usedRuns: 0 };
-    const next = { usedTokens: current.usedTokens + delta, usedRuns: current.usedRuns };
-    this.usageCache.set(keyId, next);
-    this.store
+    const totals = this.store
       .prepare(
-        'INSERT INTO api_key_usage(key_id,owner,used_tokens,used_runs,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(key_id) DO UPDATE SET used_tokens=excluded.used_tokens,updated_at=excluded.updated_at',
+        'INSERT INTO api_key_usage(key_id,owner,used_tokens,used_runs,updated_at) VALUES(?,?,?,0,?) ON CONFLICT(key_id) DO UPDATE SET used_tokens=api_key_usage.used_tokens+excluded.used_tokens,updated_at=excluded.updated_at RETURNING used_tokens,used_runs',
       )
-      .run(keyId, owner, next.usedTokens, next.usedRuns, Date.now());
+      .get(keyId, owner, delta, Date.now())!;
+    return () => {
+      this.usageCache.set(keyId, {
+        usedRuns: Number(totals.used_runs),
+        usedTokens: Number(totals.used_tokens),
+      });
+      release();
+    };
   }
   reset(keyId: string, owner: string): void {
-    this.usageCache.set(keyId, { usedTokens: 0, usedRuns: 0 });
     this.store
       .prepare(
         'INSERT INTO api_key_usage(key_id,owner,used_tokens,used_runs,updated_at) VALUES(?,?,0,0,?) ON CONFLICT(key_id) DO UPDATE SET used_tokens=0,used_runs=0,updated_at=excluded.updated_at',
       )
       .run(keyId, owner, Date.now());
+    this.usageCache.set(keyId, { usedTokens: 0, usedRuns: 0 });
   }
 }

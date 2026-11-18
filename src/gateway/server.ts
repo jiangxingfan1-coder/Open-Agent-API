@@ -605,12 +605,14 @@ export async function createGateway(
       summaryWindows,
       overviewStreams,
     });
+    app.addHook('onReady', async () => auth.accounting.recover());
     app.addHook('preClose', async () => {
       platform?.close();
       cleanupCatalog();
       await kernel.close();
     });
     app.addHook('onClose', async () => {
+      auth.accounting.close();
       store.close();
     });
     return {

@@ -271,6 +271,7 @@ export function submit(
   idem?: string,
   providerKey?: string,
   trace?: TraceContext,
+  linkStage?: (run: Run) => void,
 ): Run {
   if (rt.closing()) throw new Fault('shutting_down', 'Gateway is shutting down.', 503);
   authorize(principal, invocation.agent, 'invoke');
@@ -291,7 +292,9 @@ export function submit(
     if (row) {
       if (row.fingerprint !== fingerprint)
         throw new Fault('idempotency_conflict', 'The key was used for different input.', 409);
-      return rt.store.run(row.id, principal.owner, subject);
+      const found = rt.store.run(row.id, principal.owner, subject);
+      linkStage?.(found);
+      return found;
     }
   }
   if (rt.store.activeCount(principal.owner) >= LIMITS.ownerActiveRuns)
@@ -537,15 +540,25 @@ export function submit(
   };
   if (invocation.output_contract)
     run.metadata = { ...run.metadata, 'oaa.output_contract': invocation.output_contract.kind };
-  const created = rt.store.createRun(run, idem, fingerprint, {
-    type: 'response.created',
-    data: { response: responseObject(run) },
-  });
-  if (created.created) {
-    if (providerKey !== undefined) rt.byokKeys.set(run.id, providerKey);
-    rt.auth()?.beginKeyRun(principal.keyId, principal.owner, run.id, run.agentId);
-    rt.admission.queue.push(run.id);
-    setImmediate(() => rt.admission.pump());
-  }
+  const created = rt.store.createRun(
+    run,
+    idem,
+    fingerprint,
+    {
+      type: 'response.created',
+      data: { response: responseObject(run) },
+    },
+    () => {
+      const account = rt.auth()?.stageKeyRun(principal.keyId, principal.owner, run.id, run.agentId);
+      linkStage?.(run);
+      return () => {
+        account?.();
+        if (providerKey !== undefined) rt.byokKeys.set(run.id, providerKey);
+        rt.admission.enqueue(run.id);
+        setImmediate(() => rt.admission.pump());
+      };
+    },
+  );
+  if (!created.created) linkStage?.(created.run);
   return created.run;
 }
