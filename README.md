@@ -19,8 +19,8 @@
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-0e6b63?style=flat-square" /></a>
   <a href="package.json"><img alt="Node.js 24.18 or newer on the 24 or 26 line" src="https://img.shields.io/badge/node-%E2%89%A524.18%20%3C27-0e6b63?style=flat-square" /></a>
+  <a href="https://github.com/jiangxingfan1-coder/Open-Agent-API/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jiangxingfan1-coder/Open-Agent-API/actions/workflows/ci.yml/badge.svg" /></a>
 </p>
-<!-- Add a CI badge once the repository is public; the same goes for dynamic badges such as stars. Do not add badges that need repository data before then. -->
 
 <p align="center">
   <picture>
@@ -37,7 +37,7 @@
 
 ## Thirty seconds
 
-Change one line of Base URL in an existing app, and it gains an agent that does the work and stops to wait for your approval. Below is the same OpenAI SDK code with only `base_url` and `model` changed (and `api_key` replaced by a key created in the console).
+Skip the rewrite. Swap two lines in your existing OpenAI, Anthropic, or Gemini SDK client—point `base_url` at the gateway and put an agent ID in `model`—and your app calls a full agent that uses its own tools, remembers across turns, and stops when a sensitive action needs your sign-off.
 
 ```diff
  from openai import OpenAI
@@ -77,7 +77,7 @@ The same in Node.js:
  console.log(resp.choices[0].message.content);
 ```
 
-For the caller there are only two things: a Base URL and an API key. `model` holds the agent's call name, not the name of an underlying model; which model runs behind it is declared by the publisher when the agent is published. The Anthropic and Gemini SDKs also only need the service address and key changed; see [Protocols and SDKs](#protocols-and-sdks) below.
+From the caller's side, there are only a Base URL and an API key. `model` names the agent, not a raw model; which model runs behind it, what tools it gets, and what requires approval stay on the gateway side. See [Protocols and SDKs](#protocols-and-sdks) for Anthropic, Gemini, MCP, and other clients.
 
 ## Running in three minutes
 
@@ -101,19 +101,19 @@ The default port is 8787; if it is taken, `quickstart` reports `port_in_use` and
 
 ### Other ways to install
 
-Every route ends with `oaa quickstart`. Shortest steps, limits and uninstall for each are in [docs/install.md](docs/install.md). The Linux package, `install.sh`, the npm tarball and the Docker image come with releases from 0.0.65 on; 0.0.64 has only the macOS and Windows installers.
+Every route starts up cleanly with `oaa quickstart`; exact install and uninstall steps live in [docs/install.md](docs/install.md). Since `0.0.65`, the [Releases page](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases) carries installers for every desktop target alongside `install.sh`, the npm tarball, and container builds.
 
-- **macOS and Windows installers** (`.dmg`, `.zip`): download from the [Releases page](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases). They bundle Node.js; they are not notarized or code-signed, so the first launch needs one extra click (steps in install.md).
-- **Linux, x64 and arm64** (glibc 2.28+; no root, no Node.js needed):
+- **Cross-platform desktop & CLI bundles** (macOS `arm64`/`x64` `.dmg`, Windows `x64` `.zip`, Linux `x64`/`arm64` `.tar.gz`): bundle their own Node.js 24 runtime. They are not Apple-notarized or commercially signed yet, so the OS asks for one extra click on first launch (see install.md).
+- **Linux one-liner** (`x64` and `arm64`, glibc 2.28+, no root and no Node.js needed):
 
   ```sh
   curl -fsSL https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh | sh
   oaa quickstart
   ```
 
-  It verifies the download against the release's `SHA256SUMS` and installs under `~/.local`.
-- **Docker** (from a checkout: `docker compose up --build -d`): the gateway is published on the host's `127.0.0.1:8787` only. The container has none of the agent CLIs installed on your host (no Codex, no Claude Code), so it fits built-in agents with your own model key, ACP / A2A remote agents, and execution nodes that connect in. CI builds the image and smoke-tests the container on every push; the images on `ghcr.io` (amd64 and arm64) are pushed when a release is published.
-- **npm tarball** (needs Node.js 24.18 or newer on the 24 or 26 line): `npm install -g <URL of open-agent-api-<version>.tgz on the Releases page>`, then `oaa quickstart`. The package is `private`, not on the npm registry.
+  Verifies downloads against the release's `SHA256SUMS` and installs under `~/.local`.
+- **Docker** (`docker compose up --build -d` from a checkout): binds only to host `127.0.0.1:8787`. Because the container does not ship your host agent CLIs, use it for built-in agents with model keys, remote ACP / A2A agents, or external workers connecting in. CI builds and smoke-tests the `amd64` image on every push; multi-arch `ghcr.io` images push on published releases.
+- **npm tarball** (requires Node.js 24.18+ on line 24 or 26): `npm install -g <URL of open-agent-api-<version>.tgz on Releases>`, then `oaa quickstart`. The package stays `private` and is not on npmjs.org.
 
 ### Connect your own agent: `oaa connect`
 
@@ -135,7 +135,7 @@ npm run oaa -- serve --detach       # starts in the background, prints {"url": �
 To run in the foreground use `npm start` (it holds the terminal; run the next commands in a second one).
 
 1. **Open the console** at `http://127.0.0.1:8787` and select `.oaa/admin.token` in the connection settings. Keep this admin key private.
-2. **Publish an agent** with "Publish agent" in the console. When you initialize from source or the command line (`oaa init`), discovered external agents are **disabled** and must be enabled under the console's "Execution machines" page; for an out-of-the-box start, the macOS desktop app enables the local agents it detects (codex, claude, agy, dsh) at launch, with the gateway listening only on the loopback address `127.0.0.1`. To keep an agent from being callable, disable it under "Execution machines" (the choice is kept in the local database). The toggle is stored only in this platform, does not change the external agent's own global configuration, and never extracts or modifies existing credentials. The command-line equivalent (`default` keeps the model configured in the external agent itself):
+2. **Publish an agent** using "Publish agent" in the console. From a source checkout (`oaa init`), discovered CLI agents start disabled until you toggle them on under **Execution machines**; the unified desktop app enables detected local engines (`codex`, `claude`, `agy`, `dsh`) automatically on first launch while binding only to `127.0.0.1`. Preferences stay local in the gateway's database—it never touches an external tool's global config or extracts credentials—and you can disable any engine at any time. CLI equivalent (`default` inherits the CLI's own configured model):
 
    ```sh
    npm run oaa -- publish-native --id agent/codex --engine codex --models default \
@@ -191,26 +191,26 @@ Model relay platforms distribute model inference capacity; this distributes comp
 
 ## Which agents can be connected
 
-The called agent can be one defined in OAA-Lang or JSON and run by the built-in kernel, or an external agent installed on the machine. External agents bring their own tools, models, and permissions; the gateway turns them into an API and handles dispatch, approvals, checkpoints, and recovery.
+You can call agents defined in OAA-Lang or JSON running on the built-in kernel, or local CLI agents already installed on your machine. External agents keep their own tools, model config, and sign-in; the gateway wraps them into one API and takes over queuing, durable approvals, checkpoints, and crash recovery.
 
 | Connection | Streamed text | Approvals while running | Caller-tool bridging | Image input | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Built-in kernel (OAA-Lang / JSON) | Per token | Yes; the run parks when a tool is declared to need approval | Yes | If the model route takes images | Uses the model provider you configure; multiple routes and failover |
-| Codex | Per token | Yes | No | Natively (not run against the real agent) | A dedicated app-server integration with session resume |
-| Claude Code | Per message | Yes | No | Natively (not run against the real agent) | The official Agent SDK, using a separately installed CLI and its own configuration |
-| Antigravity | Per token | Through ACP for new approval policies; legacy headless refusals remain failures | Hybrid through a confirmed ACP entry; not client-only | Agent-declared through ACP; otherwise workspace files | Real model discovery; capability-gated transport selection |
-| ACP agents | Per token | Yes (only `allow_once` is chosen) | Yes | As an ACP image block when the agent declares it, else as a file | [Agent Client Protocol](https://agentclientprotocol.com); presets for common ACP agents are built in |
-| Your own adapter (`oaa/1` stdio, `oaa/1-stream`, HTTP) | Depends on the form | Yes for `oaa/1-stream` | No | stdio: as a file; HTTP: no | Wrap an agent that has no ready-made integration |
-| A2A remote agents | Yes (SSE) | Not bridged: `input-required` ends the turn with the agent's question | No | No | Continues the same task through `contextId` |
+| Built-in kernel (OAA-Lang / JSON) | Per token | Yes; parks on tools needing approval | Yes | When the model route accepts images | Multi-route failover, OAA-Lang 2.5, cron and webhook triggers |
+| Codex CLI | Per token | Yes | Yes (`oaa-caller` MCP + elicitation auto-allow) | Protocol items implemented from docs (not live-tested with images) | App-server transport with `thread/resume`, cooperative `turn/interrupt`, and tool-free planning |
+| Claude Code | Per token (deduplicated partial stream) | Yes | Yes (`oaa-caller` MCP) | Image blocks implemented from docs (not live-tested) | Official Agent SDK (proprietary package installed separately) using the local CLI sign-in |
+| Antigravity | Per token | Via `agy acp`; legacy headless denials remain failures | Yes on both native headless and `agy acp` | Agent-declared via ACP; else workspace files | Live model discovery and capability-gated transport selection |
+| ACP agents | Per token | Yes (`allow_once`) | Yes | ACP image block if declared, else workspace file | [Agent Client Protocol](https://agentclientprotocol.com); built-in presets for `qoder`, `opencode-acp`, `grok-build-acp`, `deepseek-harness`, etc. |
+| Custom adapter (`oaa/1` / HTTP) | Depends on mode | Yes on `oaa/1-stream` | No | stdio: workspace file; HTTP: no | Lightweight wrapper for any bespoke agent binary |
+| A2A remote agents | Yes (SSE) | Not bridged (`input-required` ends turn with question) | No | No | Continues the same task via `contextId` |
 
-This table is a summary. Cancellation, resume, usage, and artifacts per connection and per protocol are in [docs/adapters.md](docs/adapters.md#agentapi-conversion-contract-2026-11-08); every agent's `conversion` field gives the same profile. A few notes:
+The full per-protocol capability matrix lives in [docs/adapters.md](docs/adapters.md#agentapi-conversion-contract-2026-11-08) and is exposed on every agent's `conversion` field:
 
-- The difference is in depth of interaction, not in whether an agent can be connected. All four kinds of connection can publish an agent as an Agent API.
-- An external agent's permissions are inherited. The gateway does not sandbox it: one call can read or modify anything the host runtime allows. The caller's key needs the `host` execution level to call an external agent; read [docs/deploy-public.md](docs/deploy-public.md) before distributing keys.
-- When publishing an external agent you can set permission requests to be approved automatically (`--approvals auto`). That lets the caller drive it with your privileges on this machine, so open it only to callers you trust; the risks are described in [docs/protocol.md](docs/protocol.md#approval-policy-for-external-agents-approval-policy-v1).
-- When the caller is itself an agent (Cursor, Cline, Claude Code, and so on), the `tools` it sends are by default (mode `auto`) handed to the agent when it can take them over (the calls come back as standard `tool_calls` to run, and the same task continues once results return); an agent that cannot keeps using its own tools, as before. `managed`, `bridge`, `reject` and `auto` can be chosen explicitly, and `clientTools.default` changes the default. See [docs/harness.md](docs/harness.md).
-- An image sent to an agent that cannot use images is refused before a run exists, and `GET /v1/models` shows `image_input` for each agent. How each agent receives images, the limits, and the fact that the gateway does not fetch remote image URLs by default: [docs/images.md](docs/images.md).
-- Callers can also discover and call agents through the MCP entry (`npm run oaa -- mcp --url … --token-file …`, or `npm run oaa -- integration` to generate the launch config; see [docs/operations.md](docs/operations.md)). For safety the MCP entry deliberately offers no tool for approving.
+- The gap between paths is **interaction depth** (`basic`, `streaming`, `interactive`), not whether an agent can be served as an Agent API.
+- External agents inherit host privileges unless sandboxed (POSIX); caller keys must carry `host` execution scope. Review [docs/deploy-public.md](docs/deploy-public.md) before exposing keys externally.
+- Setting `--approvals auto` passes permission checks through without pausing—keep it restricted to trusted callers ([docs/protocol.md](docs/protocol.md#approval-policy-for-external-agents-approval-policy-v1)).
+- When the caller is itself an agent (Cursor, Cline, Claude Code), `auto` mode delegates client-sent `tools` to bridging-capable backends as standard `tool_calls` and resumes the same task with tool results. You can also force `managed`, `bridge`, `reject`, or set `clientTools.default` ([docs/harness.md](docs/harness.md)).
+- Image payloads sent to text-only agents are rejected before a run starts (`image_input` appears in `GET /v1/models`); remote image URLs are not fetched by default ([docs/images.md](docs/images.md)).
+- Agents are also callable via MCP (`npm run oaa -- mcp` or configured in one click via the console's Connections view / `oaa integration`; see [docs/operations.md](docs/operations.md)). For safety, MCP deliberately exposes no approval tools.
 
 ## Protocols and SDKs
 
@@ -227,17 +227,16 @@ Any client that speaks one of these protocols works with just a Base URL and an 
 
 **Progress in streams.** A streaming call can also show what the agent is doing: one short line per phase of the run (queued, a tool called, waiting for an approval) is sent in the protocol's own thinking shape, so a client that already shows a model's thinking shows it with no changes. It is on by default for Responses and Gemini, off for Chat Completions and Claude Messages; switch it per request with `X-OAA-Progress: reasoning | off` or per protocol with `streamProgress` in the configuration. The answer itself does not change. See [docs/progress.md](docs/progress.md).
 
-Two things a caller can ask for beyond text: **images** on every entry ([docs/images.md](docs/images.md)), and **JSON that is guaranteed to fit a schema** (`response_format`, `text.format`, `responseSchema`, `output_config.format`): the gateway validates the answer, sends a wrong one back to the agent for correction, and otherwise fails the run with `structured_output_invalid` instead of returning text that only looks like JSON ([docs/structured-output.md](docs/structured-output.md)).
+Beyond plain text, callers can send **images** on every endpoint ([docs/images.md](docs/images.md)), force **`tool_choice`** (`none`, `auto`, `required`, or a named function—pushed straight to native drivers and bounded with correction turns on bridged agents, failing cleanly with `tool_choice_unmet` if unmet), and enforce **schema-validated JSON output** (`response_format`, `text.format`, `responseSchema`, `output_config.format`): pushed natively where supported (with zero-repair streaming passthrough) and repaired or failed cleanly (`structured_output_invalid`) everywhere else ([docs/structured-output.md](docs/structured-output.md)).
 
-## The control plane: keeping a person in the loop
+## Control plane, workbench, and workstation
 
-Agents read files, run commands, and write code. The gateway makes "when a person steps in" a durable state rather than a one-off pop-up.
+Agents read files, shell out, and edit workspaces. Rather than burying those actions inside ephemeral HTTP calls, the gateway turns every run into a durable task you can pause, inspect, approve, and resume.
 
-- **Approvals**: when an agent wants to do something that needs approval, the task stops at "awaiting approval". You approve or reject it in the console, in a terminal (`oaa approvals`, `oaa approve`, `oaa deny`), or through the API with a key that has the `approve` scope, and the same task carries on. An approval is a durable suspension point, not a one-off pop-up.
-- **Callbacks**: run events (completed, failed, awaiting approval, ...) can be pushed to an HTTPS endpoint of yours, signed and retried (`oaa webhook add`), so a caller does not have to poll and approval requests can go into your chat tool or your own system. See [docs/webhooks.md](docs/webhooks.md).
-- **Interrupt and resume**: a task can be cancelled at any time, and an interrupted task can be resumed. For an external write whose outcome is unknown (a command cut off halfway, say), the outcome must be confirmed by a person before the task can resume.
-- **Idempotency**: with an `Idempotency-Key` header (every entry honours it), one key maps to one task; the same key with different input returns 409.
-- **Task inspector**: every task's timeline, critical path, execution steps, approvals, and artifacts can be inspected, and its event stream replayed.
+- **Approvals & quick tray panel**: Actions marked for review pause the run in `requires_action`. Approve or deny from the console, the inline `#workbench` card, the desktop tray quick-approval panel, the terminal (`oaa approvals`, `oaa approve`, `oaa deny`), or via API with an `approve`-scoped key.
+- **Console `#workbench` & Local Connections**: Test multi-turn continuation (`previous_response_id`), paste screenshots, inspect caller-tool bridge rounds, and copy four-protocol SDK snippets right inside the console. Under Connections, configure Codex / OpenCode / DSH API providers or inject one-click MCP bridges for Claude Desktop, Cursor, Windsurf, and Claude Code backed by `0600` private key files.
+- **Universal orchestration, durable memory & streaming artifacts**: Route `@fast`, `@best`, `@eco`, `recommend` (tool-free planner), or an explicit `orchestration.planner` across engines with automatic failover and OAA-Lang 2.5 pipelines. Persist cross-session context with SQLite FTS5 memory (`memory_read`, `memory_write`, `memory_search`), schedule cron or SHA-256-authenticated inbound webhook triggers, and stream signed artifacts (64 MiB default ceiling, configurable to 256 MiB).
+- **Cancel, resume, idempotency & observability**: Cancel runs any time (writes cut off mid-flight require human confirmation of outcome before resuming); enforce single-execution via `Idempotency-Key` (409 on mismatched replay); push signed webhooks (`oaa webhook add`); and observe runs through timeline replay, W3C `traceparent`, Prometheus `/metrics`, and POSIX per-subject `srt` sandbox pools.
 
 <p align="center">
   <picture>
@@ -281,8 +280,8 @@ Credits are an accounting unit that the operator issues; the platform has no pay
 
 ## Desktop app and command line
 
-- **Command line**: `oaa --help` (from a checkout, `npm run oaa -- --help`) lists every subcommand, including `quickstart`, `connect`, `init`, `serve`, `stop`, `status`, `doctor`, `models`, `prune`, `key create`, `publish`, `publish-native`, `invoke`, `wait`, `approvals`, `approve`, `deny`, `webhook`, `verify`, `cancel`, `resume`, `nodes`, and `mcp`; `check` and `fmt` check and format OAA-Lang source, and compiling, checking, and formatting never call a model. `oaa connect <preset>` and `oaa models` set up and list model providers for the built-in agent, `oaa prune` deletes old finished runs (nothing is ever deleted unless you set `retention` or run it), `oaa status` shows how the gateway and its agents are doing, and `oaa verify` runs a self-check against a real agent on your machine (it prints what it will do and starts nothing until you add `--confirm-live-cost`). Every command, grouped by task: [docs/cli.md](docs/cli.md).
-- **macOS desktop app**: the source is in `desktop/macos`. It embeds the same console and adds a Dock badge and approval notifications; its menus and dialogs follow the system language, it reads its port from its own `config.json`, and it can run isolated from an installed copy (`OAA_DESKTOP_HOME`, `OAA_DESKTOP_PORT`, see [install.md](docs/install.md#macos)). Build it from source with `npm run package:mac` (`npm run package:win` for Windows). Installers are on the Releases page ([install routes](docs/install.md)); the macOS and Windows ones are not notarized or code-signed, and neither is one you build yourself. The changes of this version were checked by hand once, on an Apple silicon Mac in an isolated run; what that did and did not cover is in [docs/releasing.md](docs/releasing.md#manual-checks-before-publishing).
+- **Command line**: `oaa --help` (`npm run oaa -- --help` from source) lists all operator commands: `quickstart`, `connect`, `init`, `serve`, `stop`, `status`, `doctor`, `models`, `prune`, `key create`, `publish`, `publish-native`, `invoke`, `wait`, `approvals`, `approve`, `deny`, `webhook`, `verify`, `cancel`, `resume`, `nodes`, `mcp`, plus zero-cost `check` and `fmt` for OAA-Lang. See [docs/cli.md](docs/cli.md).
+- **Unified Electron desktop app**: lives in `desktop/cross-platform` (superseding the archived `desktop/macos` Swift shell) across macOS (`arm64`/`x64`), Windows (`x64`), and Linux (`x64`/`arm64`). It enforces renderer sandboxing and `contextIsolation`, embeds the console, adds a tray quick-approval panel, Dock/tray pending badges, bilingual notifications, three-state port-ownership detection (adopting an orphaned gateway from the same data folder without hijacking foreign instances), and isolated launch-at-login controls. Key scripts: `npm run desktop:dev`, `desktop:smoke`, `desktop:smoke:matrix`, `package:mac`, `package:win`, and `package:release:linux` (`OAA_DESKTOP_HOME` / `OAA_DESKTOP_PORT` details in [install.md](docs/install.md#macos) and [releasing.md](docs/releasing.md)).
 
 ## Documentation
 
@@ -290,44 +289,34 @@ The full index, organized by what you want to do, is in [docs/README.md](docs/RE
 
 ## Status and limits
 
-This lists what has been done and what has not; it is not a roadmap. The detail, with dates, is in [docs/evidence.md](docs/evidence.md).
+What has actually been tested and what has not—not a roadmap. Exact dates and logs are in [docs/evidence.md](docs/evidence.md).
 
 **Tests and CI**
 
-- The project has 1,101 tests written with `node:test`. `npm run verify` runs the type check, the format check, and the full suite; `npm run test:offline` runs only the tests that do not listen on a port.
-- CI runs the whole suite on Ubuntu and macOS with Node 24 and Node 26, and on Windows (Node 24; tests that only make sense on POSIX skip with a stated reason). It also builds the Docker image and smoke-tests the container, and runs the compatibility lab.
-- The tests use a local deterministic model, local protocol servers, and stand-in agents. They do **not** prove compatibility with real providers, real agents, real cross-machine performance, or account access. The streaming, fairness, and paired benchmarks are local measurements; their conditions and limits are in [docs/operations.md](docs/operations.md) and [docs/architecture.md](docs/architecture.md).
-- The compatibility lab runs the official SDKs and several frameworks against a gateway whose agent is a sample or a fixture, and replays the recorded requests of chat clients. A replay shows that a client's request is accepted and answered in a form it parses, not that the application works. Cursor is unverified. See [docs/compatibility.md](docs/compatibility.md).
-- A soak test (`npm run soak`, macOS and Linux) ran a real gateway process under a mixed load for 32 minutes with three restarts and for 62 minutes in one segment, and the upgrade from 0.0.64 is checked (`npm run upgrade-check`). Both used a fake model and the offline sample agent. [docs/stability.md](docs/stability.md) has the numbers, the fixes the soak led to, crash-recovery semantics and known limits.
+- The suite comprises `1,305` `node:test` cases (`npm run verify` runs `tsc`, Prettier, and every test; `npm run test:offline` skips port-binding suites).
+- CI runs verification across Ubuntu (`x64`/`arm64`), macOS (`arm64`/`Intel`), and Windows (skipping POSIX-only suites with explicit reasons), builds and smoke-tests the `amd64` Docker image, and runs the compatibility lab.
+- Automated suites rely on deterministic local fixtures rather than paid provider quotas. The compatibility lab (`npm run compat`) verifies `456` scenarios across `14` real SDK packages and source-inspected client request replays (`Cursor`, closed-source, stays unverified; [docs/compatibility.md](docs/compatibility.md)).
+- `npm run soak` has passed 32-minute (with 3 restarts) and 62-minute single-segment macOS/Linux runs plus a `0.0.70` 2-minute macOS spot run (`ok=2357`, `unexpected=0`), alongside `test/sandbox-srt.test.ts` (5/5 pass) and `upgrade-check` ([docs/stability.md](docs/stability.md)).
 
-**Validation with real agents**
+**Live agent validation**
 
-- The historical Antigravity validation (2026-11-13, 12 calls) covered OpenAI Chat, Responses continuation, Claude Messages, Gemini, cancellation and concurrency on one local route. It did not cover the newer ACP approval and caller-tool path. Current capabilities and limitations are described in [harness.md](docs/harness.md); model discovery is not proof of account access or task success. `oaa verify` uses [examples/live-agents-acceptance.ts](examples/live-agents-acceptance.ts) scenarios.
-- Codex, Claude Code, built-in agents with a real model provider (the `oaa connect` presets included), and public deployment have **not** had this kind of end-to-end validation. Image delivery to Codex and Claude Code is implemented from the vendors' documentation and has not been run against the real agents. [docs/evidence.md](docs/evidence.md) records an earlier manual test session: one managed call to Codex passed and Claude Code failed because its CLI was not logged in; the code has changed since, and it was not re-run. If you have Codex or Claude Code installed, `oaa verify` and the [agent verification report](https://github.com/jiangxingfan1-coder/Open-Agent-API/issues/new/choose) template are the most useful thing you can send us.
+- **Qoder CLI `1.1.52` (`adapter/qoder`)**: Passed all `11` `oaa verify` scenarios (14 live invocations, 0 failures—including approvals, cancel, caller-tool bridge, and 3-way concurrency) and the end-to-end `S10` developer-platform `host_execution` billing loop. Qoder currently reports `null`/0 token usage over ACP, so per-run pricing applies.
+- **Antigravity `1.5.10`**: Passed `S1`–`S5`, `S7`, `S8` (native caller-tool bridging), `S9`, `S11`–`S12`, and `agy acp`; only native headless `S6` mid-run approvals stay `unsupported` (`approvals_not_bridged`) by design.
+- **Codex `0.167.0`**: Passed `S2` streaming (with token usage), protocol-level `turn/interrupt` cancellation (`S7`), and tool-free orchestration (`recommend`); live `S8` caller-tool bridge re-testing was blocked by upstream account quota exhaustion until Nov 21 (elicitation parsing/auto-allow is covered in offline unit/integration suites).
+- **Other local CLIs & gaps**: `Claude Code 2.1.318` and `Grok 1.0.77` returned `adapter_auth_required` when unauthenticated; `OpenCode 1.18.29` relayed its expired API key error verbatim; `DeepSeek Harness` timed out on a host `~/.dsh` lock. Real-agent image uploads to Codex/Claude and broad live model-provider benchmarks beyond Ollama/llama.cpp smoke runs remain untested; community `oaa verify` reports are welcome via the [agent verification issue template](https://github.com/jiangxingfan1-coder/Open-Agent-API/issues/new/choose).
 
-**Installing and platforms**
+**Installers and platforms**
 
-- The Docker image is built and smoke-tested in CI (amd64). The Linux packages, `install.sh`, the npm tarball, and the multi-architecture image have not yet been through the release workflow; the first release that includes them is their first run.
-- Windows: the full test suite passes in CI, but the behavior has not been tried with real Codex, Claude Code, or Antigravity on Windows, and there is no sandbox there.
-- The macOS desktop app was checked by hand once, by the project owner, on an Apple silicon Mac in an isolated run: it opens already connected, shows the first-launch note once, stays connected after a reload, shows the right version, and its menus and dialogs follow the system language. Not checked: the messages for a port that is in use, switching the language in both directions, restarting with the same data folder, recovering a gateway left by a crashed app, the Intel package, the normal installation on the default port, and the bilingual messages of the Windows launcher.
-- The macOS and Windows installers are not notarized or code-signed.
+- On Apple silicon macOS, automated Playwright checks (`desktop:smoke` and `desktop:smoke:matrix`) pass on both source builds and the installed `/Applications/Open Agent API.app`, and a mounted `0.0.70` `--release` `.dmg` passed full `smoke-release.mjs` + `smoke-flow.mjs` checks (all 353 ESM imports, 3 protocols, API/CLI approvals, idempotency, clean stop).
+- Remaining physical-device gaps: macOS Intel (`x64`) execution, OS System Settings language switching across desktop restarts, native OS notification click-through, Windows/Linux physical desktop UI and live agent runs, and lack of a Windows process sandbox. Desktop installers are not code-signed or Apple-notarized.
 
-**Developer platform**
+**Developer platform and boundaries**
 
-- A single gateway with SQLite: no multiple instances, no Postgres, and no settlement across multiple publishers.
-- No real payment channel: credits are not connected to payments; there is no email verification and no emailed password reset (reset codes are passed to the developer by the operator through another channel). Rate-limit counters live in process memory and reset on restart.
-- Account keys can call only built-in agents unless the operator turns on `host_execution` for a listing, which makes that external agent run as the gateway's system user. That path is tested with the offline sample agent; the success path of billing with a real external agent has not been seen.
-- It has not been validated on a real public deployment.
-
-**Other**
-
-- A requested JSON schema is enforced by the gateway, not passed to the model provider's own structured-output feature, and a forced tool choice (`tool_choice` required) is not supported. Audio input is not supported.
-- External agents may not report token usage. In that case only the per-task price applies; reported token counts are not cost estimates, and token limits are not advertised as enforceable spending caps.
-- Webhooks have been tested against local receivers only, not a public HTTPS endpoint.
-- Data is kept until you delete it: the default `retention` deletes nothing, so the database grows with use. `oaa prune`, or `retention.runsDays` for a timer, removes finished runs older than a cutoff; `oaa doctor` reports the database size ([docs/stability.md](docs/stability.md#4-data-retention-and-oaa-prune)).
-- The documentation site has been built and its links checked, but not seen on real GitHub Pages yet.
-- What the gateway does not defend against (for example: no email verification on sign-up, and login failure counters kept in memory) is in [docs/security-model.md](docs/security-model.md).
-- No scanning of the home directory for keys, no training of base models, no subscription pooling, and no hidden credential relaying.
+- Single SQLite gateway only: no multi-instance clustering, Postgres, cross-publisher settlement, payment processor, or email password reset (operator hands reset codes out-of-band).
+- Account keys are blocked from calling external agents by default (`403 isolation_required`) until an operator explicitly toggles `host_execution: true` per listing (audited, and now live-verified on `qoder-cli`).
+- External agents that do not report usage can only be billed per task; reported token usage is informational rather than a hard spend cap.
+- Webhooks have only been exercised against local loopback receivers, not public HTTPS behind a reverse proxy; data stays on disk until you configure `retention.runsDays` or run `oaa prune` ([docs/stability.md](docs/stability.md#4-data-retention-and-oaa-prune)).
+- Security scope and threat boundaries (for example, no home-directory credential harvesting, no base-model training, no subscription pooling): [docs/security-model.md](docs/security-model.md).
 
 ## Contributing, security, and conduct
 
