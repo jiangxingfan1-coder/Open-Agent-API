@@ -12,6 +12,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { checkedLookup } from './checked-lookup.js';
 import type { Store } from '../store/store.js';
+import { withSavepoint } from '../store/savepoint.js';
 import { pendingApprovalIds, selectedApprovals } from '../store/approval-rows.js';
 import { coarseDelay, faultOf, id } from '../core/util.js';
 import { GATEWAY_VERSION } from './endpoints.js';
@@ -124,28 +125,31 @@ export class WebhookDispatcher {
           wants(e, type, s.agentId) && (happenedAt === undefined || e.created_at <= happenedAt),
       );
       if (!targets.length) return;
-      let seed: Record<string, unknown> = { run_id: s.runId, status: s.status };
-      let dedupe = `${s.runId}:${type}`;
-      if (type === 'run.requires_action') {
-        const pending = pendingApprovalIds(this.store, s.runId);
-        const fresh = this.db.announce(s.runId, pending);
-        if (!fresh.length) return;
-        seed = { ...seed, approval_ids: pending };
-        dedupe = `${s.runId}:${type}:${fresh.sort().join(',')}`;
-      }
-      const eventId = id('evt');
-      const created = Date.now();
-      for (const e of targets)
-        this.db.enqueue({
-          endpointId: e.id,
-          owner: s.owner,
-          eventId,
-          eventType: type,
-          runId: s.runId,
-          dedupe,
-          seed: { ...seed, created_at: created },
-        });
-      this.kick();
+      const queued = withSavepoint(this.store.db, () => {
+        let seed: Record<string, unknown> = { run_id: s.runId, status: s.status };
+        let dedupe = `${s.runId}:${type}`;
+        if (type === 'run.requires_action') {
+          const pending = pendingApprovalIds(this.store, s.runId);
+          const fresh = this.db.announce(s.runId, pending);
+          if (!fresh.length) return false;
+          seed = { ...seed, approval_ids: pending };
+          dedupe = `${s.runId}:${type}:${fresh.sort().join(',')}`;
+        }
+        const eventId = id('evt');
+        const created = Date.now();
+        for (const e of targets)
+          this.db.enqueue({
+            endpointId: e.id,
+            owner: s.owner,
+            eventId,
+            eventType: type,
+            runId: s.runId,
+            dedupe,
+            seed: { ...seed, created_at: created },
+          });
+        return true;
+      });
+      if (queued) this.kick();
     } catch (error) {
       process.emitWarning(`Webhook enqueue failed: ${faultOf(error).message}`, {
         code: 'OAA_WEBHOOK_ENQUEUE',

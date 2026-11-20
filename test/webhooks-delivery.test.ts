@@ -120,6 +120,39 @@ async function start(s: Awaited<ReturnType<typeof setup>>, input = 'write') {
   return r.json().id as string;
 }
 
+test('webhook: a failed fanout rolls back both announcements and deliveries before a redelivered notification', async () => {
+  const hook = await receiver(),
+    s = await writerGateway();
+  try {
+    await addEndpoint(s, { url: hook.url, events: ['run.requires_action'] });
+    const second = await addEndpoint(s, {
+      url: hook.url + '/second',
+      events: ['run.requires_action'],
+    });
+    s.store.db.function('test_second_endpoint', () => second.id);
+    s.store.db
+      .exec(`CREATE TEMP TRIGGER refuse_second BEFORE INSERT ON webhook_deliveries WHEN NEW.endpoint_id=test_second_endpoint()
+      BEGIN SELECT RAISE(ABORT,'fixture delivery write failure'); END`);
+    const id = await start(s);
+    await waitFor(() => s.store.run(id).checkpoint.suspension?.kind === 'approval');
+    const count = (table: string) =>
+      Number(s.store.prepare(`SELECT count(*) AS n FROM ${table} WHERE run_id=?`).get(id)?.n);
+    assert.equal(count('webhook_announced'), 0);
+    assert.equal(count('webhook_deliveries'), 0);
+    s.store.db.exec('DROP TRIGGER refuse_second');
+    const summary = { owner: 'owner', runId: id, status: 'requires_action', agentId: 'agent/test' };
+    s.store.events.emit('summary', summary);
+    s.store.events.emit('summary', summary);
+    await waitFor(() => hook.hits.length === 2);
+    assert.equal(count('webhook_announced'), 1);
+    assert.equal(count('webhook_deliveries'), 2);
+    assert.equal(hook.hits[0]!.json.id, hook.hits[1]!.json.id);
+  } finally {
+    await s.cleanup();
+    await hook.close();
+  }
+});
+
 test('webhook: requires_action then completed, signed, without the task input', async () => {
   const hook = await receiver();
   const s = await writerGateway();

@@ -162,6 +162,7 @@ def verify(secret: str, header: str, raw_body: bytes, tolerance: int = 300) -> b
 - **At least once.** Events are queued in the gateway's SQLite database (`webhook_deliveries`) and
   survive a restart; whatever was not delivered when the gateway stopped is sent after it starts
   again. A receiver may see a delivery more than once; de-duplicate on `X-OAA-Delivery`.
+- The approval announcement and the queued deliveries for its matching endpoints commit together. A failed queue write leaves no partial announcement, so observing the notification again can enqueue it. The delivery guarantee starts **after enqueue**; a gateway exit between the source commit and the outbound observer is not covered for every event type.
 - **Success** is any `2xx` answer within **10 seconds** (connect, send and answer together).
   Redirects are not followed; a `3xx` counts as a failure. Answer fast and do the work afterwards.
 - **Retries.** A failed attempt is retried after about 5 s, 30 s, 2 min, 10 min and 30 min (each ±20 %
