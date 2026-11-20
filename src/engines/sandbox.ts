@@ -73,7 +73,12 @@ export const shellQuote = (word: string): string => `'${word.replace(/'/g, `'\\'
 /** Reads denied in every sandboxed call before the per-call re-opens. */
 export function defaultDeniedReads(dataDir: string): string[] {
   const denied = [os.homedir(), path.resolve(dataDir)];
-  if (process.platform === 'darwin') denied.push('/Volumes', '/Users', '/private/var/folders');
+  // Shared temporary directories can contain other projects. Per-call workspace and
+  // runtime grants are applied separately; do not implicitly expose their siblings.
+  if (process.platform === 'darwin' || process.platform === 'linux')
+    denied.push(os.tmpdir(), '/tmp', '/var/tmp');
+  if (process.platform === 'darwin')
+    denied.push('/Volumes', '/Users', '/private/var/folders', '/private/tmp', '/private/var/tmp');
   else denied.push('/home', '/root', '/mnt', '/media');
   return [...new Set(denied)];
 }

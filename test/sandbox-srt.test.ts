@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { collectProcess } from '../src/engines/process.js';
-import { SrtLauncher, runtimeReadPaths } from '../src/engines/sandbox.js';
+import { defaultDeniedReads, SrtLauncher, runtimeReadPaths } from '../src/engines/sandbox.js';
 
 // Real OS-sandbox boundary checks with @anthropic-ai/sandbox-runtime (srt).
 // OPENS PORTS: srt's HTTP and SOCKS proxies listen on localhost while these tests run (the
@@ -26,6 +26,19 @@ async function unavailableReason(): Promise<string> {
   }
 }
 const skipReason = await unavailableReason();
+
+test(
+  'sandbox read policy includes shared and per-user temporary roots',
+  {
+    skip: !['linux', 'darwin'].includes(process.platform),
+  },
+  () => {
+    const denied = defaultDeniedReads(path.join(os.tmpdir(), 'oaa-policy-test'));
+    for (const dir of [os.tmpdir(), '/tmp', '/var/tmp']) assert.ok(denied.includes(dir), dir);
+    if (process.platform === 'darwin')
+      for (const dir of ['/private/tmp', '/private/var/tmp']) assert.ok(denied.includes(dir), dir);
+  },
+);
 
 async function withLauncher(fn: (launcher: SrtLauncher, root: string) => Promise<void>) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'oaa-srt-'));
