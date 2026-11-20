@@ -15,6 +15,7 @@ import {
 import { NO_NEGOTIATION, advertisedExecution } from './advertised-execution.js';
 import { type Executor, WorkerRuntime } from './worker.js';
 import { sendArtifacts } from './artifact-transfer.js';
+import { NODE_HANDSHAKE_MS } from './node-messages.js';
 
 type Emit = (event: WorkEvent) => Promise<Record<string, unknown> | void>;
 type WorkerJob = {
@@ -81,23 +82,25 @@ async function workerConnection(
   const ws = new WebSocket(url, {
     headers: { Authorization: `Bearer ${token}`, 'x-oaa-node-id': config.nodeId },
     maxPayload: LIMITS.nodeMessageBytes,
-    handshakeTimeout: 5000,
+    handshakeTimeout: NODE_HANDSHAKE_MS,
   });
   const jobs = new Map<string, WorkerJob>();
   const running = new Set<Promise<void>>();
   let ended = false;
+  let welcomeTimer: NodeJS.Timeout | undefined;
   try {
     await new Promise<void>((resolve, reject) => {
       let heartbeat: NodeJS.Timeout | undefined;
       let lastAck = Date.now();
       let leaseMs = 15_000;
+      let welcomed = false;
       const abort = () => {
         ended = true;
-        ws.close();
+        if (welcomed) ws.close();
+        else ws.terminate();
       };
       stop.addEventListener('abort', abort, { once: true });
       let metadataUpdates = false;
-      let welcomed = false;
       let artifactChunks = false;
       let lastAdvertisement = '';
       const negotiated = { ...NO_NEGOTIATION };
@@ -117,6 +120,15 @@ async function workerConnection(
         try {
           checkAbort(stop);
           advertise('hello');
+          // The WebSocket handshake timeout ends at HTTP upgrade; no lease exists yet.
+          welcomeTimer = setTimeout(() => {
+            if (welcomed || ws.readyState === WebSocket.CLOSED) return;
+            ended = true;
+            reject(
+              new Fault('node_disconnected', 'Gateway did not acknowledge node registration.', 503),
+            );
+            ws.terminate();
+          }, NODE_HANDSHAKE_MS).unref();
         } catch {
           ws.terminate();
         }
@@ -135,6 +147,7 @@ async function workerConnection(
             )
               throw new Error('Invalid welcome');
             welcomed = true;
+            clearTimeout(welcomeTimer);
             leaseMs = msg.leaseMs;
             lastAck = Date.now();
             metadataUpdates =
@@ -396,6 +409,7 @@ async function workerConnection(
     });
   } finally {
     ended = true;
+    clearTimeout(welcomeTimer);
     ws.terminate();
     for (const job of jobs.values()) {
       clearTimeout(job.timer);

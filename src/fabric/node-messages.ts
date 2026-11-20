@@ -76,6 +76,7 @@ export function workResultSchema(kind: 'install' | Work['kind']): z.ZodType<unkn
 
 const ref = { id: z.string().min(1).max(200), leaseId: z.string().min(1).max(200) };
 export const ARTIFACT_CHUNK_BYTES = 128 * 1024;
+export const NODE_HANDSHAKE_MS = 5_000;
 const chunkSchema = z
   .object({
     type: z.literal('artifact_chunk'),

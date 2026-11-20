@@ -376,6 +376,8 @@ MCP 桥接复用这些端点。生成的启动器在免费测试套件里经官�
 
 ## 节点线协议（Node wire protocol）
 
+WebSocket 已连接不等于节点注册完成。worker 发送 `hello` 后最多等待 5 秒；未收到有效的 `welcome` 就按原退避策略重连。注册前不会接任务；HTTP 401/403 仍会停止重连。
+
 若 `welcome.features` 含 `artifact-chunks-v1`，节点可通过当前执行租约回传文件。`artifact_chunk` 包含 RPC 的 `id`、`leaseId`、从零开始的产物序号 `index`、字节偏移 `offset`、总大小 `bytes`、`name`、`sha256` 和 Base64 编码的 `data`（解码后最多 128 KiB）。收到相同租约、序号和偏移的 `artifact_ack` 后才发送下一块。最终结果用 `transferIndex` 与空 `content` 引用对应文件，不传节点本机路径。传输中断将丢弃未确认数据，不自动重放任务。
 
 <a id="node-lifecycle-control"></a>

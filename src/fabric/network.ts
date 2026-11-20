@@ -42,7 +42,12 @@ import {
 } from '../core/util.js';
 import { LIMITS } from '../core/limits.js';
 import { isUncertainWhenStarted } from '../core/errors.js';
-import { checkWorkResult, parseNodeMessage, type NodeMessage } from './node-messages.js';
+import {
+  checkWorkResult,
+  parseNodeMessage,
+  NODE_HANDSHAKE_MS,
+  type NodeMessage,
+} from './node-messages.js';
 import type { ArtifactStoreLike } from '../store/large-artifacts.js';
 import { IncomingArtifacts } from './artifact-transfer.js';
 
@@ -588,7 +593,7 @@ export class NodeHub {
     this.wss.handleUpgrade(req, socket, head, (ws) => {
       this.peers.set(ws, nodeId);
       ws.once('close', () => this.peers.delete(ws));
-      const timeout = setTimeout(() => ws.close(1008, 'Handshake timeout'), 5000);
+      const timeout = setTimeout(() => ws.close(1008, 'Handshake timeout'), NODE_HANDSHAKE_MS);
       ws.once('message', (bytes) => {
         clearTimeout(timeout);
         try {

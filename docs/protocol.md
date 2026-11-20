@@ -356,6 +356,8 @@ Built-in `read_skill` exposes only files from the immutable selected bundle. Bui
 
 ## Node wire protocol
 
+Opening a WebSocket is not node registration. After sending `hello`, the worker waits up to five seconds for a valid `welcome`. If it does not arrive, the worker reconnects with its existing backoff. No job is accepted before registration; an HTTP 401/403 still stops reconnect attempts.
+
 If `welcome.features` includes `artifact-chunks-v1`, a worker may deliver an output over its existing execution lease. Each `artifact_chunk` carries the RPC `id`, `leaseId`, zero-based artifact `index`, byte `offset`, total `bytes`, `name`, SHA-256 `sha256` and base64 `data` (up to 128 KiB decoded). Wait for `artifact_ack` with the matching lease, index and offset before the next chunk. The final result references the matching manifest entry with `transferIndex` and empty `content`; a worker path is never a wire reference. An interrupted transfer is discarded, not automatically replayed.
 
 ### Node lifecycle control

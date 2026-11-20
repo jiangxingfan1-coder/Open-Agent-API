@@ -243,6 +243,54 @@ test('cancellation during remote bundle installation cannot start the queued sid
   }
 });
 
+test('a worker reconnects if the transport opens but the gateway never completes registration', async () => {
+  const s = await setup();
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const stop = new AbortController();
+  let running: Promise<void> | undefined;
+  let attempts = 0,
+    beats = 0,
+    jobs = 0;
+  try {
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    server.on('connection', (ws) => {
+      const attempt = ++attempts;
+      ws.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'hello' && attempt > 1)
+          ws.send(JSON.stringify({ type: 'welcome', protocol: 'oaa/1', leaseMs: 300 }));
+        if (msg.type === 'heartbeat') {
+          beats++;
+          ws.send(JSON.stringify({ type: 'heartbeat_ack' }));
+        }
+      });
+    });
+    const tokenFile = path.join(s.dir, 'welcome.token');
+    await writeFile(tokenFile, nodeToken, { mode: 0o600 });
+    const cfg = workerSchema.parse({
+      nodeId: 'retry-node',
+      dataDir: path.join(s.dir, 'retry-node'),
+      tokenFile,
+      gatewayUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+    });
+    const runtime = new WorkerRuntime(cfg);
+    runtime.execute = async () => {
+      jobs++;
+      return { value: 'unused' };
+    };
+    running = connectWorker(cfg, stop.signal, runtime);
+    await waitFor(() => attempts >= 2 && beats >= 2, 10000);
+    assert.equal(attempts, 2);
+    assert.equal(jobs, 0);
+  } finally {
+    stop.abort();
+    for (const peer of server.clients) peer.terminate();
+    await running;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await s.cleanup();
+  }
+});
+
 test('a worker rejects oversubscription from an older gateway and ignores stale lease controls', async () => {
   const s = await setup();
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
