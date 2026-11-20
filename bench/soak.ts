@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { agentSchema } from '../src/core/contracts.js';
+import { workerSchema } from '../src/config/config.js';
 import { makeBundle } from '../src/lang/bundle.js';
 import { sampleDefinition } from '../src/client/quickstart.js';
 
@@ -29,6 +30,7 @@ const { values } = parseArgs({
   options: {
     minutes: { type: 'string', default: '5' },
     concurrency: { type: 'string', default: '8' },
+    'worker-slots': { type: 'string' },
     'retention-minutes': { type: 'string', default: '5' },
     'sample-seconds': { type: 'string', default: '10' },
     dir: { type: 'string' },
@@ -39,6 +41,9 @@ const { values } = parseArgs({
 });
 const MINUTES = Number(values.minutes);
 const CONCURRENCY = Number(values.concurrency);
+const WORKER_SLOTS = workerSchema.shape.concurrency.parse(
+  values['worker-slots'] === undefined ? undefined : Number(values['worker-slots']),
+);
 const RETENTION_MINUTES = Number(values['retention-minutes']);
 const SAMPLE_MS = Number(values['sample-seconds']) * 1000;
 const APPROVAL_TIMEOUT_MS = 10_000;
@@ -277,6 +282,7 @@ const config = {
   ],
   localWorker: {
     nodeId: 'local',
+    concurrency: WORKER_SLOTS,
     owner: 'owner',
     dataDir: path.join(data, 'worker'),
     providers: {
@@ -842,6 +848,7 @@ type Sample = {
   handles: number | null;
   fds: number | null;
   children: number | null;
+  local_worker?: { capacity: number; active: number } | null;
   db_mb: number;
   wal_mb: number;
   data_mb: number;
@@ -854,6 +861,27 @@ type Sample = {
   unexpected: number;
 };
 const samples: Sample[] = [];
+async function workerSample() {
+  try {
+    const response = await fetch(base + '/v1/nodes', {
+      headers: { authorization: 'Bearer ' + token },
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      return null;
+    }
+    const { data } = (await response.json()) as {
+      data: { nodeId: string; concurrency: number; active: number }[];
+    };
+    const node = data.find((n) => n.nodeId === 'local');
+    return node && Number.isSafeInteger(node.concurrency) && Number.isSafeInteger(node.active)
+      ? { capacity: node.concurrency, active: node.active }
+      : null;
+  } catch {
+    return null;
+  }
+}
 let segment = 0;
 let lastOk = 0;
 let lastUnexpected = 0;
@@ -929,6 +957,7 @@ async function takeSample(): Promise<void> {
     handles: fresh ? fresh.handles! : null,
     fds,
     children,
+    ...(values['worker-slots'] !== undefined ? { local_worker: await workerSample() } : {}),
     db_mb: await size('state.sqlite'),
     wal_mb: await size('state.sqlite-wal'),
     data_mb: dataBytes / 1024 ** 2,
@@ -1184,6 +1213,17 @@ check(
   JSON.stringify(stuck.slice(0, 10)),
 );
 await takeSample();
+if (values['worker-slots'] !== undefined) {
+  const observed = samples.flatMap((s) => (s.local_worker ? [s.local_worker] : []));
+  check(
+    'local worker advertises the requested slots and stays within capacity',
+    observed.length > 0 &&
+      observed.every(
+        (n) => n.capacity === WORKER_SLOTS && n.active >= 0 && n.active <= WORKER_SLOTS,
+      ),
+    `${observed.length}/${samples.length} samples, peak active ${Math.max(0, ...observed.map((n) => n.active))}/${WORKER_SLOTS}`,
+  );
+}
 const interruptedLeft = dbQuery((db) =>
   Number(db.prepare("SELECT count(*) AS n FROM runs WHERE status='interrupted'").get()!.n),
 );
@@ -1291,6 +1331,8 @@ const report = {
   started: new Date(started).toISOString(),
   minutes: MINUTES,
   concurrency: CONCURRENCY,
+  worker_slots: WORKER_SLOTS,
+  restarts_enabled: !values['no-restarts'],
   retention_minutes: RETENTION_MINUTES,
   node: process.version,
   platform: `${process.platform} ${os.release()} ${os.arch()}`,

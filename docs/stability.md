@@ -12,6 +12,8 @@ database stop growing. Every number below comes from a tool you can rerun yourse
 npm run soak -- --minutes 30 --concurrency 8 --retention-minutes 5 [--dir DIR] [--keep]
 ```
 
+The load generator's `--concurrency` counts clients, not execution slots. To compare local worker capacity without changing a deployment, run e.g. `npm run soak -- --minutes 30 --no-restarts --concurrency 8 --worker-slots 6`. The optional slot override applies only to the isolated test gateway; the report includes the configured capacity and sampled active jobs.
+
 `bench/soak.ts` is not part of `npm test`. It:
 
 - starts a **real gateway process** (`node dist/src/cli.js serve`) with a temporary `HOME` and data
@@ -140,8 +142,8 @@ A queued or parked cancellation expires its pending actions in the same transact
 
 `interrupted` is final for display and accounting, but not for the operator: `POST
 /v1/runs/{id}/resume` (or `oaa resume`) continues it, and a step with an unknown external effect
-must be reconciled first (`POST /v1/runs/{id}/reconcile`). Interrupted runs are never resumed
-automatically. External agent processes are children of the gateway; they exit when it exits
+must be reconciled first (`POST /v1/runs/{id}/reconcile`). Recovery is manual by default. For
+[opt-in durable runs](workstation.md#durable-runs), startup selects eligible interruption records in pages of 64. An accepted automatic resume commits its attempt count and recovery marker with its queue reservation. Unknown side effects still require reconciliation. External agent processes are children of the gateway; they exit when it exits
 (the soak checks that none survive SIGTERM or SIGKILL).
 
 ## 3. Upgrades, backups and downgrades

@@ -10,6 +10,8 @@
 npm run soak -- --minutes 30 --concurrency 8 --retention-minutes 5 [--dir DIR] [--keep]
 ```
 
+`--concurrency` 指压测客户端数量，不是执行槽数。要比较节点容量，可运行 `npm run soak -- --minutes 30 --no-restarts --concurrency 8 --worker-slots 6`。可选的 `--worker-slots` 只覆盖隔离测试网关的配置，不改部署默认值；报告会记录配置容量及采样到的活跃任务数。
+
 `bench/soak.ts` 不在 `npm test` 里。它会：
 
 - 在进程外启动一个**真实的网关进程**（`node dist/src/cli.js serve`），使用临时的 `HOME` 和数据目录，监听 `127.0.0.1` 的随机端口。一个很小的预加载模块（`bench/soak-probe.ts`）记录该进程自己的 RSS、堆和活动句柄，进程里别的东西都不改；
@@ -77,7 +79,7 @@ npm run soak -- --minutes 30 --concurrency 8 --retention-minutes 5 [--dir DIR] [
 
 排队或停车任务取消时，待办过期和终态事件一起提交。写入失败，任务保留原队列位置或审批等待状态。调用方一次回传多项工具结果时，结果和输出游标也全部提交或全部回滚。
 
-`interrupted` 在展示与计费上算已结束，但对运维人员不是终点：`POST /v1/runs/{id}/resume`（或 `oaa resume`）可以继续它；有未知外部副作用的步骤需要先核对（`POST /v1/runs/{id}/reconcile`）。interrupted 的运行永远不会被自动恢复。外部智能体进程是网关的子进程，网关退出它们也退出（压测核对了 SIGTERM 和 SIGKILL 之后都没有残留）。
+`interrupted` 在展示与计费上算已结束，但对运维人员不是终点：`POST /v1/runs/{id}/resume`（或 `oaa resume`）可以继续它；有未知外部副作用的步骤需要先核对（`POST /v1/runs/{id}/reconcile`）。默认由人工恢复。对[显式启用持久恢复的任务](workstation.md)，启动时只按每页 64 条读取候选记录；自动恢复被接受时，尝试次数、恢复标记和重新入队一起提交，未知副作用仍不会自动重放。外部智能体进程是网关的子进程，网关退出它们也退出（压测核对了 SIGTERM 和 SIGKILL 之后都没有残留）。
 
 ## 3. 升级、备份与降级
 
