@@ -21,6 +21,12 @@ import type {
 } from '../core/contracts.js';
 import { capabilitySchema, terminal, visibleSubject } from '../core/contracts.js';
 import { JsonSchemas } from '../core/schemas.js';
+import {
+  findStepApproval,
+  pendingApprovalIds,
+  pendingApprovals,
+  pendingWaiter,
+} from '../store/approval-rows.js';
 import { ApprovalSuspension } from '../core/suspension.js';
 import { Fault, boundedJson, checkAbort, id } from '../core/util.js';
 import type { Approval, Store } from '../store/store.js';
@@ -192,9 +198,7 @@ export function clientToolCall(
   const stepId = stepIdFor(run.id, run.checkpoint.turn, call.id);
   const step = store.getStep(stepId);
   if (step?.status === 'completed') return { value: new CallerOutput(step.result?.value) };
-  const action = store
-    .approvals(run.id)
-    .findLast((a) => a.kind === 'client_tool' && a.stepId === stepId);
+  const action = findStepApproval(store, run.id, stepId, (a) => a.kind === 'client_tool');
   if (action?.status === 'approved' && step) {
     const value = action.response?.output;
     step.status = 'completed';
@@ -249,10 +253,7 @@ function announceAwaiting(store: Store, runId: string): void {
     awaitingScheduled.delete(runId);
     try {
       if (terminal(store.run(runId).status)) return;
-      const ids = store
-        .approvals(runId)
-        .filter((a) => a.kind === 'client_tool' && a.status === 'pending')
-        .map((a) => a.id);
+      const ids = pendingApprovalIds(store, runId, 'client_tool');
       if (ids.length) store.emit(runId, 'run.awaiting_caller', { approval_ids: ids });
     } catch {
       // 运行已不存在或存储已关闭：没有调用方可交付。
@@ -350,9 +351,7 @@ export async function awaitCallerTool(
         );
       }
       if (!terminal(run.status)) {
-        run.status = store.approvals(run.id).some((a) => a.status === 'pending')
-          ? 'requires_action'
-          : 'in_progress';
+        run.status = pendingWaiter(store, run.id) ? 'requires_action' : 'in_progress';
         store.save(run);
       }
     };
@@ -406,14 +405,9 @@ export async function awaitCallerTool(
  */
 export function abandonCallerTool(store: Store, run: Run, relayCallId: unknown): void {
   if (typeof relayCallId !== 'string' || !relayCallId) return;
-  const action = store
-    .approvals(run.id)
-    .find(
-      (a) =>
-        a.kind === 'client_tool' &&
-        a.status === 'pending' &&
-        a.detail.relay_call_id === relayCallId.slice(0, 160),
-    );
+  const action = pendingApprovals(store, run.id, 'client_tool').find(
+    (a) => a.detail.relay_call_id === relayCallId.slice(0, 160),
+  );
   if (!action) return;
   action.status = 'expired';
   action.response = { abandoned: true };

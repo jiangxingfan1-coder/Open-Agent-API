@@ -2,6 +2,7 @@
 import type { Principal, Run } from '../core/contracts.js';
 import { terminal, visibleSubject } from '../core/contracts.js';
 import type { Approval } from '../store/store.js';
+import { findStepApproval, pendingWaiter } from '../store/approval-rows.js';
 import { Fault, canonical, checkAbort, id } from '../core/util.js';
 import { ApprovalSuspension } from '../core/suspension.js';
 import type { KernelRuntime } from './runtime.js';
@@ -16,17 +17,14 @@ export async function awaitApproval(
   signal: AbortSignal,
 ): Promise<Record<string, unknown>> {
   checkAbort(signal);
-  const existing = rt.store.approvals(run.id).findLast((a) => {
+  const wanted = canonical(detail);
+  const existing = findStepApproval(rt.store, run.id, stepId, (a) => {
     const { response: _legacyResponse, ...legacyDetail } = a.detail;
     const requested =
       a.kind === 'tool' && a.response === undefined && a.status !== 'pending'
         ? legacyDetail
         : a.detail;
-    return (
-      a.stepId === stepId &&
-      canonical(requested) === canonical(detail) &&
-      ['approved', 'denied', 'pending'].includes(a.status)
-    );
+    return canonical(requested) === wanted && ['approved', 'denied', 'pending'].includes(a.status);
   });
   if (existing?.status === 'approved')
     return {
@@ -103,9 +101,7 @@ export async function awaitApproval(
       rt.store.approval(current);
     }
     if (!terminal(run.status)) {
-      run.status = rt.store.approvals(run.id).some((a) => a.status === 'pending')
-        ? 'requires_action'
-        : 'in_progress';
+      run.status = pendingWaiter(rt.store, run.id) ? 'requires_action' : 'in_progress';
       rt.store.save(run);
     }
   }

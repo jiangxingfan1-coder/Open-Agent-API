@@ -8,6 +8,7 @@ import { nativeStepId } from '../kernel/native-turn.js';
 import type { Invocation } from '../kernel/invocation.js';
 import type { Kernel } from '../kernel/kernel.js';
 import type { Store } from '../store/store.js';
+import { pendingApprovals } from '../store/approval-rows.js';
 import { chatObject, chatUsage, claudeMessageObject, responseObject } from './protocol.js';
 import { claudeDelta, claudeDeltaUsage, claudeMessage } from './claude.js';
 import { geminiResponseObject } from './uap.js';
@@ -80,17 +81,14 @@ export async function waitParkedOrTerminal(
 
 /** 停车中的运行全部待处理的调用方工具调用，按产生顺序；`id` 是待办 ID，名字用调用方原名。 */
 export function pendingToolCalls(store: Store, runId: string) {
-  return store
-    .approvals(runId)
-    .filter((a) => a.kind === 'client_tool' && a.status === 'pending')
-    .map((a) => ({
-      id: a.id,
-      type: 'function' as const,
-      function: {
-        name: String(a.detail.tool),
-        arguments: JSON.stringify(a.detail.arguments ?? {}),
-      },
-    }));
+  return pendingApprovals(store, runId, 'client_tool').map((a) => ({
+    id: a.id,
+    type: 'function' as const,
+    function: {
+      name: String(a.detail.tool),
+      arguments: JSON.stringify(a.detail.arguments ?? {}),
+    },
+  }));
 }
 
 /**

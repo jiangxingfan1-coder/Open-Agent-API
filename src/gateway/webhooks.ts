@@ -12,6 +12,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { checkedLookup } from './checked-lookup.js';
 import type { Store } from '../store/store.js';
+import { pendingApprovalIds, selectedApprovals } from '../store/approval-rows.js';
 import { coarseDelay, faultOf, id } from '../core/util.js';
 import { GATEWAY_VERSION } from './endpoints.js';
 import {
@@ -126,10 +127,7 @@ export class WebhookDispatcher {
       let seed: Record<string, unknown> = { run_id: s.runId, status: s.status };
       let dedupe = `${s.runId}:${type}`;
       if (type === 'run.requires_action') {
-        const pending = this.store
-          .approvals(s.runId)
-          .filter((a) => a.status === 'pending')
-          .map((a) => a.id);
+        const pending = pendingApprovalIds(this.store, s.runId);
         const fresh = this.db.announce(s.runId, pending);
         if (!fresh.length) return;
         seed = { ...seed, approval_ids: pending };
@@ -220,16 +218,13 @@ export class WebhookDispatcher {
       const run = this.store.run(String(d.seed.run_id));
       const ids = (d.seed.approval_ids as string[] | undefined) ?? undefined;
       const pending = ids
-        ? this.store
-            .approvals(run.id)
-            .filter((a) => ids.includes(a.id))
-            .map((a) => ({
-              id: a.id,
-              type: a.kind,
-              title: pendingTitle(a.detail),
-              status: a.status,
-              expires_at: Math.floor(a.expiresAt / 1000),
-            }))
+        ? selectedApprovals(this.store, run.id, ids).map((a) => ({
+            id: a.id,
+            type: a.kind,
+            title: pendingTitle(a.detail),
+            status: a.status,
+            expires_at: Math.floor(a.expiresAt / 1000),
+          }))
         : undefined;
       data = runData(
         {

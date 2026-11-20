@@ -5,6 +5,7 @@
  */
 import type { StatementSync } from 'node:sqlite';
 import type { RunStatus } from '../core/contracts.js';
+import { pendingWaiter } from './approval-rows.js';
 
 type Db = { prepare(sql: string): StatementSync };
 type Row = Record<string, unknown>;
@@ -16,13 +17,8 @@ export function waitingOn(
   status: RunStatus,
 ): { waiting_on?: 'caller' | 'owner' } {
   if (status !== 'requires_action') return {};
-  const row = db
-    .prepare(
-      "SELECT count(*) AS n,coalesce(sum(json_extract(payload,'$.kind')!='client_tool'),0) AS human FROM approvals WHERE run_id=? AND json_extract(payload,'$.status')='pending'",
-    )
-    .get(runId)!;
-  if (!Number(row.n)) return {};
-  return { waiting_on: Number(row.human) ? 'owner' : 'caller' };
+  const waiting = pendingWaiter(db, runId);
+  return waiting ? { waiting_on: waiting } : {};
 }
 
 /**

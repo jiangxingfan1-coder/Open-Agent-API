@@ -35,6 +35,8 @@ import {
   writeApprovalRow,
   changeApprovalRows,
   keepParkedOnRestart,
+  installApprovalIndexes,
+  pendingWaiter,
   type Approval,
 } from './approval-rows.js';
 export type { Approval } from './approval-rows.js';
@@ -170,6 +172,7 @@ export class Store {
         CREATE INDEX IF NOT EXISTS node_policy_owner ON node_policy_events(owner,node_id,id);
         CREATE TABLE IF NOT EXISTS memories (${MEMORY_COLUMNS});`);
       this.migrateSubjects();
+      installApprovalIndexes(this.db);
       if (version < 2) {
         for (const row of this.prepare('SELECT payload FROM runs ORDER BY rowid').all()) {
           const run = JSON.parse(row.payload as string) as Run;
@@ -1502,14 +1505,9 @@ export class Store {
   deleteMemory(owner: string, subject: string, namespace: string, key: string): boolean {
     return deletePrivateMemory(this, owner, subject, namespace, key);
   }
-  /**
-   * The run is parked and waits only on its caller (pending `client_tool` actions, no human one).
-   * Such a run holds no process or slot, so shutdown and recovery leave it parked: the caller can
-   * still continue it, or it times out (docs/harness.md).
-   */
+  /** Only caller responses are pending; there is no human decision to grant. */
   awaitingCaller(runId: string): boolean {
-    const pending = this.approvals(runId).filter((a) => a.status === 'pending');
-    return pending.length > 0 && pending.every((a) => a.kind === 'client_tool');
+    return pendingWaiter(this, runId) === 'caller';
   }
   recover(): void {
     for (const run of this.allRuns(['in_progress', 'requires_action'])) {
