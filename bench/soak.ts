@@ -25,12 +25,15 @@ import { agentSchema } from '../src/core/contracts.js';
 import { workerSchema } from '../src/config/config.js';
 import { makeBundle } from '../src/lang/bundle.js';
 import { sampleDefinition } from '../src/client/quickstart.js';
+import { PruneImpact, pruneLoopIntervals } from './prune-impact.js';
+import { sampleNativeMemory } from './prune-memory.js';
 
 const { values } = parseArgs({
   options: {
     minutes: { type: 'string', default: '5' },
     concurrency: { type: 'string', default: '8' },
     'worker-slots': { type: 'string' },
+    'profile-prune': { type: 'boolean', default: false },
     'retention-minutes': { type: 'string', default: '5' },
     'sample-seconds': { type: 'string', default: '10' },
     dir: { type: 'string' },
@@ -205,6 +208,7 @@ const SAMPLE = 'agent/sample';
 // ---------- state ----------
 type Failure = { t: number; op: string; detail: string };
 const started = Date.now();
+const impact = values['profile-prune'] ? new PruneImpact(started + MINUTES * 30000) : undefined;
 const failures: Failure[] = [];
 const failureCounts = new Map<string, number>();
 const checks: { t: number; name: string; ok: boolean; detail: string }[] = [];
@@ -256,6 +260,7 @@ const run = path.join(root, `run-${new Date().toISOString().replace(/[:.]/g, '-'
 const home = path.join(run, 'home');
 const data = path.join(run, 'data');
 const probeFile = path.join(run, 'probe.jsonl');
+const pruneProfileFile = path.join(run, 'prune-profile.jsonl');
 await mkdir(home, { recursive: true });
 await mkdir(data, { recursive: true, mode: 0o700 });
 // A private copy of the sample agent so leftover processes are attributable to this run.
@@ -326,6 +331,7 @@ async function startGateway(): Promise<void> {
         LANG: 'en_US.UTF-8',
         SOAK_FAKE_KEY: 'fake-local-key',
         SOAK_PROBE_FILE: probeFile,
+        ...(impact ? { SOAK_PRUNE_PROFILE: pruneProfileFile } : {}),
         ...(process.env.SOAK_SNAPSHOT_DIR
           ? { SOAK_SNAPSHOT_DIR: process.env.SOAK_SNAPSHOT_DIR }
           : {}),
@@ -463,6 +469,7 @@ async function streamOp(op: string, url: string, body: unknown, abort: boolean) 
 }
 function record(op: string, ms: number) {
   ok++;
+  impact?.record(ms);
   windowLatencies.push(ms);
   const xs = latencies.get(op) ?? [];
   xs.push(ms);
@@ -845,6 +852,10 @@ type Sample = {
   /** Off-heap memory V8 knows of (Buffers, ArrayBuffers) and the heap's committed size. */
   external_mb: number | null;
   heap_total_mb: number | null;
+  v8_physical_mb?: number | null;
+  array_buffers_mb?: number | null;
+  loop_p99_ms?: number | null;
+  loop_max_ms?: number | null;
   handles: number | null;
   fds: number | null;
   children: number | null;
@@ -861,6 +872,12 @@ type Sample = {
   unexpected: number;
 };
 const samples: Sample[] = [];
+const nativeSamples: {
+  t_min: number;
+  segment: number;
+  memory: Awaited<ReturnType<typeof sampleNativeMemory>>;
+}[] = [];
+const nativeDue = [Math.min(2.5, MINUTES * 0.16), MINUTES * 0.43, MINUTES * 0.57, MINUTES * 0.94];
 async function workerSample() {
   try {
     const response = await fetch(base + '/v1/nodes', {
@@ -954,6 +971,14 @@ async function takeSample(): Promise<void> {
     heap_mb: fresh ? fresh.heap_used! / 1024 ** 2 : null,
     external_mb: fresh ? fresh.external! / 1024 ** 2 : null,
     heap_total_mb: fresh ? fresh.heap_total! / 1024 ** 2 : null,
+    ...(impact
+      ? {
+          v8_physical_mb: fresh ? fresh.v8_physical! / 1024 ** 2 : null,
+          array_buffers_mb: fresh ? fresh.array_buffers! / 1024 ** 2 : null,
+          loop_max_ms: fresh?.loop_max_ms ?? null,
+          loop_p99_ms: fresh?.loop_p99_ms ?? null,
+        }
+      : {}),
     handles: fresh ? fresh.handles! : null,
     fds,
     children,
@@ -974,6 +999,10 @@ async function takeSample(): Promise<void> {
     `[${s.t_min.toFixed(1)}m seg${segment}] rss=${s.rss_mb?.toFixed(0)}MB heap=${s.heap_mb?.toFixed(0)}MB fds=${s.fds} children=${s.children} db=${s.db_mb.toFixed(1)}MB wal=${s.wal_mb.toFixed(1)}MB runs=${s.runs} unfinished=${s.unfinished} p95=${s.p95_ms?.toFixed(0)}ms ok=${s.requests} err=${s.unexpected}\n`,
   );
   windowLatencies = [];
+  if (impact && pid && nativeDue.length && s.t_min >= nativeDue[0]!) {
+    nativeDue.shift();
+    nativeSamples.push({ t_min: s.t_min, segment, memory: await sampleNativeMemory(pid) });
+  }
   lastOk = ok;
   lastUnexpected = unexpected;
   if (dataBytes > MAX_DATA_BYTES) {
@@ -1177,7 +1206,8 @@ const sampler = (async () => {
     await new Promise((r) => setTimeout(r, SAMPLE_MS));
     if (Date.now() >= pruneAt && !gatewayDown) {
       pruneAt = Infinity;
-      await runPrune();
+      if (impact) await impact.around(base, runPrune);
+      else await runPrune();
     }
     await snapshotIfDue();
     const next = schedule[0];
@@ -1326,6 +1356,7 @@ const criteria = [
     value: checks.filter((c) => !c.ok).length,
   },
 ];
+const pruneImpact = impact?.report();
 const report = {
   format: 'oaa.soak.v1',
   started: new Date(started).toISOString(),
@@ -1347,6 +1378,28 @@ const report = {
       ]),
     ),
   },
+  ...(pruneImpact
+    ? {
+        prune_impact: {
+          ...pruneImpact,
+          gateway_loop_intervals: pruneLoopIntervals(
+            await readFile(probeFile, 'utf8'),
+            pruneImpact.started_at,
+            pruneImpact.finished_at,
+          ),
+        },
+        native_memory_samples: nativeSamples,
+        prune_profiles: (
+          await readFile(pruneProfileFile, 'utf8').catch((e: NodeJS.ErrnoException) => {
+            if (e.code === 'ENOENT') return '';
+            throw e;
+          })
+        )
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as unknown),
+      }
+    : {}),
   trends_final_segment: Object.fromEntries(
     (
       [

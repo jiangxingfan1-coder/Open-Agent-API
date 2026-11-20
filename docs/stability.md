@@ -14,6 +14,8 @@ npm run soak -- --minutes 30 --concurrency 8 --retention-minutes 5 [--dir DIR] [
 
 The load generator's `--concurrency` counts clients, not execution slots. To compare local worker capacity without changing a deployment, run e.g. `npm run soak -- --minutes 30 --no-restarts --concurrency 8 --worker-slots 6`. The optional slot override applies only to the isolated test gateway; the report includes the configured capacity and sampled active jobs.
 
+Add `--profile-prune` to separate maintenance queue time from candidate selection, write-lock acquisition, deletion, commit, file cleanup, yielding and the WAL checkpoint. The report includes P99 for operations finishing before, during and after the manual CLI call, lightweight health probes during it, and the gateway event-loop intervals that overlap it. A percentile with few samples is not a service SLO. V8 physical heap, array buffers and best-effort OS memory summaries help distinguish steady heap from growing resident memory; their sizes overlap and must not be added together.
+
 `bench/soak.ts` is not part of `npm test`. It:
 
 - starts a **real gateway process** (`node dist/src/cli.js serve`) with a temporary `HOME` and data
@@ -222,15 +224,14 @@ What grows with use, and what bounds it:
 
 What is never pruned: runs that are `queued`, `in_progress`, `requires_action` or `interrupted`;
 runs younger than the cutoff; a run whose developer-platform ledger line is still `in_progress`
-(it is settled from the run at the next reconciliation); a delegated child while its parent is kept; files still listed by a
-kept run (continuations inherit files). Continuing a run that was pruned returns 404, like any
+(it is settled from the run at the next reconciliation); delegated descendants of a kept ancestor; files still listed as inputs or artifacts by a
+kept run. When a producer is pruned, a retained artifact keeps its original agent read requirement, owner and subject. Continuing a run that was pruned returns 404, like any
 unknown response ID.
 
 How it runs: candidate runs are deleted in batches of 200 inside short `BEGIN IMMEDIATE`
 transactions, yielding to the event loop between batches, so requests keep being served. Blobs
 are removed after their rows commit; a crash in between leaves orphaned blobs, which the next
-prune removes. After a prune that deleted anything the WAL is checkpointed
-(`wal_checkpoint(TRUNCATE)`). Without `--vacuum`, SQLite reuses the freed pages, so the file stops
+prune removes. On a live gateway a contended write lock is retried between event-loop turns within the existing SQLite timeout. After deletion the gateway uses a passive WAL checkpoint rather than waiting for long-lived readers; the WAL may stay allocated for reuse. An offline prune still uses a truncating checkpoint. Without `--vacuum`, SQLite reuses the freed pages, so the file stops
 growing at the size of the retained window instead of shrinking.
 
 ## 5. Known limits

@@ -12,6 +12,8 @@ npm run soak -- --minutes 30 --concurrency 8 --retention-minutes 5 [--dir DIR] [
 
 `--concurrency` 指压测客户端数量，不是执行槽数。要比较节点容量，可运行 `npm run soak -- --minutes 30 --no-restarts --concurrency 8 --worker-slots 6`。可选的 `--worker-slots` 只覆盖隔离测试网关的配置，不改部署默认值；报告会记录配置容量及采样到的活跃任务数。
 
+加上 `--profile-prune` 后，报告会分别记录维护队列等待、选择候选、获取写锁、删除、提交、文件清扫、让出事件循环和 WAL 检查点的耗时。CLI 清理前、中、后的请求按完成时刻统计 P99；还有清理期间的健康探测及重叠采样窗口内的事件循环延迟。样本很少时不能把 P99 当作服务承诺。V8 物理堆、ArrayBuffer 和可用时的系统内存摘要用于定位 RSS；这些数值有重叠，不可直接相加。
+
 `bench/soak.ts` 不在 `npm test` 里。它会：
 
 - 在进程外启动一个**真实的网关进程**（`node dist/src/cli.js serve`），使用临时的 `HOME` 和数据目录，监听 `127.0.0.1` 的随机端口。一个很小的预加载模块（`bench/soak-probe.ts`）记录该进程自己的 RSS、堆和活动句柄，进程里别的东西都不改；
@@ -128,7 +130,7 @@ npm run soak -- --minutes 30 --concurrency 8 --retention-minutes 5 [--dir DIR] [
 
 永远不会被清理的：`queued`、`in_progress`、`requires_action` 或 `interrupted` 的运行；晚于截止时间的运行；开发者平台账本行仍是 `in_progress` 的运行（下次对账时会依据运行结算）；父运行仍被保留时它委托出去的子运行；仍被保留运行列出的文件（续接会继承文件）。续接一个已被清理的运行会返回 404，与任何未知的响应编号一样。
 
-执行方式：候选运行按每批 200 个、在短的 `BEGIN IMMEDIATE` 事务里删除，批与批之间让出事件循环，请求照常处理。文件在对应的行提交之后才删除；两者之间若发生崩溃，会留下孤儿文件，由下一次清理删掉。删掉了任何东西的清理之后会做 WAL 检查点（`wal_checkpoint(TRUNCATE)`）。不加 `--vacuum` 时，SQLite 会复用释放出的页，文件在保留窗口对应的大小处停止增长，而不会缩小。
+执行方式：候选运行按每批 200 个、在短的 `BEGIN IMMEDIATE` 事务里删除；在线争抢写锁时，在原 SQLite 超时预算内异步重试，只重试获取锁，不重放删除。保留祖先的委托后代也会保留；续接任务引用的产物仍可按原生产者授权下载，不因源运行过期而放宽权限。文件在对应的行提交后才删除；若中途崩溃，孤儿文件由下一次清理回收。在线删除后使用不等待读者退出的被动 WAL 检查点，WAL 可能保留空间供后续复用；离线清理仍使用 `wal_checkpoint(TRUNCATE)`。不加 `--vacuum` 不会主动缩小主数据库。
 
 ## 5. 已知限制
 
