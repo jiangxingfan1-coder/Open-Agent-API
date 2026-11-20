@@ -8,6 +8,7 @@ import type { Store } from '../store/store.js';
 import { openVerifiedFileStream } from '../store/large-artifacts.js';
 import type { Auth } from './auth.js';
 import { assertUploadRoom } from './upload-quota.js';
+import { artifactOriginAgent } from '../store/artifact-origin.js';
 
 // 文件上传（multipart 与 JSON 两种）与下载：POST /v1/files、GET /v1/files/:id/content。
 // 从 gateway/server.ts 拆出。
@@ -98,7 +99,12 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
     auth.require(req.principal, 'files');
     const visible = visibleSubject(req.principal);
     const file = store.file((req.params as { id: string }).id, req.principal.owner, visible);
-    if (file.runId) kernel.authorize(req.principal, store.run(file.runId).agentId, 'read');
+    if (file.runId)
+      kernel.authorize(
+        req.principal,
+        artifactOriginAgent(store, file.owner, file.id, file.runId),
+        'read',
+      );
     const { stream, bytes } = await openVerifiedFileStream(store, file);
     reply
       .header(

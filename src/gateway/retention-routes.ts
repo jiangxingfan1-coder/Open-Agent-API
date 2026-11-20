@@ -41,13 +41,27 @@ export function registerRetention(
 ): void {
   const target = prunable(store);
   const workerDataDir = config.localWorker?.dataDir;
-  let running: Promise<unknown> | undefined;
+  let running: Promise<void> | undefined;
+  let closing = false;
   /** One prune at a time: a second request waits for the first, then runs. */
   const once = async (options: PruneOptions) => {
-    while (running) await running.catch(() => undefined);
-    const job = prune(target, { workerDataDir, pause, ...options });
-    running = job.finally(() => (running = undefined));
-    return job;
+    const enqueued = performance.now();
+    while (running && !closing) await running;
+    if (closing) throw new Fault('shutting_down', 'Maintenance is closing.', 503);
+    const idle = Promise.withResolvers<void>();
+    running = idle.promise;
+    try {
+      return await prune(target, {
+        workerDataDir,
+        pause,
+        live: true,
+        queueMs: performance.now() - enqueued,
+        ...options,
+      });
+    } finally {
+      running = undefined;
+      idle.resolve();
+    }
   };
   app.post('/v1/maintenance/prune', async (req) => {
     auth.require(req.principal, 'admin');
@@ -69,6 +83,13 @@ export function registerRetention(
     });
   });
   const days = config.retention?.runsDays;
+  let timer: NodeJS.Timeout | undefined, first: NodeJS.Timeout | undefined;
+  app.addHook('preClose', async () => {
+    closing = true;
+    clearInterval(timer);
+    clearTimeout(first);
+    await running;
+  });
   if (days === undefined) return;
   const tick = () => {
     if (running) return;
@@ -80,14 +101,9 @@ export function registerRetention(
       (error: unknown) => app.log.warn({ err: error }, 'retention prune failed'),
     );
   };
-  const timer = setInterval(tick, (config.retention?.intervalMinutes ?? 60) * 60_000);
+  timer = setInterval(tick, (config.retention?.intervalMinutes ?? 60) * 60_000);
   timer.unref();
   // First pass shortly after startup, off the startup path.
-  const first = setTimeout(tick, 5_000);
+  first = setTimeout(tick, 5_000);
   first.unref();
-  app.addHook('onClose', async () => {
-    clearInterval(timer);
-    clearTimeout(first);
-    await running?.catch(() => undefined);
-  });
 }

@@ -27,6 +27,7 @@ import {
 } from './output.js';
 import { putPrivateMemory, deletePrivateMemory } from './private-memory.js';
 import { installRunOutcomes } from './run-outcomes.js';
+import { installArtifactOrigins } from './artifact-origin.js';
 import { indexRecoveryCandidates } from './recovery-candidates.js';
 import { getArtifactByteLimit } from './large-artifacts.js';
 import { validateStepCompletion, type CheckpointOptions } from './checkpoint.js';
@@ -161,6 +162,7 @@ export class Store {
       CREATE UNIQUE INDEX IF NOT EXISTS active_session ON runs(owner,session_id) WHERE status IN ('queued','in_progress','requires_action');
       CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), type TEXT NOT NULL, time INTEGER NOT NULL, payload TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS event_run ON events(run_id,id);
+      CREATE INDEX IF NOT EXISTS run_retention_session ON runs(session_id,owner);
       CREATE INDEX IF NOT EXISTS event_reconciliation ON events(run_id,id) WHERE type='step.reconciled';
       CREATE TABLE IF NOT EXISTS steps (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), payload TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS step_run ON steps(run_id);
@@ -179,6 +181,7 @@ export class Store {
         CREATE INDEX IF NOT EXISTS node_policy_owner ON node_policy_events(owner,node_id,id);
         CREATE TABLE IF NOT EXISTS memories (${MEMORY_COLUMNS});`);
       this.migrateSubjects();
+      installArtifactOrigins(this.db);
       installApprovalIndexes(this.db);
       indexRecoveryCandidates(this.db);
       if (version < 2) {
