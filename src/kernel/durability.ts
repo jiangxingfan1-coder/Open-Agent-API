@@ -11,6 +11,7 @@ import type { KernelRuntime } from './runtime.js';
 import { projectPrincipal } from './project-memory.js';
 import { projects } from '../store/projects.js';
 import { workflowAllowsChildRecovery } from '../store/task-workflows.js';
+import { recoveryCandidates, isRecoveryCause } from '../store/recovery-candidates.js';
 
 export function durability(
   agent: AgentDefinition,
@@ -41,13 +42,11 @@ export function recoverDurable(
   rt: KernelRuntime,
   resume: (principal: Principal, id: string) => Run,
 ) {
-  for (const run of rt.store.allRuns(['interrupted'])) {
+  for (const id of recoveryCandidates(rt.store)) {
+    const run = rt.store.run(id);
     const policy = run.checkpoint.durability;
-    if (
-      !policy ||
-      !['gateway_restarted', 'shutting_down', 'cancelled'].includes(run.error?.code ?? '')
-    )
-      continue;
+    if (!policy || run.status !== 'interrupted' || !isRecoveryCause(run.error?.code)) continue;
+    let attempted = false;
     try {
       if (!workflowAllowsChildRecovery(rt.store, run))
         throw new Fault(
@@ -84,14 +83,16 @@ export function recoverDurable(
         execution: run.checkpoint.execution,
         hostAgents: run.checkpoint.hostAgents,
       };
-      policy.attempts++;
-      rt.store.save(run);
-      const resumed = resume(principal, run.id);
-      resumed.metadata['oaa.recovery'] = 'resumed';
-      rt.store.save(resumed);
+      attempted = true;
+      resume(principal, run.id);
     } catch (error) {
-      run.metadata['oaa.recovery'] = faultOf(error).code;
-      rt.store.save(run);
+      const code = faultOf(error).code;
+      if (!attempted && run.metadata['oaa.recovery'] === code) continue;
+      const current = rt.store.run(id);
+      if (current.status !== 'interrupted' || !current.checkpoint.durability) continue;
+      if (attempted) current.checkpoint.durability.attempts++;
+      current.metadata['oaa.recovery'] = code;
+      rt.store.save(current);
     }
   }
 }

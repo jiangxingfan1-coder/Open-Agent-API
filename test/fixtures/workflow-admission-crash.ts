@@ -9,7 +9,10 @@ const gateway = await createGateway(
   config,
   new WorkerRuntime(config.localWorker!, new Map(), new Map([['fixture', new FixtureModel()]])),
 );
-gateway.store.events.on('summary', (event: { runId: string; status: string }) => {
+const afterCompletion = process.argv[3] === 'completion';
+gateway.store.events.prependListener('summary', (event: { runId: string; status: string }) => {
+  // Exit after the source transaction commits, before the runner can consume its notification.
+  if (afterCompletion && event.status === 'completed') process.exit(74);
   if (
     event.status === 'queued' &&
     gateway.store.run(event.runId).metadata['oaa.workflow_execution']
@@ -18,8 +21,8 @@ gateway.store.events.on('summary', (event: { runId: string; status: string }) =>
 });
 await gateway.app.inject({
   method: 'POST',
-  url: '/v1/workflows/probe/run',
+  url: afterCompletion ? '/v1/responses' : '/v1/workflows/probe/run',
   headers: { authorization: `Bearer ${token}` },
-  payload: {},
+  payload: afterCompletion ? { model: 'agent/source', input: 'Complete the source task.' } : {},
 });
 throw new Error('Child admission crash point was not reached.');

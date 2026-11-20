@@ -13,6 +13,11 @@ import { cronMatchesMinute, cronMinuteSlot } from '../lang/cron.js';
 import { executeGraph, projectGraphOutput } from '../lang/graph.js';
 import { invocationSchema } from './invocation.js';
 import { projects } from '../store/projects.js';
+import {
+  WORKFLOW_EVENT_READY,
+  type PendingWorkflowEvent,
+  type WorkflowEventKey,
+} from '../store/workflow-events.js';
 
 type WorkflowExecution = Execution<TaskWorkflow>;
 type WorkflowRecord = StoredWorkflow<TaskWorkflow>;
@@ -21,43 +26,17 @@ export class WorkflowRunner {
   private tasks = new Map<string, { controller: AbortController; work: Promise<void> }>();
   private closed = false;
   private timer?: NodeJS.Timeout;
-  private observe = (event: { owner: string; runId: string; status: string; agentId: string }) => {
-    if (event.status !== 'completed' || this.closed) return;
-    const run = this.store.run(event.runId, event.owner);
-    if (run.metadata['oaa.workflow_execution'] || run.metadata['oaa.evaluation']) return;
-    for (const record of this.records.list(event.owner)) {
-      const trigger = record.definition.trigger;
-      if (
-        record.archivedAt ||
-        !record.definition.enabled ||
-        trigger.kind !== 'event' ||
-        trigger.agent !== event.agentId ||
-        (trigger.subject ?? principalSubject(record.authority)) !== run.subject
-      )
-        continue;
-      try {
-        const key = `event:${record.revision}:${event.runId}`;
-        const input = {
-          run_id: run.id,
-          agent: run.agentId,
-          output: run.output
-            .map((m) => m.text)
-            .join('\n')
-            .slice(0, 12000),
-        };
-        this.trigger(record, input, key);
-      } catch (error) {
-        try {
-          this.records.noteTrigger(
-            event.owner,
-            record.definition.id,
-            record.revision,
-            faultOf(error).code,
-          );
-        } catch {
-          /* Observation cannot change the source task result. */
-        }
-      }
+  private immediate?: NodeJS.Immediate;
+  private retryTimer?: NodeJS.Timeout;
+  private retrying = new Set<string>();
+  private lastWarning = -Infinity;
+  private observe = (key: WorkflowEventKey) => {
+    if (this.closed) return;
+    try {
+      const pending = this.records.pendingEvent(key);
+      if (pending) this.deliver(pending);
+    } catch {
+      this.retryLater();
     }
   };
   constructor(
@@ -66,11 +45,40 @@ export class WorkflowRunner {
     private readonly refresh: (p: Principal) => Principal,
   ) {
     this.records = new TaskWorkflows<TaskWorkflow>(store);
-    store.events.on('summary', this.observe);
+    store.events.on(WORKFLOW_EVENT_READY, this.observe);
   }
   start() {
-    this.timer ??= setInterval(() => this.tick(), 15000).unref();
-    setImmediate(() => this.tick());
+    if (this.closed) return;
+    this.timer ??= setInterval(() => this.wake(), 15000).unref();
+    this.wake();
+  }
+  private wake() {
+    if (this.closed || this.immediate) return;
+    this.immediate = setImmediate(() => {
+      this.immediate = undefined;
+      try {
+        this.tick();
+      } catch {
+        this.retryLater();
+      }
+    });
+  }
+  private retryLater(execution?: string) {
+    if (this.closed) return;
+    if (execution) this.retrying.add(execution);
+    if (this.retryTimer) return;
+    if (Date.now() - this.lastWarning >= 60000) {
+      this.lastWarning = Date.now();
+      process.emitWarning(
+        'Workflow scheduling could not finish; retrying from committed state.',
+        'OAAWorkflowRetry',
+      );
+    }
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      this.retrying.clear();
+      this.wake();
+    }, 1000).unref();
   }
   authorize(p: Principal, record: WorkflowRecord) {
     for (const agent of workflowAgents(record.definition))
@@ -92,25 +100,37 @@ export class WorkflowRunner {
       trigger_status: record.triggerStatus,
     };
   }
+  private deliver(pending: PendingWorkflowEvent) {
+    const { owner, workflow, event } = pending;
+    const record = this.records.find(owner, workflow);
+    if (
+      !record ||
+      record.archivedAt ||
+      !record.definition.enabled ||
+      record.definition.trigger.kind !== 'event' ||
+      record.revision !== pending.revision
+    ) {
+      this.records.dropPending(owner, workflow, event);
+      return;
+    }
+    try {
+      this.trigger(record, JSON.parse(String(pending.input)), event);
+    } catch (error) {
+      if (!(error instanceof Fault)) throw error;
+      const code = faultOf(error).code;
+      // A changed grant is not a transient capacity failure.
+      if (code === 'concurrency_limit')
+        this.records.noteTrigger(owner, workflow, record.revision, code);
+      else this.records.rejectPending(pending, code);
+    }
+  }
   tick(now = Date.now()) {
     if (this.closed) return;
     for (const pending of this.records.pendingEvents()) {
-      const owner = String(pending.owner),
-        workflow = String(pending.workflow),
-        event = String(pending.event);
-      const record = this.records.get(owner, workflow);
-      if (record.archivedAt || !record.definition.enabled || record.revision !== pending.revision) {
-        this.records.dropPending(owner, workflow, event);
-        continue;
-      }
       try {
-        this.trigger(record, JSON.parse(String(pending.input)), event);
-      } catch (error) {
-        const code = faultOf(error).code;
-        // A changed grant is not a transient capacity failure.
-        if (error instanceof Fault && code !== 'concurrency_limit')
-          this.records.dropPending(owner, workflow, event);
-        this.records.noteTrigger(owner, workflow, record.revision, code);
+        this.deliver(pending);
+      } catch {
+        this.retryLater();
       }
     }
     for (const record of this.records.list()) {
@@ -150,7 +170,7 @@ export class WorkflowRunner {
     }
     for (const execution of this.records.executions(undefined, true)) {
       if (this.tasks.size >= 4) break;
-      if (!this.tasks.has(execution.id)) this.run(execution);
+      if (!this.tasks.has(execution.id) && !this.retrying.has(execution.id)) this.run(execution);
     }
   }
   private admission(
@@ -188,7 +208,6 @@ export class WorkflowRunner {
     if (!execution) return;
     // Child execution must not start until both its queue row and receipt have committed.
     if (this.tasks.size < 4) this.run(execution);
-    this.records.noteTrigger(execution.owner, record.definition.id, record.revision);
   }
   launch(principal: Principal, record: WorkflowRecord, input: unknown, fileIds: string[]) {
     const execution = this.records.create(this.admission(principal, record, input, fileIds));
@@ -197,20 +216,27 @@ export class WorkflowRunner {
   }
   private run(execution: WorkflowExecution) {
     const controller = new AbortController();
-    const work = (
+    const work =
       execution.status === 'cancelling'
         ? this.finishCancellation(execution)
-        : this.execute(execution, controller.signal)
-    ).finally(() => {
-      this.tasks.delete(execution.id);
-      if (!this.closed) setImmediate(() => this.tick());
-    });
+        : this.execute(execution, controller.signal);
     this.tasks.set(execution.id, { controller, work });
+    // Explicit waiters still see the error; a failed background checkpoint cannot crash the process.
+    void work.then(
+      () => {
+        this.tasks.delete(execution.id);
+        this.wake();
+      },
+      () => {
+        this.tasks.delete(execution.id);
+        this.retryLater(execution.id);
+      },
+    );
     return work;
   }
   private async execute(execution: WorkflowExecution, signal: AbortSignal) {
+    this.records.save({ ...execution, status: 'running' });
     execution.status = 'running';
-    this.records.save(execution);
     try {
       const p = this.refresh(execution.authority);
       this.authorize(p, {
@@ -385,7 +411,10 @@ export class WorkflowRunner {
   async close() {
     this.closed = true;
     clearInterval(this.timer);
-    this.store.events.off('summary', this.observe);
+    clearImmediate(this.immediate);
+    clearTimeout(this.retryTimer);
+    this.retrying.clear();
+    this.store.events.off(WORKFLOW_EVENT_READY, this.observe);
     for (const task of this.tasks.values()) task.controller.abort();
     await Promise.allSettled([...this.tasks.values()].map((t) => t.work));
   }

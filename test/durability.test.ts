@@ -6,6 +6,8 @@ import { createGateway } from '../src/gateway/server.js';
 import { WorkerRuntime } from '../src/fabric/worker.js';
 import { sleep } from '../src/core/util.js';
 import { durability } from '../src/kernel/durability.js';
+import { indexRecoveryCandidates, recoveryCandidates } from '../src/store/recovery-candidates.js';
+import { DatabaseSync } from 'node:sqlite';
 
 test('durable workspace tasks automatically resume after restart without replaying completed writes', async () => {
   const driver = new FixtureModel(async (_a, messages, signal) => {
@@ -47,6 +49,17 @@ test('durable workspace tasks automatically resume after restart without replayi
       s.config,
       new WorkerRuntime(s.config.localWorker!, new Map(), new Map([['fixture', nextDriver]])),
     );
+    const admitted: { attempts: number | undefined; marker: string | undefined }[] = [];
+    const db = next.store;
+    db.events.on('summary', (event: { runId: string; status: string }) => {
+      if (event.runId === id && event.status === 'queued') {
+        const persisted = db.run(id);
+        admitted.push({
+          attempts: persisted.checkpoint.durability?.attempts,
+          marker: persisted.metadata['oaa.recovery'],
+        });
+      }
+    });
     await next.listen();
     const done = await next.kernel.wait(id);
     assert.equal(done.status, 'completed', JSON.stringify(done.error));
@@ -55,9 +68,48 @@ test('durable workspace tasks automatically resume after restart without replayi
     assert.equal(done.artifactIds.length, 1);
     assert.equal(nextDriver.calls, 1);
     assert.equal(next.store.steps(id).length, 1);
+    assert.deepEqual(admitted, [{ attempts: 1, marker: 'resumed' }]);
   } finally {
     await next?.app.close();
     await s.cleanup();
+  }
+});
+
+test('startup visits only durable interruption candidates in row order while requeue writes change the index', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.exec('CREATE TABLE runs(id TEXT PRIMARY KEY,status TEXT NOT NULL,payload TEXT NOT NULL)');
+    const insert = db.prepare('INSERT INTO runs VALUES(?,?,?)');
+    insert.run('old-invalid', 'interrupted', 'legacy-invalid');
+    const expected: string[] = [];
+    for (let i = 0; i < 1000; i++) {
+      const status = i % 2 ? 'completed' : 'interrupted',
+        durable = i % 3 === 0,
+        eligibleError = i % 5 !== 0;
+      const code = eligibleError
+        ? ['gateway_restarted', 'shutting_down', 'cancelled'][Math.floor(i / 3) % 3]
+        : 'effect_outcome_unknown';
+      insert.run(
+        'run' + i,
+        status,
+        JSON.stringify({
+          checkpoint: durable ? { durability: { attempts: 0 } } : {},
+          error: { code },
+        }),
+      );
+      if (status === 'interrupted' && durable && eligibleError) expected.push('run' + i);
+    }
+    indexRecoveryCandidates(db);
+    const visited: string[] = [];
+    for (const id of recoveryCandidates(db)) {
+      visited.push(id);
+      db.prepare("UPDATE runs SET status='queued' WHERE id=?").run(id);
+    }
+    assert.ok(expected.length > 128);
+    assert.deepEqual(visited, expected);
+    assert.deepEqual([...recoveryCandidates(db)], []);
+  } finally {
+    db.close();
   }
 });
 

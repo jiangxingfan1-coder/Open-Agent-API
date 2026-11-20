@@ -2,6 +2,11 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { Principal, Run, RunStatus } from '../core/contracts.js';
 import { Fault, canonical, sha, id } from '../core/util.js';
 import { withSavepoint } from './savepoint.js';
+import {
+  enableWorkflowEvents,
+  type PendingWorkflowEvent,
+  type WorkflowEventKey,
+} from './workflow-events.js';
 
 type Database = { db: DatabaseSync; prepare(sql: string): StatementSync };
 export const RECOVERABLE_WORKFLOW_STATES = "('queued','running','cancelling','blocked')";
@@ -95,6 +100,7 @@ export class TaskWorkflows<T extends { id: string }> {
       CREATE TABLE IF NOT EXISTS workflow_pending_events(owner TEXT NOT NULL,workflow TEXT NOT NULL,event TEXT NOT NULL,revision TEXT NOT NULL,input TEXT NOT NULL,PRIMARY KEY(owner,workflow,event));
       CREATE INDEX IF NOT EXISTS workflow_active_owner ON workflow_executions(owner,status);
     `);
+    enableWorkflowEvents(store.db);
   }
   list(owner?: string): WorkflowRecord<T>[] {
     return this.store
@@ -103,11 +109,15 @@ export class TaskWorkflows<T extends { id: string }> {
       .map((row) => JSON.parse(String(row.payload)) as WorkflowRecord<T>);
   }
   get(owner: string, key: string): WorkflowRecord<T> {
+    const record = this.find(owner, key);
+    if (!record) throw new Fault('scope_denied', 'Workflow not available.', 403);
+    return record;
+  }
+  find(owner: string, key: string): WorkflowRecord<T> | undefined {
     const row = this.store
       .prepare('SELECT payload FROM task_workflows WHERE owner=? AND id=?')
       .get(owner, key);
-    if (!row) throw new Fault('scope_denied', 'Workflow not available.', 403);
-    return JSON.parse(String(row.payload)) as WorkflowRecord<T>;
+    return row ? (JSON.parse(String(row.payload)) as WorkflowRecord<T>) : undefined;
   }
   put(owner: string, definition: T, authority: Principal, previous: string) {
     const row = this.store
@@ -234,7 +244,7 @@ export class TaskWorkflows<T extends { id: string }> {
   admitTrigger(value: Parameters<TaskWorkflows<T>['create']>[0], event: string) {
     const { owner, definition } = value;
     const args = [owner, definition.id, event];
-    const admitted = withSavepoint(this.store.db, () => {
+    return withSavepoint(this.store.db, () => {
       if (
         this.store
           .prepare(
@@ -245,56 +255,46 @@ export class TaskWorkflows<T extends { id: string }> {
         this.dropPending(owner, definition.id, event);
         return;
       }
-      let execution: WorkflowExecution<T>;
-      try {
-        execution = this.create(value);
-      } catch (error) {
-        if (!(
-          error instanceof Fault &&
-          error.code === 'concurrency_limit' &&
-          event.startsWith('event:')
-        ))
-          throw error;
-        this.deferEvent(value, event, value.input);
-        return error; // Commit the pending event, but never a receipt for work that was not admitted.
-      }
+      const execution = this.create(value);
       this.store.prepare('INSERT INTO workflow_trigger_receipts VALUES(?,?,?)').run(...args);
       this.dropPending(owner, definition.id, event);
+      this.noteTrigger(owner, definition.id, value.revision);
       return execution;
     });
-    if (admitted instanceof Fault) throw admitted;
-    return admitted;
   }
-  private deferEvent(record: WorkflowRecord<T>, event: string, input: unknown) {
-    const owner = record.authority.owner;
-    const args = [owner, record.definition.id, event];
-    if (
-      this.store
-        .prepare('SELECT 1 FROM workflow_pending_events WHERE owner=? AND workflow=? AND event=?')
-        .get(...args)
-    )
-      return;
-    const count = this.store
-      .prepare('SELECT count(*) AS n FROM workflow_pending_events WHERE owner=?')
-      .get(owner);
-    if (Number(count?.n) >= 256)
-      throw new Fault('queue_full', 'The workflow trigger backlog is full.', 429);
-    this.store
-      .prepare('INSERT INTO workflow_pending_events VALUES(?,?,?,?,?)')
-      .run(...args, record.revision, JSON.stringify(input));
-  }
-  pendingEvents() {
+  pendingEvents(): PendingWorkflowEvent[] {
     return this.store
       .prepare(
         `SELECT p.* FROM workflow_pending_events p WHERE
       (SELECT count(*) FROM workflow_executions e WHERE e.owner=p.owner AND e.status IN ('queued','running','cancelling')) < 32
       ORDER BY p.rowid LIMIT 32`,
       )
-      .all();
+      .all()
+      .map((r) => ({
+        owner: String(r.owner),
+        workflow: String(r.workflow),
+        revision: String(r.revision),
+        event: String(r.event),
+        input: String(r.input),
+      }));
+  }
+  pendingEvent(key: WorkflowEventKey): PendingWorkflowEvent | undefined {
+    const row = this.store
+      .prepare(
+        'SELECT revision,input FROM workflow_pending_events WHERE owner=? AND workflow=? AND event=?',
+      )
+      .get(key.owner, key.workflow, key.event);
+    return row ? { ...key, revision: String(row.revision), input: String(row.input) } : undefined;
   }
   dropPending(owner: string, workflow: string, event: string) {
     this.store
       .prepare('DELETE FROM workflow_pending_events WHERE owner=? AND workflow=? AND event=?')
       .run(owner, workflow, event);
+  }
+  rejectPending(pending: PendingWorkflowEvent, code: string) {
+    withSavepoint(this.store.db, () => {
+      this.noteTrigger(pending.owner, pending.workflow, pending.revision, code);
+      this.dropPending(pending.owner, pending.workflow, pending.event);
+    });
   }
 }

@@ -27,7 +27,14 @@ import {
 } from './output.js';
 import { putPrivateMemory, deletePrivateMemory } from './private-memory.js';
 import { installRunOutcomes } from './run-outcomes.js';
+import { indexRecoveryCandidates } from './recovery-candidates.js';
 import { getArtifactByteLimit } from './large-artifacts.js';
+import { validateStepCompletion, type CheckpointOptions } from './checkpoint.js';
+import {
+  stageWorkflowCompletion,
+  WORKFLOW_EVENT_READY,
+  type WorkflowEventKey,
+} from './workflow-events.js';
 import { refreshWaiting, waitingOn } from './waiting.js';
 import {
   approvalRows,
@@ -173,6 +180,7 @@ export class Store {
         CREATE TABLE IF NOT EXISTS memories (${MEMORY_COLUMNS});`);
       this.migrateSubjects();
       installApprovalIndexes(this.db);
+      indexRecoveryCandidates(this.db);
       if (version < 2) {
         for (const row of this.prepare('SELECT payload FROM runs ORDER BY rowid').all()) {
           const run = JSON.parse(row.payload as string) as Run;
@@ -1000,24 +1008,7 @@ export class Store {
     event: EventInput,
     artifactIds: string[] = [],
   ): void {
-    if (step.runId !== run.id || step.status !== 'completed')
-      throw new Fault(
-        'invalid_step_checkpoint',
-        'A completed step must belong to its checkpointed run.',
-        409,
-      );
-    if (
-      !['tool.completed', 'subagent.completed'].includes(event.type) ||
-      event.data.step_id !== step.id
-    )
-      throw new Fault(
-        'invalid_step_checkpoint',
-        'The completion event must identify the checkpointed step.',
-        409,
-      );
-    for (const id of artifactIds)
-      if (this.file(id, run.owner).runId !== run.id)
-        throw new Fault('invalid_step_artifact', 'A step artifact must belong to this run.', 403);
+    validateStepCompletion(this, run, step, artifactIds, event);
     this.record(run, [event], true, { completion: { step, artifactIds } });
   }
   /**
@@ -1030,15 +1021,7 @@ export class Store {
     events: EventInput[],
     artifactIds: string[],
   ): void {
-    if (step.runId !== run.id || step.status !== 'completed')
-      throw new Fault(
-        'invalid_step_checkpoint',
-        'A completed step must belong to its checkpointed run.',
-        409,
-      );
-    for (const id of artifactIds)
-      if (this.file(id, run.owner).runId !== run.id)
-        throw new Fault('invalid_step_artifact', 'A step artifact must belong to this run.', 403);
+    validateStepCompletion(this, run, step, artifactIds);
     this.record(run, events, true, { completion: { step, artifactIds } });
   }
   recordOutput(run: Run, events: EventInput[]): void {
@@ -1053,21 +1036,7 @@ export class Store {
     run: Run,
     specs: EventInput[],
     snapshot: boolean,
-    {
-      final,
-      completion,
-      reassign,
-      stageAdmission,
-      actions,
-      committed,
-    }: {
-      final?: (view: Run) => EventInput;
-      completion?: { step: ExecutionStep; artifactIds: string[] };
-      reassign?: boolean;
-      stageAdmission?: () => () => void;
-      actions?: Approval[] | 'expire';
-      committed?: () => void;
-    } = {},
+    { final, completion, reassign, stageAdmission, actions, committed }: CheckpointOptions = {},
   ): void {
     const owner = this.ownerOf(run.id);
     if (owner !== run.owner) throw new Fault('run_not_found', 'Response not found.', 404);
@@ -1084,8 +1053,14 @@ export class Store {
     const events: RunEvent[] = [];
     let publishAdmission: (() => void) | undefined;
     let changed: Approval[] = [];
+    let pending: WorkflowEventKey[] = [];
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      const completing =
+        snapshot &&
+        final &&
+        view.status === 'completed' &&
+        !this.prepare("SELECT 1 FROM runs WHERE id=? AND status='completed'").get(run.id);
       if (actions) changed = changeApprovalRows(this, run, actions);
       if (completion) this.step(completion.step);
       if (reassign) {
@@ -1110,6 +1085,17 @@ export class Store {
             500,
           );
         events.push(this.insertEvent(run.id, event, view.updatedAt));
+        if (completing && event.type === 'response.completed') {
+          try {
+            pending = stageWorkflowCompletion(this, view);
+          } catch {
+            throw new Fault(
+              'persistence_failed',
+              'Could not checkpoint the workflow completion event.',
+              500,
+            );
+          }
+        }
       }
       publishAdmission = stageAdmission?.();
       this.db.exec('COMMIT');
@@ -1129,6 +1115,7 @@ export class Store {
       // Delivered only after commit: summary/metrics read models never see provisional state.
       ...(snapshot ? [{ name: 'summary', value: this.summaryChange(view) }] : []),
       ...changed.map((a) => ({ name: `approval:${a.id}`, value: a })),
+      ...pending.map((value) => ({ name: WORKFLOW_EVENT_READY, value })),
     ]);
   }
   /**

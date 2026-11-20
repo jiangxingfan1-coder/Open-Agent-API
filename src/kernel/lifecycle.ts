@@ -12,7 +12,7 @@ import { supportsReasoning } from '../fabric/model-pool.js';
 import { workflowAllowsChildRecovery } from '../store/task-workflows.js';
 
 export function start(rt: KernelRuntime): void {
-  recoverDurable(rt, (principal, id) => resume(rt, principal, id));
+  recoverDurable(rt, (principal, id) => resume(rt, principal, id, undefined, 'automatic'));
   for (const run of rt.store.allRuns(['queued', 'requires_action'])) {
     const parentId = run.metadata?.['oaa.parent_run_id'];
     if ((parentId && !parentActive(rt, parentId)) || !workflowAllowsChildRecovery(rt.store, run)) {
@@ -125,6 +125,7 @@ export function resume(
   principal: Principal,
   runId: string,
   providerKey?: string,
+  mode: 'operator' | 'automatic' = 'operator',
 ): Run {
   const run = rt.store.run(runId, principal.owner, visibleSubject(principal));
   authorize(principal, run.agentId, 'invoke');
@@ -175,6 +176,10 @@ export function resume(
   run.error = null;
   delete run.checkpoint.suspension;
   if (!run.checkpoint.durability) delete run.checkpoint.deadlineAt;
+  if (mode === 'automatic' && run.checkpoint.durability) {
+    run.checkpoint.durability.attempts++;
+    run.metadata['oaa.recovery'] = 'resumed';
+  }
   rt.store.save(run, () => {
     const account = rt.auth()?.stageRejoinKeyRun(run.checkpoint.keyId, runId);
     return () => {
