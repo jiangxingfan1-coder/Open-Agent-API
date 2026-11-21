@@ -18,7 +18,8 @@ import { responseObject } from './response-object.js';
 import { asRoutingStrategy, resolveSemanticProfile } from './routing.js';
 import { Fault, canonical, faultOf, id, scopeDenied, sha } from '../core/util.js';
 import { LIMITS } from '../core/limits.js';
-import type { RunWriteMode } from '../store/write-lock.js';
+import type { SubmissionOptions } from './types.js';
+import { replayId } from '../store/run-creation.js';
 import { agentFallbackChain, routeInspector, toTopologyHint } from './fallback.js';
 import { portableSessions, prepareRunHandoff } from './handoff.js';
 import type { KernelRuntime } from './runtime.js';
@@ -272,8 +273,7 @@ export function submit(
   idem?: string,
   providerKey?: string,
   trace?: TraceContext,
-  linkStage?: (run: Run) => void,
-  writeMode?: RunWriteMode,
+  { linkStage, writeMode, delegate }: SubmissionOptions = {},
 ): Run {
   if (rt.closing()) throw new Fault('shutting_down', 'Gateway is shutting down.', 503);
   authorize(principal, invocation.agent, 'invoke');
@@ -290,11 +290,9 @@ export function submit(
   );
   const subject = principalSubject(principal);
   if (idem) {
-    const row = rt.store.findIdempotent(principal.owner, subject, idem);
-    if (row) {
-      if (row.fingerprint !== fingerprint)
-        throw new Fault('idempotency_conflict', 'The key was used for different input.', 409);
-      const found = rt.store.run(row.id, principal.owner, subject);
+    const existing = replayId(rt.store.findIdempotent(principal.owner, subject, idem), fingerprint);
+    if (existing) {
+      const found = rt.store.run(existing, principal.owner, subject);
       linkStage?.(found);
       return found;
     }
@@ -542,6 +540,15 @@ export function submit(
   };
   if (invocation.output_contract)
     run.metadata = { ...run.metadata, 'oaa.output_contract': invocation.output_contract.kind };
+  if (delegate) {
+    run.checkpoint.delegationDepth = delegate.depth;
+    run.checkpoint.parentStepId = delegate.step.id;
+    if (delegate.project) {
+      run.checkpoint.project = { ...delegate.project };
+      const last = run.checkpoint.messages.at(-1);
+      if (last?.role === 'user') last.content += delegate.project.context;
+    }
+  }
   const created = rt.store.createRun(
     run,
     idem,
@@ -561,6 +568,7 @@ export function submit(
       };
     },
     writeMode,
+    delegate,
   );
   if (!created.created) linkStage?.(created.run);
   return created.run;

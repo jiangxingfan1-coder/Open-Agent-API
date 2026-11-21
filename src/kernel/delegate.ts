@@ -2,7 +2,7 @@
  * 委托步骤：把一次工具调用交给子智能体，作为一个后台子运行执行，父运行等它结束。
  *
  * 一致性规则（docs/architecture.md「委托步骤的副作用等级」）：
- * - 子运行提交成功后、开始等待前，子运行 ID 登记在步骤记录的 `childRunId` 上。
+ * - 子运行、其继承的检查点、父步骤的 childRunId 和开始事件一起提交，提交后才允许派发。
  * - 恢复重放到这一步时先找已登记的子运行：已完成直接取结果；仍活跃继续等；已中断或结果未知
  *   （等级不是 read）则步骤为 uncertain，等人工确认；失败、取消或未完成时，等级为 read /
  *   idempotent-write 才重新委托，unknown 也要人工确认。
@@ -29,6 +29,8 @@ import type { Store } from '../store/store.js';
 import type { Invocation } from './invocation.js';
 import { addUsage, stepIdFor } from './run-state.js';
 import { contractInstruction } from './output-contract.js';
+import type { DelegateAdmission } from './types.js';
+import { UnconfirmedRunCommit } from '../store/run-creation.js';
 
 /** 委托需要的内核能力。由 Kernel 显式提供，不暴露它的私有字段。 */
 export interface DelegateRuntime {
@@ -36,9 +38,9 @@ export interface DelegateRuntime {
   submit(
     principal: Principal,
     invocation: Invocation,
-    idem?: string,
-    providerKey?: string,
-    trace?: TraceContext,
+    providerKey: string | undefined,
+    trace: TraceContext | undefined,
+    delegate: DelegateAdmission,
   ): Run;
   wait(runId: string, includeActions: boolean, signal: AbortSignal): Promise<Run>;
   cancel(principal: Principal, runId: string): Promise<Run>;
@@ -190,11 +192,21 @@ export async function callDelegate(
   if (existing?.childRunId) {
     let prior: Run | undefined;
     try {
-      prior = store.run(existing.childRunId);
-    } catch {
-      // A missing prior child run means the delegate starts fresh.
+      prior = store.run(existing.childRunId, run.owner, run.subject ?? LEGACY_SUBJECT);
+    } catch (error) {
+      // An unreadable receipt is not evidence that no execution took place. Even a
+      // confirmed missing child can be replayed without reconciliation only for a read.
+      if (!(error instanceof Fault && error.code === 'run_not_found'))
+        unconfirmed('persistence_failed', existing.childRunId);
+      if (step.effect !== 'read') unconfirmed('run_not_found', existing.childRunId);
     }
     if (prior) {
+      if (
+        prior.metadata['oaa.parent_run_id'] !== run.id ||
+        prior.metadata['oaa.delegate_name'] !== delegate.name ||
+        (prior.checkpoint.parentStepId !== undefined && prior.checkpoint.parentStepId !== stepId)
+      )
+        unconfirmed('invalid_step_checkpoint', prior.id);
       const decision = replayDecision(step.effect, prior);
       if (decision === 'reuse') return finish(store, run, delegate, step, prior, slice);
       if (decision === 'uncertain')
@@ -204,15 +216,18 @@ export async function callDelegate(
   }
 
   step.status = 'running';
-  store.step(step, {
-    type: 'subagent.started',
-    data: {
-      step_id: stepId,
-      delegate: delegate.name,
-      target_agent: delegate.agent,
-      depth,
-    },
-  });
+  if (childRun)
+    store.step(step, {
+      type: 'subagent.started',
+      data: {
+        step_id: stepId,
+        delegate: delegate.name,
+        target_agent: delegate.agent,
+        depth,
+        child_run_id: childRun.id,
+        reattached: true,
+      },
+    });
 
   if (!childRun) {
     try {
@@ -250,26 +265,27 @@ export async function callDelegate(
             'oaa.delegate_name': delegate.name,
           },
         },
-        undefined,
         childKey,
         run.trace ? childTraceContext(run.trace) : undefined,
+        { step, depth, project: run.checkpoint.project },
       );
     } catch (err) {
-      const f = faultOf(err);
+      // An unconfirmed COMMIT may already contain the link. The parent terminal
+      // checkpoint preserves the uncertain step atomically; never replace it with a failure.
+      if (err instanceof UnconfirmedRunCommit) throw err;
+      const f =
+        err instanceof Error && 'code' in err && err.code === 'ERR_SQLITE_ERROR'
+          ? new Fault(
+              'persistence_failed',
+              'The delegated run could not be stored with its parent step.',
+              500,
+            )
+          : faultOf(err);
       fail('failed', f.code);
       throw f;
     }
-    childRun.checkpoint.delegationDepth = depth;
-    if (run.checkpoint.project) {
-      childRun.checkpoint.project = { ...run.checkpoint.project };
-      const last = childRun.checkpoint.messages.at(-1);
-      if (last?.role === 'user') last.content += run.checkpoint.project.context;
-    }
-    childRun.checkpoint.grantedAgents = [...grantedAgents];
-    store.save(childRun);
-    // 登记子运行：之后无论怎样中断，恢复时都能重新挂上它。
+    // The durable link already exists; later updates use the same child in this execution.
     step.childRunId = childRun.id;
-    store.step(step);
   }
   const child = childRun;
   rt.prioritize(child.id);

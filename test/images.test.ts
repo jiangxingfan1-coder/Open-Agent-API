@@ -1246,6 +1246,62 @@ for (const share of [false, true])
     }
   });
 
+test('images: an unconfirmed HTTP admission never discards an input its committed run may own', async (t) => {
+  const s = await imageGateway();
+  try {
+    const db = s.store.db;
+    let armed = false,
+      readback = false;
+    const io = () =>
+      Object.assign(new Error('fixture write acknowledgement unavailable'), {
+        code: 'ERR_SQLITE_ERROR',
+        errcode: 10,
+      });
+    db.function('mark_run', () => {
+      armed = true;
+      return 1;
+    });
+    db.exec(
+      'CREATE TEMP TRIGGER mark_admission AFTER INSERT ON runs BEGIN SELECT mark_run(); END;',
+    );
+    const exec = db.exec.bind(db),
+      prepare = s.store.prepare.bind(s.store);
+    t.mock.method(db, 'exec', (sql: string) => {
+      if (armed && sql === 'COMMIT') {
+        armed = false;
+        exec(sql);
+        readback = true;
+        throw io();
+      }
+      return exec(sql);
+    });
+    t.mock.method(s.store, 'prepare', (sql: string) => {
+      if (readback) {
+        readback = false;
+        throw io();
+      }
+      return prepare(sql);
+    });
+    const response = await s.request('POST', '/v1/chat/completions', {
+      model: 'agent/vision',
+      messages: [
+        { role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl(PNG) } }] },
+      ],
+    });
+    assert.equal(response.statusCode, 409, response.body);
+    assert.equal(response.json().error.code, 'effect_outcome_unknown');
+    assert.equal(response.headers['x-should-retry'], 'false');
+    assert.equal(s.seen.length, 0);
+    const [run] = s.store.allRuns();
+    assert.equal(run?.status, 'queued');
+    assert.equal(response.json().error.run_id, run!.id);
+    assert.equal(storedBytes(s), PNG.length);
+    assert.equal((await s.request('GET', `/v1/files/${run!.fileIds[0]}/content`)).statusCode, 200);
+  } finally {
+    await s.cleanup();
+  }
+});
+
 test('images: with caller tools (auto bridge) the image stays in the bridged and resumed turns', async () => {
   const s = await imageGateway();
   const calls: number[] = [];

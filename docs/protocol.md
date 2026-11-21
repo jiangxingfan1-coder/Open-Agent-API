@@ -788,7 +788,7 @@ Error codes and response shapes do not depend on language; only the text of `mes
 | `run_not_attached` | 409 | The run shows as in progress but is not executing in this gateway process (inconsistent data, or held by another process); the cancel request was not accepted |
 | `run_key_inactive` | 409 | The key that owns the run has expired, been revoked or deleted (or its account no longer exists), so the run cannot be resumed. This appears when the owner's admin key resumes another key's run; when the original key resumes by itself, expiry and revocation are already rejected at authentication with `key_expired` / `unauthorized` |
 | `invalid_reconciliation` | 409 | No matching step is waiting for reconciliation |
-| `effect_outcome_unknown` | 409 | The outcome of an operation with side effects is unconfirmed (the run is marked interrupted) |
+| `effect_outcome_unknown` | 409 | A side effect is unconfirmed and the executing run is interrupted. If the run-creation commit itself cannot be confirmed or read back, the error includes the allocated `run_id`: inspect it before resubmitting; do not assume that no run exists. |
 | `gateway_restarted` | — | A gateway restart interrupted execution (run error code) |
 | `run_timeout` | — | The run passed its deadline (run error code, status incomplete) |
 | `cancelled` | 409 | The task was cancelled |

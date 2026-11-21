@@ -18,6 +18,7 @@ import { errorClassStatus, errorEntry, faultMessage } from '../core/errors.js';
 import { processLocale, requestLocale, type Locale, type LocalText } from '../core/locale.js';
 import { Fault, RetryLaterFault } from '../core/util.js';
 import { ParamFault } from '../core/param-fault.js';
+import { UnconfirmedRunCommit } from '../store/run-creation.js';
 import { fromGoogleClient, isGeminiPath } from './gemini.js';
 
 /** 带参数名或运行 ID 的错误：`param` 进 OpenAI 的 `error.param`，`runId` 说明运行已经创建。 */
@@ -103,7 +104,8 @@ export function errorBody(
   locale: Locale = processLocale(),
 ): Record<string, unknown> {
   const message = faultMessage(fault, locale);
-  const extra = fault instanceof CompatFault ? fault : undefined;
+  const extra =
+    fault instanceof CompatFault || fault instanceof UnconfirmedRunCommit ? fault : undefined;
   const runId = extra?.runId ? { run_id: extra.runId } : {};
   // 类别按错误码的语义选（服务一侧的运行错误码为 500 一类），HTTP 状态与重试头不受影响。
   const kind = errorClassStatus(fault.code, status);

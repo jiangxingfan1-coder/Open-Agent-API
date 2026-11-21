@@ -12,6 +12,7 @@ import { projectPrincipal } from './project-memory.js';
 import { projects } from '../store/projects.js';
 import { workflowAllowsChildRecovery } from '../store/task-workflows.js';
 import { recoveryCandidates, isRecoveryCause } from '../store/recovery-candidates.js';
+import { delegateRecoveryBlock } from '../store/run-creation.js';
 
 export function durability(
   agent: AgentDefinition,
@@ -48,6 +49,12 @@ export function recoverDurable(
     if (!policy || run.status !== 'interrupted' || !isRecoveryCause(run.error?.code)) continue;
     let attempted = false;
     try {
+      if (delegateRecoveryBlock(rt.store, run, false))
+        throw new Fault(
+          'reconciliation_required',
+          'No matching parent step confirms this delegated run; it was not replayed.',
+          409,
+        );
       if (!workflowAllowsChildRecovery(rt.store, run))
         throw new Fault(
           'reconciliation_required',

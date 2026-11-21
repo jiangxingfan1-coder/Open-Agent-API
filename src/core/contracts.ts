@@ -313,6 +313,8 @@ export type Checkpoint = {
   suspension?: { kind: 'approval' | 'scheduling'; approvalIds: string[] };
   grantedAgents?: string[];
   delegationDepth?: number;
+  /** Step that owns this delegated child. Older checkpoints can be matched by the recorded child ID. */
+  parentStepId?: string;
   keyId?: string;
   /** Highest execution level the submitting key allowed; delegated sub-runs inherit it. */
   execution?: ExecutionLevel;

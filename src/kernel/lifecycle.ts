@@ -10,13 +10,14 @@ import { rememberProjectResult } from './project-memory.js';
 import { recoverDurable } from './durability.js';
 import { supportsReasoning } from '../fabric/model-pool.js';
 import { workflowAllowsChildRecovery } from '../store/task-workflows.js';
+import { delegateRecoveryBlock } from '../store/run-creation.js';
 
 export function start(rt: KernelRuntime): void {
   recoverDurable(rt, (principal, id) => resume(rt, principal, id, undefined, 'automatic'));
   for (const run of rt.store.allRuns(['queued', 'requires_action'])) {
-    const parentId = run.metadata?.['oaa.parent_run_id'];
-    if ((parentId && !parentActive(rt, parentId)) || !workflowAllowsChildRecovery(rt.store, run)) {
-      finishOrphan(rt, run);
+    const blocked = delegateRecoveryBlock(rt.store, run);
+    if (blocked || !workflowAllowsChildRecovery(rt.store, run)) {
+      finishOrphan(rt, run, blocked === 'unlinked');
       continue;
     }
     if (!rt.admission.queue.includes(run.id)) rt.admission.queue.push(run.id);
@@ -29,19 +30,14 @@ export function start(rt: KernelRuntime): void {
   }
   rt.admission.pump();
 }
-export function parentActive(rt: KernelRuntime, parentId: string): boolean {
-  try {
-    return ['queued', 'in_progress', 'requires_action'].includes(rt.store.run(parentId).status);
-  } catch {
-    return false;
-  }
-}
 /** 父运行已经不活跃的排队子运行：不再执行（queued 不能直接到 interrupted，以 cancelled 结束）。 */
-export function finishOrphan(rt: KernelRuntime, run: Run): void {
+export function finishOrphan(rt: KernelRuntime, run: Run, unlinked = false): void {
   run.status = 'cancelled';
   run.error = {
     code: 'parent_interrupted',
-    message: 'The parent run is no longer active; this queued sub-agent run was not started.',
+    message: unlinked
+      ? 'No active parent step confirms this queued sub-agent; it was not started.'
+      : 'The parent run is no longer active; this queued sub-agent run was not started.',
   };
   delete run.checkpoint.suspension;
   rt.store.checkpointActions(run, 'expire', [], (view) => ({

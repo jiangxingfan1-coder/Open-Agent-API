@@ -14,6 +14,7 @@ import { responseObject } from './response-object.js';
 import { Fault, checkAbort, faultOf, id } from '../core/util.js';
 import { isWriteUnavailable, isCheckpointUnavailable } from '../store/checkpoint.js';
 import { commitTerminal } from './terminal-checkpoint.js';
+import { UnconfirmedRunCommit } from '../store/run-creation.js';
 import { ApprovalSuspension, SchedulingSuspension } from '../core/suspension.js';
 import { ExecutionPool } from './execution-pool.js';
 import { classifyFailure, terminalEventType } from './run-state.js';
@@ -382,7 +383,12 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
       controller.signal,
       (sawStorageOutage) => {
         const step = external ? rt.store.getStep(nativeStepId(run)) : undefined;
+        const unconfirmed =
+          error instanceof UnconfirmedRunCommit && error.parentStep?.runId === run.id
+            ? error.parentStep
+            : undefined;
         const uncertain =
+          !!unconfirmed ||
           !!fault.uncertain ||
           (fault.code === 'persistence_failed' &&
             (sawStorageOutage || isWriteUnavailable(error)) &&
@@ -395,13 +401,14 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
         run.status = classification.status;
         run.error = classification.error;
         const failedStep: ExecutionStep | undefined =
-          step?.status === 'running'
+          unconfirmed ??
+          (step?.status === 'running'
             ? {
                 ...step,
                 status: uncertain ? 'uncertain' : 'failed',
                 error: fault.code,
               }
-            : undefined;
+            : undefined);
         rt.store.checkpointTerminal(
           run,
           finalEvents,

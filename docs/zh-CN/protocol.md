@@ -812,7 +812,7 @@ HTTP 错误响应默认使用形状 `{"error":{"code":"…","message":"…","typ
 | `run_not_attached` | 409 | 运行显示为进行中，但不在本网关进程中执行（数据不一致或由别的进程持有），取消请求没有被受理 |
 | `run_key_inactive` | 409 | 运行所属的密钥已过期、被吊销或已删除（或其账号已不存在），不能恢复。由 owner 的管理员密钥代为恢复别人的运行时出现；原密钥自己发起恢复时，过期与吊销在鉴权阶段就以 `key_expired` / `unauthorized` 拒绝 |
 | `invalid_reconciliation` | 409 | 没有匹配的待核对步骤 |
-| `effect_outcome_unknown` | 409 | 有副作用的操作结果未确认（运行记为 interrupted） |
+| `effect_outcome_unknown` | 409 | 执行中的副作用无法确认，运行记为 interrupted。若运行创建时提交应答丢失且无法回读，错误中附分配的 `run_id`；先按 ID 查询，不要当作未创建而直接重发。 |
 | `gateway_restarted` | — | 网关重启导致执行中断（运行错误码） |
 | `run_timeout` | — | 运行超过截止时间（运行错误码，状态 incomplete） |
 | `cancelled` | 409 | 任务已取消 |

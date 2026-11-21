@@ -111,8 +111,8 @@ export class Kernel {
   /** 委托（delegate.ts）用到的内核能力。 */
   private readonly delegation: DelegateRuntime = {
     store: undefined as unknown as Store, // 构造函数里填上（参数属性晚于字段初始化）
-    submit: (principal, invocation, idem, key, trace) =>
-      this.submit(principal, invocation, idem, key, trace),
+    submit: (principal, invocation, key, trace, delegate) =>
+      submit(this.rt, principal, invocation, undefined, key, trace, { delegate }),
     wait: (runId, includeActions, signal) => this.wait(runId, includeActions, signal),
     cancel: (principal, runId) => this.cancel(principal, runId),
     providerKey: (runId) => this.byokKeys.get(runId),
@@ -148,7 +148,7 @@ export class Kernel {
     trace?: TraceContext,
     writeMode?: RunWriteMode,
   ): Run {
-    return submit(this.rt, principal, invocation, idem, providerKey, trace, undefined, writeMode);
+    return submit(this.rt, principal, invocation, idem, providerKey, trace, { writeMode });
   }
   submitWorkflowStage(
     principal: Principal,
@@ -163,7 +163,7 @@ export class Kernel {
       `workflow:${execution}:${stage}`,
       undefined,
       undefined,
-      (child) => linkWorkflowStage(this.store, execution, stage, child),
+      { linkStage: (child) => linkWorkflowStage(this.store, execution, stage, child) },
     );
   }
   /** 工作区上下文。保留为实例方法：诊断工具（bench/paired/diagnostics.ts）按名字包装它。 */

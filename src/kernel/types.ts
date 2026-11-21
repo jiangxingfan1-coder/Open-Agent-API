@@ -1,5 +1,7 @@
 /** 内核各模块共用的类型（只含类型）。kernel.ts 再导出其中对外的名字。 */
-import type { Principal, RunStatus } from '../core/contracts.js';
+import type { Principal, Run, RunStatus } from '../core/contracts.js';
+import type { ParentStepStart } from '../store/run-creation.js';
+import type { RunWriteMode } from '../store/write-lock.js';
 import type { ExecutionPool } from './execution-pool.js';
 
 export type KernelLimits = {
@@ -9,6 +11,13 @@ export type KernelLimits = {
   maxActiveRunsPerSubject?: number;
   /** Correction rounds a run with structured output gets when its answer does not fit (default 1). */
   structuredRepairs?: number;
+};
+
+export type DelegateAdmission = ParentStepStart & { project?: Run['checkpoint']['project'] };
+export type SubmissionOptions = {
+  writeMode?: RunWriteMode;
+  linkStage?: (run: Run) => void;
+  delegate?: DelegateAdmission;
 };
 
 export type ExecutionSlice = {

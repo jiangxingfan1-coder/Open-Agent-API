@@ -52,6 +52,15 @@ import { backupBeforeMigration } from './backup.js';
 import { GatewayLease, hasLiveLease } from './gateway-lease.js';
 import { beginRunWrite, tryBeginWrite, type RunWriteMode } from './write-lock.js';
 import { ProvisionalInputs } from './provisional-inputs.js';
+import {
+  commitNewRun,
+  idemKey,
+  replayId,
+  insertNewRun,
+  linkDelegateStart,
+  UnconfirmedRunCommit,
+  type ParentStepStart,
+} from './run-creation.js';
 type Row = Record<string, unknown>;
 /**
  * v4 partitions caller data by `subject` (normally the API key ID): runs, summaries, files,
@@ -60,8 +69,6 @@ type Row = Record<string, unknown>;
 const SCHEMA_VERSION = 4;
 const MEMORY_COLUMNS =
   "owner TEXT NOT NULL,namespace TEXT NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,updated_at INTEGER NOT NULL,run_id TEXT,subject TEXT NOT NULL DEFAULT 'legacy',PRIMARY KEY(owner,subject,namespace,key)";
-/** Idempotency keys are unique per caller; the stored column value is namespaced by subject. */
-const idemKey = (subject: string, idem: string) => `${subject}\n${idem}`;
 /** Event types a run timeline needs; output deltas and content parts are never read. */
 const timelineEventTypes = TIMELINE_EVENT_TYPES;
 type Projection = { messages: OutputMessage[]; updatedAt: number };
@@ -520,45 +527,30 @@ export class Store {
     initial?: EventInput,
     stageAdmission?: () => () => void,
     writeMode?: RunWriteMode,
+    parentStart?: ParentStepStart,
   ): { run: Run; created: boolean } {
     const subject = run.subject ?? LEGACY_SUBJECT;
     run.subject = subject;
     beginRunWrite(this, writeMode, run.fileIds);
     try {
       if (idem) {
-        const found = this.findIdempotent(run.owner, subject, idem);
+        const found = replayId(this.findIdempotent(run.owner, subject, idem), fingerprint);
         if (found) {
-          if (found.fingerprint !== fingerprint)
-            throw new Fault(
-              'idempotency_conflict',
-              'This idempotency key was used for different input.',
-              409,
-            );
           this.db.exec('COMMIT');
-          return { run: this.run(found.id, run.owner, subject), created: false };
+          return { run: this.run(found, run.owner, subject), created: false };
         }
       }
-      this.prepare(
-        'INSERT INTO runs(id,owner,agent_id,session_id,status,payload,idem,fingerprint,subject) VALUES(?,?,?,?,?,?,?,?,?)',
-      ).run(
-        run.id,
-        run.owner,
-        run.agentId,
-        run.sessionId,
-        run.status,
-        this.snapshot(run),
-        idem ? idemKey(subject, idem) : null,
-        fingerprint ?? null,
-        subject,
-      );
-      this.prepare('INSERT INTO run_output_baselines VALUES(?,0,?)').run(
-        run.id,
-        JSON.stringify(run.output),
-      );
+      insertNewRun(this, run, this.snapshot(run), idem, fingerprint);
       this.saveSummary(run);
+      let parentEvent: RunEvent | undefined;
+      if (parentStart)
+        parentEvent = this.insertEvent(
+          parentStart.step.runId,
+          linkDelegateStart(this, run, parentStart),
+        );
       const event = initial ? this.insertEvent(run.id, initial) : undefined;
       const publishAdmission = stageAdmission?.();
-      this.db.exec('COMMIT');
+      commitNewRun(this, run, parentStart);
       this.provisionalInputs.adopt(run.fileIds);
       publishAdmission?.();
       this.rememberOwner(run.id, run.owner);
@@ -567,13 +559,17 @@ export class Store {
         updatedAt: run.updatedAt,
       });
       this.appendHotEvents(run.id, event ? [event] : [], true);
+      if (parentEvent) this.appendHotEvents(parentEvent.runId, [parentEvent]);
       this.notifyBatch([
+        ...(parentEvent ? [{ name: parentEvent.runId, value: parentEvent }] : []),
         ...(event ? [{ name: run.id, value: event }] : []),
         { name: 'summary', value: this.summaryChange(run) },
       ]);
       return { run, created: true };
     } catch (e) {
       if (this.db.isTransaction) this.db.exec('ROLLBACK');
+      // Keep the inputs private but intact if their run might already be durable.
+      if (e instanceof UnconfirmedRunCommit) this.provisionalInputs.adopt(run.fileIds);
       if (String(e).includes('runs.owner, runs.session_id'))
         throw new Fault('session_busy', 'This session already has active work.', 409);
       throw e;
