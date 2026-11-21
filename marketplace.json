@@ -1,0 +1,16 @@
+{
+  "name": "open-agent-api-plugins",
+  "owner": { "name": "Open Agent API contributors" },
+  "metadata": {
+    "description": "Local integrations for Open Agent API.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "open-agent-api",
+      "description": "Connect Copilot CLI to agents on a self-hosted Open Agent API gateway.",
+      "version": "0.1.0",
+      "source": "./plugins/open-agent-api"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "open-agent-api": {
+      "type": "stdio",
+      "command": "oaa",
+      "args": ["mcp"]
+    }
+  }
+}

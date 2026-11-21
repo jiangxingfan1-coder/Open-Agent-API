@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "open-agent-api",
+  "version": "0.1.0",
+  "description": "Discover agents, submit authorized tasks, and read results from an Open Agent API gateway you operate.",
+  "author": {
+    "name": "Open Agent API contributors",
+    "url": "https://github.com/jiangxingfan1-coder/Open-Agent-API"
+  },
+  "homepage": "https://github.com/jiangxingfan1-coder/Open-Agent-API",
+  "repository": "https://github.com/jiangxingfan1-coder/Open-Agent-API",
+  "license": "Apache-2.0",
+  "keywords": ["mcp", "self-hosted", "agent-gateway"]
+}
