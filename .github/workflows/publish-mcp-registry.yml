@@ -1,0 +1,58 @@
+name: Publish Open Agent API MCP 0.0.64
+
+on:
+  push:
+    tags: [mcp-registry-open-agent-api-v0.0.64]
+
+permissions: {}
+
+jobs:
+  publish:
+    if: github.repository == 'jiangxingfan1-coder/Open-Agent-API'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    permissions:
+      id-token: write
+    env:
+      PUBLISHER_URL: https://github.com/modelcontextprotocol/registry/releases/download/v1.8.10/mcp-publisher_linux_amd64.tar.gz
+      PUBLISHER_SHA256: 32d287ed6fb7dc04eddd2621097784c06a355b2348b35ccc630a1643aa75ff4a
+      RELEASE_ASSETS: https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/download/mcp-open-agent-api-v0.0.64
+      METADATA_SHA256: 073164b1ea1b573a3a9b7dc0e7b4a8c74ddb71778715a83f4296114022963ff1
+      BUNDLE_SHA256: 0d0e0eb44304dc14ae21d7624e90ea0b7585fd9158254b05b230a2770b2436d1
+      REGISTRY: https://registry.modelcontextprotocol.io
+    steps:
+      - name: Verify the published bundle and register the release
+        shell: bash
+        run: |
+          set -euo pipefail
+          working="$(mktemp -d "${RUNNER_TEMP}/oaa-registry-XXXXXX")"
+          cd "$working"
+          bundle=open-agent-api-mcp-0.0.64.mcpb
+          name=io.github.jiangxingfan1-coder/open-agent-api-mcp
+          version=0.0.64
+          get() { curl --proto '=https' --fail --silent --show-error --location --retry 3 --output "$2" "$1"; }
+          get "$PUBLISHER_URL" publisher.tar.gz
+          get "$RELEASE_ASSETS/server.json" server.json
+          get "$RELEASE_ASSETS/$bundle" "$bundle"
+          printf '%s  %s\n' "$PUBLISHER_SHA256" publisher.tar.gz "$METADATA_SHA256" server.json "$BUNDLE_SHA256" "$bundle" | sha256sum -c -
+          tar -xzf publisher.tar.gz mcp-publisher
+          jq -e --arg name "$name" --arg version "$version" --arg url "$RELEASE_ASSETS/$bundle" --arg sha "$BUNDLE_SHA256" '
+            .name == $name and .version == $version and
+            (.packages | length == 1) and
+            (.packages[0] | .identifier == $url and .fileSha256 == $sha and .registryType == "mcpb" and .transport.type == "stdio")
+          ' server.json > /dev/null
+          ./mcp-publisher validate server.json
+          status="$(curl --proto '=https' --silent --show-error --retry 2 --output existing.json --write-out '%{http_code}' "$REGISTRY/v0.1/servers/io.github.jiangxingfan1-coder%2Fopen-agent-api-mcp/versions/$version")"
+          case "$status" in
+            200)
+              jq -e --arg name "$name" --arg version "$version" --arg sha "$BUNDLE_SHA256" '
+                .server | .name == $name and .version == $version and .packages[0].fileSha256 == $sha
+              ' existing.json > /dev/null
+              echo "This verified version is already registered."
+              exit 0
+              ;;
+            404) ;;
+            *) echo "Unexpected Registry status $status; not publishing."; exit 1 ;;
+          esac
+          ./mcp-publisher login github-oidc --registry="$REGISTRY"
+          ./mcp-publisher publish server.json
