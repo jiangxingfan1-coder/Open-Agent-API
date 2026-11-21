@@ -1,0 +1,20 @@
+{
+  "name": "open-agent-api-community",
+  "interface": {
+    "displayName": "Open Agent API Community Plugins"
+  },
+  "plugins": [
+    {
+      "name": "open-agent-api",
+      "source": {
+        "source": "local",
+        "path": "./integrations/codex-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
