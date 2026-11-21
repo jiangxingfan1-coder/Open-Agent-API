@@ -12,6 +12,7 @@ import { Admission } from './admission.js';
 import type { KernelRuntime } from './runtime.js';
 import type { KernelAuth, KernelLimits, QueueInsight } from './types.js';
 import { linkWorkflowStage } from '../store/task-workflows.js';
+import { WebhookCaptureUnavailable } from '../store/checkpoint.js';
 import { keepParkedOnRestart } from '../store/approval-rows.js';
 import { authorize, preview, submit } from './submission.js';
 import { context } from './model-turn.js';
@@ -220,14 +221,19 @@ export class Kernel {
     await Promise.allSettled(this.admission.tasks.values());
     for (const runId of this.admission.parked.keys()) {
       const run = this.store.run(runId);
-      if (run.status === 'requires_action' && !keepParkedOnRestart(this.store, run))
-        this.admission.finishParked(
-          run,
-          'interrupted',
-          'shutting_down',
-          'The gateway shut down while awaiting approval. Explicit resume is required.',
-        );
-      else this.admission.clearParked(runId);
+      if (run.status === 'requires_action' && !keepParkedOnRestart(this.store, run)) {
+        try {
+          this.admission.finishParked(
+            run,
+            'interrupted',
+            'shutting_down',
+            'The gateway shut down while awaiting approval. Explicit resume is required.',
+          );
+        } catch (error) {
+          if (!(error instanceof WebhookCaptureUnavailable)) throw error;
+          this.admission.clearParked(runId);
+        }
+      } else this.admission.clearParked(runId);
     }
     this.shutdown.abort();
     // Interrupted runs keep their caller key for an hour so they can resume; a closed kernel

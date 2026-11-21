@@ -4,6 +4,7 @@
  */
 import type { Run } from '../core/contracts.js';
 import type { Store } from '../store/store.js';
+import { WebhookCaptureUnavailable } from '../store/checkpoint.js';
 import type { NodeHub } from '../fabric/network.js';
 import { responseObject } from './response-object.js';
 import * as clientTools from './client-tools.js';
@@ -240,7 +241,10 @@ export class Admission {
       return true;
     } catch (error) {
       if (
-        !(error instanceof Error && 'code' in error && error.code === 'ERR_SQLITE_ERROR') ||
+        !(
+          error instanceof WebhookCaptureUnavailable ||
+          (error instanceof Error && 'code' in error && error.code === 'ERR_SQLITE_ERROR')
+        ) ||
         !this.parked.has(runId)
       )
         throw error;

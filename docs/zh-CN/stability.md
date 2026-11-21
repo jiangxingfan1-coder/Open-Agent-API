@@ -104,7 +104,7 @@ npm run soak -- --minutes 30 --concurrency 8 --retention-minutes 5 [--dir DIR] [
 | 运行、事件、步骤、审批、输出基线、运行摘要、每运行的密钥用量行、事件回调的审批通告 | `state.sqlite` | `retention.runsDays` / `oaa prune` |
 | 产物（运行生成的文件） | `files` 表 + `<dataDir>/files/` | 随运行一起删除 |
 | 上传文件，含存下的图片输入 | `files` 表 + `<dataDir>/files/` | 早于截止时间且没有被保留的运行列出时由 `oaa prune` 删除（图片输入列在所属运行的 `fileIds` 里）；每调用方的存储字节配额按这些行计算，所以清理后会相应下降 |
-| 事件回调投递记录 | `webhook_deliveries` | 每个端点保留最近 200 条已结束的；每个端点最多 10,000 条排队 |
+| 事件回调投递和待恢复的通知 | `webhook_deliveries`、`webhook_outbox` | 每个端点最多保留 200 条已结束的投递；两张表合计最多 10,000 条排队 |
 | 本机执行节点的会话工作区 | `<worker dataDir>/sessions/` | 会话已没有任何运行且目录早于截止时间时由 `oaa prune` 删除 |
 | 审计记录 | `audit_events` | 按所有者保留固定条数（原有机制） |
 | 门户会话 | `platform_sessions` | 按 `platform.sessionTtlHours` 过期（原有机制） |

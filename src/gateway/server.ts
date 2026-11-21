@@ -31,6 +31,8 @@ import { registerEvaluationRoutes } from './evaluation-routes.js';
 import { restoreEverythingAcp, registerEverythingAcpRoutes } from './everything-acp-routes.js';
 import { registerOwnerRoutes } from './shutdown-route.js';
 import { registerMetricsRoutes } from './metrics-routes.js';
+import { WebhookDispatcher } from './webhooks.js';
+import { registerWebhookRoutes } from './webhook-routes.js';
 import { registerConsoleAssets } from './console-assets.js';
 import { geminiQueryKey, sendError, zodFault } from './compat-errors.js';
 import * as http from './compat-http.js';
@@ -92,6 +94,8 @@ export async function createGateway(
         })),
       );
     }
+    // Recovery can write terminal events in the kernel constructor, before Fastify is ready.
+    const webhooks = new WebhookDispatcher(store, config.security.profile);
     const kernel = new Kernel(store, hub, {
       maxActiveRuns: config.maxActiveRuns,
       approvalTimeoutMs: config.approvalTimeoutMs,
@@ -525,6 +529,7 @@ export async function createGateway(
       localExecutor,
       isLocalRequest: isLocalProbe,
     });
+    registerWebhookRoutes(app, webhooks, config);
     registerOwnerRoutes(app, { auth, audit, config, store, kernel, hub, providerKeyOf });
     registerMetricsRoutes(app, {
       auth,

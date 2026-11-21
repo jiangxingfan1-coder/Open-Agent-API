@@ -95,15 +95,14 @@ The request body is JSON:
 - `data.key_id` and `data.subject` identify the key that started the run and its caller partition
   (`key:<id>`, or `acct:<id>` for a developer-platform account).
 - `pending_actions` appears only on `run.requires_action`. `type` is `tool`, `native`, `reconcile` or
-  `client_tool` (a tool result the caller has to send back). `status` is the item's state when the
-  body was built (normally `pending`).
+  `client_tool` (a tool result the caller has to send back). `status` is its state at the source checkpoint.
 - **The task input and the output text are not included** (privacy and size). An endpoint created with
   `include_output: true` gets `data.output = {text, truncated, bytes}` on run events: the final output
   text, cut to at most 32 KiB of UTF-8 (`truncated: true` and the full size in `bytes` when cut).
 - For anything else, read the run with its ID: `GET /v1/runs/{id}`, `GET /v1/runs/{id}/output`,
   `GET /v1/runs/{id}/actions`.
 
-The body is built at the first delivery attempt and then fixed: retries send the same bytes.
+New events capture their recipients and bounded run data at the source checkpoint. Pruning the run before the first POST does not destroy that snapshot. The first attempt fixes the exact body bytes for retries. Later opt-in never adds output to a past event. Withdrawing output before the first attempt redacts it; a retry whose fixed bytes contain withdrawn output fails as `subscription_changed` instead of sending them. Changing the URL or removing the matching event/agent also prevents delivery to the changed subscription. Secret rotation uses the current key.
 
 ## Signature and headers
 
@@ -162,7 +161,7 @@ def verify(secret: str, header: str, raw_body: bytes, tolerance: int = 300) -> b
 - **At least once.** Events are queued in the gateway's SQLite database (`webhook_deliveries`) and
   survive a restart; whatever was not delivered when the gateway stopped is sent after it starts
   again. A receiver may see a delivery more than once; de-duplicate on `X-OAA-Delivery`.
-- The approval announcement and the queued deliveries for its matching endpoints commit together. A failed queue write leaves no partial announcement, so observing the notification again can enqueue it. The delivery guarantee starts **after enqueue**; a gateway exit between the source commit and the outbound observer is not covered for every event type.
+- For all six subscribed run events, the source transaction commits the fanout or durable recovery rows. A crash before the sender wakes does not lose a committed event. If the delivery-table write fails, the gateway retries the recorded fanout automatically, including after restart. If neither local write can commit, the source checkpoint fails rather than claiming success. If even the failure outcome cannot be recorded, the active execution retries only that final write, not the agent or its tools. Restart recovery uses the last committed run state.
 - **Success** is any `2xx` answer within **10 seconds** (connect, send and answer together).
   Redirects are not followed; a `3xx` counts as a failure. Answer fast and do the work afterwards.
 - **Retries.** A failed attempt is retried after about 5 s, 30 s, 2 min, 10 min and 30 min (each ±20 %
@@ -172,15 +171,13 @@ def verify(secret: str, header: str, raw_body: bytes, tolerance: int = 300) -> b
 - **Order.** Deliveries to one endpoint go out one at a time, oldest first, so a receiver sees the
   events of an endpoint in order; a delivery waiting for its retry holds back the later ones of the
   same endpoint. Different endpoints do not wait for each other.
-- **Never in the way of a run.** Queuing an event is one small insert after the run's status is
-  committed, and happens only when a matching endpoint exists. Sending happens in the background; a
-  slow or dead receiver does not delay or block any run.
+- **No network I/O in a checkpoint.** Only SQLite work is on the source commit path. Sending happens in the background; the run does not wait for the receiver.
 - **Failing endpoints** are not deleted or disabled automatically. The endpoint's `status` shows
   `state: "failing"`, `consecutive_failures`, the last error and how many deliveries are queued.
 - A disabled endpoint (`enabled: false`) gets no new events; deliveries already queued for it wait until
   it is enabled again. Deleting an endpoint deletes its queued deliveries.
 - The last 200 finished deliveries per endpoint are kept.
-- At most 10,000 deliveries wait per endpoint. Above that (an endpoint that keeps failing while events keep coming) the oldest waiting deliveries after the one in progress are marked `failed` with `queue_overflow` and dropped, so a broken receiver cannot grow the database without bound.
+- At most 10,000 pending items per endpoint, including recovery rows. Overflow preserves the queue head; discarded items count toward `overflow_total`. Materialized overflow deliveries are marked `failed` with `queue_overflow`. A recovery row discarded before materialization has no delivery ID.
 
 ## Outbound safety
 
@@ -218,12 +215,12 @@ All endpoints need an owner-wide admin key; other keys get 403 `scope_denied`.
 | `POST /v1/webhooks/{id}/rotate-secret` | `{id, secret}`; the old secret stops working at once |
 | `POST /v1/webhooks/{id}/test` | 202 delivery; queues a `webhook.test` event |
 | `GET /v1/webhooks/{id}/deliveries?limit=20` | `{data: [delivery]}`, newest first (at most 200) |
-| `POST /v1/webhooks/{id}/deliveries/{delivery}/redeliver` | 202 delivery; 409 `webhook_delivery_pending` while it is still queued |
+| `POST /v1/webhooks/{id}/deliveries/{delivery}/redeliver` | 202 delivery; 409 `webhook_delivery_pending` while it is still queued; 429 `queue_full` when no queue capacity remains |
 
 An **endpoint** is `{object: "webhook_endpoint", id, url, events, agents, include_output, enabled,
 description, allow_insecure_http, allow_private_network, created_at, updated_at, status}` with
 `status = {state: "ok" | "failing" | "disabled", consecutive_failures, last_success_at, last_failure_at,
-last_error, pending, latest_delivery}`. Times are Unix milliseconds, as elsewhere in the management API.
+last_error, pending, capture_pending, oldest_pending_at, overflow_total, latest_delivery}`. `pending` includes `capture_pending` (recorded but not yet materialized). `oldest_pending_at` is null when empty; `overflow_total` counts evictions since the upgrade. Times are Unix milliseconds, as elsewhere in the management API.
 
 A **delivery** is `{object: "webhook_delivery", id, endpoint_id, event_id, event_type, run_id, status:
 "pending" | "succeeded" | "failed", attempts, next_attempt_at, http_status, duration_ms, last_error,
@@ -317,8 +314,6 @@ handles.
 - HTTPS endpoints are verified against the certificate authorities trusted by Node.js. The automated
   tests only use local plain-http receivers; delivery to a real public HTTPS endpoint goes through the
   same code but is not covered by them.
-- `run.interrupted` for runs interrupted while the gateway shuts down or restarts is queued either at
-  shutdown or when the gateway starts again (runs interrupted since the process started), and sent
-  once.
+- Capture is installed before startup recovery and remains attached through shutdown checkpoints. Earlier pending deliveries continue using their stored body or original seed. Upgrading does not reconstruct events that an older version never recorded or replay history to new endpoints.
 - Several gateway processes sharing one data directory are not supported (as for the rest of the
   gateway); each would send the queue.

@@ -111,6 +111,8 @@ const summaryRow = (row: Row, created: number): SummaryRow => ({
 export class Store {
   readonly db: DatabaseSync;
   readonly events = new EventEmitter();
+  /** Synchronous database-only sink; public notifications and network I/O follow commit. */
+  stageWebhook?: (run: Run, event: RunEvent) => (() => void) | undefined;
   private leaseId = id('gateway');
   private projections = new Map<string, Projection>();
   private runOwners = new Map<string, string>();
@@ -1057,13 +1059,14 @@ export class Store {
     let publishAdmission: (() => void) | undefined;
     let changed: Approval[] = [];
     let pending: WorkflowEventKey[] = [];
+    let wakeWebhook: (() => void) | undefined;
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      const completing =
+      const enteringTerminal =
         snapshot &&
         final &&
-        view.status === 'completed' &&
-        !this.prepare("SELECT 1 FROM runs WHERE id=? AND status='completed'").get(run.id);
+        terminal(view.status) &&
+        !this.prepare('SELECT 1 FROM runs WHERE id=? AND status=?').get(run.id, view.status);
       if (actions) changed = changeApprovalRows(this, run, actions);
       if (completion) this.step(completion.step);
       if (reassign) {
@@ -1088,7 +1091,7 @@ export class Store {
             500,
           );
         events.push(this.insertEvent(run.id, event, view.updatedAt));
-        if (completing && event.type === 'response.completed') {
+        if (enteringTerminal && event.type === 'response.completed') {
           try {
             pending = stageWorkflowCompletion(this, view);
           } catch {
@@ -1100,6 +1103,11 @@ export class Store {
           }
         }
       }
+      if (this.stageWebhook)
+        for (const event of events) {
+          if (enteringTerminal || (actions && event.type === 'run.requires_action'))
+            wakeWebhook = this.stageWebhook(view, event) ?? wakeWebhook;
+        }
       publishAdmission = stageAdmission?.();
       this.db.exec('COMMIT');
     } catch (e) {
@@ -1120,6 +1128,7 @@ export class Store {
       ...changed.map((a) => ({ name: `approval:${a.id}`, value: a })),
       ...pending.map((value) => ({ name: WORKFLOW_EVENT_READY, value })),
     ]);
+    wakeWebhook?.();
   }
   /**
    * 落盘运行状态：转移表折进 UPDATE 的 WHERE（只有库里当前状态是合法来源时才写），不多一次往返；
@@ -1523,6 +1532,7 @@ export class Store {
     }
   }
   close(): void {
+    delete this.stageWebhook;
     this.events.removeAllListeners();
     this.projections.clear();
     this.runOwners.clear();

@@ -92,9 +92,23 @@ export function truncateOutput(
 ): { text: string; truncated: boolean; bytes: number } {
   const bytes = Buffer.byteLength(text);
   if (bytes <= limit) return { text, truncated: false, bytes };
-  let cut = Buffer.from(text).subarray(0, limit).toString('utf8');
-  if (cut.endsWith('�')) cut = cut.slice(0, -1);
-  return { text: cut, truncated: true, bytes };
+  const prefix = Buffer.from(text.slice(0, limit + 1));
+  let end = limit;
+  while (end > 0 && (prefix[end]! & 0xc0) === 0x80) end--;
+  return { text: prefix.toString('utf8', 0, end), truncated: true, bytes };
+}
+
+/** Match joining messages with newlines, without allocating an unbounded string inside a checkpoint. */
+export function snapshotOutput(messages: ReadonlyArray<{ text: string }>) {
+  let prefix = '',
+    bytes = 0;
+  for (const [i, m] of messages.entries()) {
+    bytes += Buffer.byteLength(m.text) + (i ? 1 : 0);
+    if (prefix.length >= OUTPUT_LIMIT_BYTES + 1) continue;
+    if (i) prefix += '\n';
+    prefix += m.text.slice(0, OUTPUT_LIMIT_BYTES + 1 - prefix.length);
+  }
+  return { text: truncateOutput(prefix).text, bytes, truncated: bytes > OUTPUT_LIMIT_BYTES };
 }
 
 export type PendingItem = {

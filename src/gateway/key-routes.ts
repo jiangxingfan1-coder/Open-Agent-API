@@ -9,7 +9,6 @@ import type { NodeHub } from '../fabric/network.js';
 import { executionLevels, isOwnerWide, keyQuotaSchema } from '../core/contracts.js';
 import { Fault } from '../core/util.js';
 import { assertMayManageKey, assertQuotaWithin } from './key-guard.js';
-import { registerWebhookRoutes } from './webhook-routes.js';
 
 /** 审计记录、API 密钥与运行事件回调的管理接口（`/v1/audit`、`/v1/keys`、`/v1/webhooks`）。 */
 export function registerKeyRoutes(
@@ -22,7 +21,6 @@ export function registerKeyRoutes(
     hub,
   }: { auth: Auth; audit: AuditLog; config: GatewayConfig; store: Store; hub: NodeHub },
 ): void {
-  registerWebhookRoutes(app, { store, config });
   app.get('/v1/audit', async (req) => {
     if (!isOwnerWide(req.principal))
       throw new Fault('scope_denied', 'The audit trail requires an owner-wide admin key.', 403);

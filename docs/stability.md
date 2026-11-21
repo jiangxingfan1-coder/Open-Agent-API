@@ -192,7 +192,7 @@ What grows with use, and what bounds it:
 | Runs, events, steps, approvals, output baselines, run summaries, per-run key usage rows, webhook approval announcements | `state.sqlite` | `retention.runsDays` / `oaa prune` |
 | Artifacts (files produced by runs) | `files` table + `<dataDir>/files/` | deleted with their run |
 | Uploaded files, including stored image inputs | `files` table + `<dataDir>/files/` | `oaa prune` when older than the cutoff and not listed by a kept run (image inputs are listed in their run's `fileIds`); the per-caller stored-bytes quota counts these rows, so it drops after a prune |
-| Webhook deliveries | `webhook_deliveries` | the last 200 finished per endpoint; at most 10,000 waiting per endpoint |
+| Webhook deliveries and recoverable notifications | `webhook_deliveries`, `webhook_outbox` | at most 200 finished deliveries per endpoint; at most 10,000 waiting across both tables per endpoint |
 | Session workspaces of the local worker | `<worker dataDir>/sessions/` | `oaa prune` when no run of the session remains and the folder is older than the cutoff |
 | Audit events | `audit_events` | kept per owner up to a fixed count (existing) |
 | Portal sessions | `platform_sessions` | expire after `platform.sessionTtlHours` (existing) |

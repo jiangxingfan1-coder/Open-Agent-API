@@ -12,6 +12,17 @@ export type CheckpointOptions = {
   committed?: () => void;
 };
 
+/** No durable record of the required delivery could be written with this checkpoint. */
+export class WebhookCaptureUnavailable extends Fault {
+  constructor() {
+    super(
+      'persistence_failed',
+      'The source checkpoint could not preserve its webhook notifications.',
+      500,
+    );
+  }
+}
+
 export function validateStepCompletion(
   store: { file(id: string, owner: string): { runId?: string } },
   run: Run,

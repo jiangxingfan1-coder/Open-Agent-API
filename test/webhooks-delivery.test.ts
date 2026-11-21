@@ -1,130 +1,29 @@
-// Webhook deliveries against a receiver on a 127.0.0.1 ephemeral port: event per run outcome,
-// retries with a stable delivery ID, timeouts that never hold up the run, restart, deletion,
-// the test event and include_output. Retry delays are shortened through `webhookTiming`.
+// Real loopback delivery checks use the shared createServer() fixture.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import http from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { rm } from 'node:fs/promises';
-import { builtin, makeBundle } from '../src/lang/bundle.js';
+import { makeBundle } from '../src/lang/bundle.js';
 import { createGateway } from '../src/gateway/server.js';
 import { verifySignature, webhookTiming } from '../src/gateway/webhook-core.js';
-import { FixtureModel, agent, setup, token, waitFor as waitUntil } from './helpers.js';
+import { agent, setup } from './helpers.js';
+import {
+  receiver,
+  addEndpoint,
+  settled,
+  start,
+  writerGateway,
+  waitFor,
+  useWebhookTimings,
+  type DeliveryRow,
+} from './webhook-helpers.js';
 
-// Bounded waits with room for a slow, loaded CI machine (the condition is polled every 10 ms).
-const waitFor = (check: () => boolean | Promise<boolean>, ms = 20_000) => waitUntil(check, ms);
+useWebhookTimings();
 
-type Hit = { headers: http.IncomingHttpHeaders; body: string; json: Record<string, unknown> };
-
-/** A receiver whose answer per request comes from `respond` (status code, or 'hang'). */
-async function receiver(respond: (n: number) => number | 'hang' = () => 200) {
-  const hits: Hit[] = [];
-  const server = http.createServer((req, res) => {
-    let body = '';
-    req.on('data', (c: Buffer) => (body += c.toString('utf8')));
-    req.on('end', () => {
-      hits.push({ headers: req.headers, body, json: JSON.parse(body) });
-      const answer = respond(hits.length);
-      if (answer === 'hang') return;
-      res.writeHead(answer).end('ok');
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as AddressInfo).port;
-  return {
-    hits,
-    url: `http://127.0.0.1:${port}/hook`,
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.closeAllConnections();
-        server.close(() => resolve());
-      }),
-  };
-}
-
-const saved = { ...webhookTiming, backoffMs: [...webhookTiming.backoffMs] };
-test.beforeEach(() => {
-  webhookTiming.backoffMs = [50, 100, 150];
-  webhookTiming.jitter = 0;
-  webhookTiming.timeoutMs = 2_000;
-});
-test.after(() => Object.assign(webhookTiming, saved));
-
-/** The approval-gated writer from approval-outcomes.test.ts. */
-async function writerGateway(extra: Record<string, unknown> = {}) {
-  const tool = builtin('write_file');
-  tool.capability.requiresApproval = true;
-  const s = await setup(
-    new FixtureModel((_a, m) =>
-      m.some((x) => x.role === 'tool')
-        ? { text: 'written and done' }
-        : { calls: [{ id: 'w', name: 'write_file', arguments: { path: 'a.txt', content: 'x' } }] },
-    ),
-    { approvalTimeoutMs: 30_000, ...extra },
-  );
-  s.store.publish('owner', makeBundle(agent({ tools: [tool] })));
-  return s;
-}
-
-async function addEndpoint(
-  s: Awaited<ReturnType<typeof setup>>,
-  body: Record<string, unknown>,
-): Promise<{ id: string; secret: string }> {
-  const r = await s.request('POST', '/v1/webhooks', body);
-  assert.equal(r.statusCode, 201, r.body);
-  return r.json();
-}
-
-type Inject = (o: {
-  method: 'GET';
-  url: string;
-  headers: Record<string, string>;
-}) => Promise<{ json(): { data: { status: string }[] } }>;
-type DeliveryRow = {
-  id: string;
-  status: string;
-  http_status: number | null;
-  attempts: number;
-  last_error: string | null;
-};
-
-/**
- * Wait until the endpoint has at least `count` deliveries and none of them is pending any more.
- * The receiver records a request before it answers, and the gateway records the outcome only after
- * the answer arrives, so "the receiver saw it" is not yet "the delivery is settled".
- */
-async function settled(
-  app: { inject: Inject },
-  endpointId: string,
-  count: number,
-): Promise<DeliveryRow[]> {
-  let rows: DeliveryRow[] = [];
-  await waitFor(async () => {
-    const r = await app.inject({
-      method: 'GET',
-      url: `/v1/webhooks/${endpointId}/deliveries`,
-      headers: { authorization: `Bearer ${token}` },
-    });
-    rows = r.json().data as DeliveryRow[];
-    return rows.length >= count && rows.every((d) => d.status !== 'pending');
-  }, 20_000);
-  return rows;
-}
-
-async function start(s: Awaited<ReturnType<typeof setup>>, input = 'write') {
-  const r = await s.request('POST', '/v1/responses', {
-    model: 'agent/test',
-    input,
-    background: true,
-  });
-  return r.json().id as string;
-}
-
-test('webhook: a failed fanout rolls back both announcements and deliveries before a redelivered notification', async () => {
+test('webhook: failed fanout rolls back its announcements and automatically retries both deliveries', async () => {
   const hook = await receiver(),
     s = await writerGateway();
   try {
-    await addEndpoint(s, { url: hook.url, events: ['run.requires_action'] });
+    const first = await addEndpoint(s, { url: hook.url, events: ['run.requires_action'] });
     const second = await addEndpoint(s, {
       url: hook.url + '/second',
       events: ['run.requires_action'],
@@ -139,7 +38,12 @@ test('webhook: a failed fanout rolls back both announcements and deliveries befo
       Number(s.store.prepare(`SELECT count(*) AS n FROM ${table} WHERE run_id=?`).get(id)?.n);
     assert.equal(count('webhook_announced'), 0);
     assert.equal(count('webhook_deliveries'), 0);
+    const status = (await s.request('GET', '/v1/webhooks/' + first.id)).json().status;
+    assert.equal(status.capture_pending, 1);
+    assert.equal(status.pending, 1);
+    assert.ok(status.oldest_pending_at > 0);
     s.store.db.exec('DROP TRIGGER refuse_second');
+    await waitFor(() => hook.hits.length === 2); // No duplicate notification or operator kick is required.
     const summary = { owner: 'owner', runId: id, status: 'requires_action', agentId: 'agent/test' };
     s.store.events.emit('summary', summary);
     s.store.events.emit('summary', summary);

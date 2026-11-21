@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { GatewayConfig } from '../config/config.js';
-import type { Store } from '../store/store.js';
 import { requireOwnerAdmin } from './platform-db.js';
 import { WEBHOOK_EVENTS, checkWebhookUrl } from './webhook-core.js';
 import type { Delivery, WebhookEndpoint } from './webhook-db.js';
@@ -30,6 +29,7 @@ function view(d: WebhookDispatcher, e: WebhookEndpoint) {
       last_failure_at: e.last_failure_at,
       last_error: e.last_error,
       pending: d.db.pendingCount(e.id),
+      ...d.db.queueStatus(e.id),
       latest_delivery: latest ? deliveryView(latest) : null,
     },
   };
@@ -80,14 +80,14 @@ const updateSchema = z.object(fields).partial().strict();
 
 /**
  * Run-event webhooks (`/v1/webhooks…`), owner-wide admin keys only. Also owns the dispatcher's
- * lifecycle: sending starts when the app is ready and stops in preClose; observing ends in onClose,
- * which runs before the store closes (hooks run in registration order).
+ * lifecycle: sending starts when the app is ready and stops in preClose. Capture remains attached
+ * for the kernel's shutdown checkpoints; detach releases it when the gateway closes.
  */
 export function registerWebhookRoutes(
   app: FastifyInstance,
-  { store, config }: { store: Store; config: GatewayConfig },
+  dispatcher: WebhookDispatcher,
+  config: GatewayConfig,
 ): void {
-  const dispatcher = new WebhookDispatcher(store, config.security.profile);
   app.addHook('onReady', async () => dispatcher.start());
   app.addHook('preClose', async () => dispatcher.halt());
   app.addHook('onClose', async () => dispatcher.detach());
@@ -123,6 +123,14 @@ export function registerWebhookRoutes(
     const next: WebhookEndpoint = { ...current, ...b, updated_at: Date.now() };
     next.url = checkWebhookUrl(next.url, policy(next)).toString();
     db.save(next);
+    if (
+      !next.enabled ||
+      next.url !== current.url ||
+      next.include_output !== current.include_output ||
+      b.agents !== undefined ||
+      b.events !== undefined
+    )
+      dispatcher.forget(next.id);
     dispatcher.changed(next.owner);
     return view(dispatcher, next);
   });

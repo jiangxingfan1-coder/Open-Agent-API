@@ -12,6 +12,7 @@ import {
   retryDelay,
   runData,
   signature,
+  snapshotOutput,
   truncateOutput,
   verifySignature,
   wants,
@@ -38,6 +39,24 @@ test('webhook signature: HMAC over "t.body", verified with a timestamp tolerance
   assert.ok(!verifySignature('whsec_test', header, '{"a":2}', 1_700_000_000), 'body changed');
   assert.ok(!verifySignature('other', header, '{"a":1}', 1_700_000_000), 'wrong secret');
   assert.ok(!verifySignature('whsec_test', 't=x,v1=zz', '{"a":1}', 1_700_000_000));
+});
+
+test('webhook snapshot has the UTF-8 size of the entire output and keeps valid replacement characters at the boundary', () => {
+  for (const parts of [
+    [],
+    ['', ''],
+    ['a', 'b'],
+    ['a'.repeat(OUTPUT_LIMIT_BYTES - 3) + '�', 'b'],
+    ['a'.repeat(OUTPUT_LIMIT_BYTES - 2) + '世', '🙂'.repeat(23000)],
+  ]) {
+    const joined = parts.join('\n'),
+      result = snapshotOutput(parts.map((text) => ({ text })));
+    assert.equal(result.bytes, Buffer.byteLength(joined));
+    assert.equal(result.truncated, result.bytes > OUTPUT_LIMIT_BYTES);
+    assert.ok(joined.startsWith(result.text));
+    assert.ok(Buffer.byteLength(result.text) <= OUTPUT_LIMIT_BYTES);
+  }
+  assert.equal(truncateOutput('a�b', 4).text, 'a�');
 });
 
 test('webhook retry schedule: bounded attempts with jitter inside ±20 %', () => {

@@ -80,11 +80,11 @@
 - `created_at`、`data.created_at`、`data.updated_at`、`expires_at` 都是 Unix 秒。
 - `data.error` 是 `{code, message}` 或 `null`；`data.usage` 是 `{input_tokens, output_tokens, total_tokens}` 或 `null`（未知）。
 - `data.key_id` 与 `data.subject` 标明发起运行的密钥与调用方分区（`key:<编号>`，开发者平台账号是 `acct:<编号>`）。
-- `pending_actions` 只出现在 `run.requires_action` 里。`type` 为 `tool`、`native`、`reconcile` 或 `client_tool`（需要调用方回传的工具结果）。`status` 是构造请求体时该项的状态（通常是 `pending`）。
+- `pending_actions` 只出现在 `run.requires_action` 里。`type` 为 `tool`、`native`、`reconcile` 或 `client_tool`（需要调用方回传的工具结果）。`status` 是源任务提交检查点时该项的状态。
 - **默认不带任务输入与输出正文**（隐私与体积）。端点设了 `include_output: true` 时，运行事件里多一个 `data.output = {text, truncated, bytes}`：最终输出文本，最多 32 KiB（UTF-8）；被截断时 `truncated: true`，`bytes` 是完整大小。
 - 需要更多信息时用运行编号去查：`GET /v1/runs/{id}`、`GET /v1/runs/{id}/output`、`GET /v1/runs/{id}/actions`。
 
-请求体在第一次投递时构造，之后固定不变：重试发送的是同样的字节。
+新事件在源任务提交时固定接收端和有界的运行摘要。首次 POST 前清理源任务不影响投递。第一次发送时固定正文，重试沿用相同字节。后来启用输出不会给旧事件增加输出；首次发送前撤回输出权限会去掉正文中的输出，已经固定的正文若包含撤回的输出，则不再发送，记为 `subscription_changed`。更改地址、移除匹配的事件或智能体也不会把旧内容发给新订阅。轮换密钥后用当前密钥签名。
 
 ## 签名与请求头
 
@@ -137,15 +137,15 @@ def verify(secret: str, header: str, raw_body: bytes, tolerance: int = 300) -> b
 ## 投递
 
 - **至少一次。** 事件排在网关 SQLite 数据库的队列里（`webhook_deliveries`），重启后仍在；网关停下时没发完的，再启动后继续发。接收方可能收到同一投递不止一次，请按 `X-OAA-Delivery` 去重。
-- 审批通知标记与各匹配端点的投递记录一起提交。写队列失败不会留下部分标记，再次收到同一通知时仍可入队。投递保证从**成功入队后**算起；源任务提交后、出站通知监听器运行前发生进程退出，并非所有事件都能自动补发。
+- 六类已订阅运行事件都在源事务中同时写入投递记录或待恢复记录。即使进程在唤醒发送器前退出，重启也不会漏掉已提交事件。如果投递表暂时写不进去，网关会自动补建投递记录。如果两处均无法落盘，源检查点报错，不宣称成功。若连失败状态也写不进去，执行中的任务只重试最后这笔写入，不重跑智能体或工具；重启后从上次已提交的状态恢复。
 - **成功**是 **10 秒**内（连接、发送与应答合计）返回任意 `2xx`。不跟随重定向，`3xx` 算失败。请先应答，再处理。
 - **重试。** 失败后分别约在 5 秒、30 秒、2 分钟、10 分钟、30 分钟后重试（各带 ±20% 随机抖动），共 6 次。最后一次仍失败就记为 `failed` 并保留记录。已结束的投递可以用 `POST /v1/webhooks/{id}/deliveries/{delivery}/redeliver` 手动重新排队（投递编号不变，重试次数重新计）。
 - **顺序。** 同一端点的投递一次一条、从旧到新，接收方按顺序收到该端点的事件；等待重试的投递会挡住同一端点后面的投递。不同端点互不等待。
-- **不妨碍运行。** 入队是在运行状态落库之后的一次小插入，而且只在有匹配端点时才发生。发送在后台进行；接收方慢或不可达，不会拖慢或阻塞任何运行。
+- **检查点不等待网络。** 只有 SQLite 写入在源事务内；网络发送在后台进行，不会让任务等待接收端应答。
 - **连续失败的端点**不会被自动删除或停用。端点的 `status` 会显示 `state: "failing"`、`consecutive_failures`、最近的错误与排队数。
 - 停用的端点（`enabled: false`）不再收到新事件；已排队的投递等它重新启用后再发。删除端点会一并删除它排队中的投递。
 - 每个端点保留最近 200 条已结束的投递。
-- 每个端点最多排队 10,000 条投递。超过时（端点持续失败而事件还在不断产生），正在投递的那条之后最早排队的投递会被标为 `failed`（`queue_overflow`）并丢弃，坏掉的接收端不会让数据库无限增长。
+- 每个端点最多积压 10,000 项，含待恢复记录。超限时保留队首，淘汰数计入 `overflow_total`。已建单的淘汰项会标记为 `failed`（`queue_overflow`），建单前被淘汰的记录没有投递编号。
 
 ## 出站安全
 
@@ -169,9 +169,9 @@ def verify(secret: str, header: str, raw_body: bytes, tolerance: int = 300) -> b
 | `POST /v1/webhooks/{id}/rotate-secret` | `{id, secret}`；旧密钥立即失效 |
 | `POST /v1/webhooks/{id}/test` | 202 delivery；排入一条 `webhook.test` 事件 |
 | `GET /v1/webhooks/{id}/deliveries?limit=20` | `{data: [delivery]}`，新的在前（最多 200） |
-| `POST /v1/webhooks/{id}/deliveries/{delivery}/redeliver` | 202 delivery；还在排队时 409 `webhook_delivery_pending` |
+| `POST /v1/webhooks/{id}/deliveries/{delivery}/redeliver` | 202 delivery；还在排队时 409 `webhook_delivery_pending`；队列已满时 429 `queue_full` |
 
-**endpoint** 为 `{object: "webhook_endpoint", id, url, events, agents, include_output, enabled, description, allow_insecure_http, allow_private_network, created_at, updated_at, status}`，其中 `status = {state: "ok" | "failing" | "disabled", consecutive_failures, last_success_at, last_failure_at, last_error, pending, latest_delivery}`。时间是 Unix 毫秒，与其它管理接口一致。
+**endpoint** 为 `{object: "webhook_endpoint", id, url, events, agents, include_output, enabled, description, allow_insecure_http, allow_private_network, created_at, updated_at, status}`，其中 `status = {state: "ok" | "failing" | "disabled", consecutive_failures, last_success_at, last_failure_at, last_error, pending, capture_pending, oldest_pending_at, overflow_total, latest_delivery}`。`pending` 包含已记录但尚未建单的 `capture_pending`；队列为空时 `oldest_pending_at` 为 null；`overflow_total` 从升级后累计。时间是 Unix 毫秒，与其它管理接口一致。
 
 **delivery** 为 `{object: "webhook_delivery", id, endpoint_id, event_id, event_type, run_id, status: "pending" | "succeeded" | "failed", attempts, next_attempt_at, http_status, duration_ms, last_error, created_at, updated_at}`。
 
@@ -243,5 +243,5 @@ run.completed  resp_c61d…  agent/sample  completed
 - 每个 owner 的端点数：20。每个端点保留的已结束投递：200。`include_output` 携带的输出：32 KiB。每次尝试的超时：10 秒。尝试次数：6。
 - 只有 owner 级管理员密钥能配置回调；没有按账号或按请求的回调。
 - HTTPS 端点按 Node.js 信任的证书颁发机构校验证书。自动化测试只用本机明文 http 接收端；投递到真实公网 HTTPS 端点走同一段代码，但不在测试覆盖之内。
-- 网关关机或重启时被中断的运行，其 `run.interrupted` 在关机时或下次启动时（本进程启动以来被中断的运行）入队，只发一次。
+- 捕获在启动恢复前安装，一直保留到关机检查点结束。旧版已排队的投递继续按原正文或原记录处理；升级不会重建旧版从未记录的事件，也不会向新端点补发历史。
 - 不支持多个网关进程共用一个数据目录（网关的其它部分同样不支持）；那样每个进程都会发送队列。

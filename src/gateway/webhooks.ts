@@ -1,9 +1,8 @@
 /**
  * Webhook dispatcher (docs/webhooks.md).
  *
- * - Enqueue: a listener on the store's committed `summary` notifications. It runs after the run's
- *   status is on disk, does nothing unless the owner has a matching endpoint (endpoint list cached in
- *   memory), and otherwise writes one small row per endpoint. Bodies are built at the first attempt.
+ * - Capture: the source checkpoint commits recipient-bound snapshots; a post-commit notification
+ *   only wakes the sender. Pre-upgrade pending deliveries keep their original body/seed format.
  * - Send: in the background, one in-flight delivery per endpoint (oldest first, so order is kept),
  *   endpoints independent of each other. Timers are unref'd and cleared on stop; a delivery that is
  *   in flight at shutdown is aborted and stays queued (at-least-once).
@@ -12,12 +11,10 @@ import http from 'node:http';
 import https from 'node:https';
 import { checkedLookup } from './checked-lookup.js';
 import type { Store } from '../store/store.js';
-import { withSavepoint } from '../store/savepoint.js';
-import { pendingApprovalIds, selectedApprovals } from '../store/approval-rows.js';
-import { coarseDelay, faultOf, id } from '../core/util.js';
+import { selectedApprovals } from '../store/approval-rows.js';
+import { coarseDelay, faultOf, id, sha } from '../core/util.js';
 import { GATEWAY_VERSION } from './endpoints.js';
 import {
-  STATUS_EVENTS,
   TEST_EVENT,
   checkTarget,
   pendingTitle,
@@ -29,8 +26,7 @@ import {
   type TargetPolicy,
 } from './webhook-core.js';
 import { WebhookDb, type Delivery, type WebhookEndpoint } from './webhook-db.js';
-
-type Summary = { owner: string; runId: string; agentId: string; status: string };
+import { WebhookOutbox } from './webhook-outbox.js';
 
 export class WebhookDispatcher {
   readonly db: WebhookDb;
@@ -39,51 +35,27 @@ export class WebhookDispatcher {
   private timer: NodeJS.Timeout | undefined;
   private timerAt = Infinity;
   private running = false;
-  private readonly onSummary = (s: Summary) => this.observe(s);
+  private readonly storageRetry = new Map<string, number>();
+  private readonly outbox: WebhookOutbox;
 
   constructor(
     private readonly store: Store,
     private readonly profile: 'local' | 'public',
   ) {
     this.db = new WebhookDb(store.db);
-    // Observing starts at once and lasts until the store closes, so runs interrupted while the
-    // kernel shuts down are still queued; sending only happens between start() and halt().
-    store.events.on('summary', this.onSummary);
+    this.outbox = new WebhookOutbox(
+      store,
+      this.db,
+      (owner) => this.endpointsOf(owner),
+      () => this.kick(),
+    );
+    store.stageWebhook = this.outbox.capture;
   }
 
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.catchUpInterrupted();
     this.kick();
-  }
-  /**
-   * The kernel marks unfinished runs `interrupted` while it is constructed, before this dispatcher
-   * exists. Queue `run.interrupted` for runs interrupted since this process started (and after the
-   * endpoint was created); the dedupe key makes a repeat harmless.
-   */
-  private catchUpInterrupted(): void {
-    const since = Date.now() - process.uptime() * 1000;
-    const rows = this.store.db
-      .prepare(
-        "SELECT r.id,r.owner,r.agent_id,s.payload FROM runs r JOIN run_summaries s ON s.run_id=r.id WHERE r.status='interrupted'",
-      )
-      .all();
-    for (const row of rows) {
-      const updated = Number(
-        (JSON.parse(String(row.payload)) as { updated_at?: number }).updated_at,
-      );
-      if (!(updated >= since)) continue;
-      this.observe(
-        {
-          owner: String(row.owner),
-          runId: String(row.id),
-          agentId: String(row.agent_id),
-          status: 'interrupted',
-        },
-        updated,
-      );
-    }
   }
   /** Stop sending (shutdown); events are still queued until `detach`. */
   halt(): void {
@@ -93,11 +65,12 @@ export class WebhookDispatcher {
     this.timerAt = Infinity;
     for (const c of this.inflight.values()) c.abort();
     this.inflight.clear();
+    this.storageRetry.clear();
   }
   /** Stop observing (right before the store closes). */
   detach(): void {
     this.halt();
-    this.store.events.off('summary', this.onSummary);
+    if (this.store.stageWebhook === this.outbox.capture) delete this.store.stageWebhook;
   }
   /** Endpoint configuration changed: drop the cache and look at the queue again. */
   changed(owner: string): void {
@@ -107,54 +80,16 @@ export class WebhookDispatcher {
   /** Abort the in-flight delivery of a deleted endpoint. */
   forget(endpointId: string): void {
     this.inflight.get(endpointId)?.abort();
+    this.storageRetry.delete(endpointId);
   }
 
   private endpointsOf(owner: string): WebhookEndpoint[] {
     let list = this.cache.get(owner);
-    if (!list) this.cache.set(owner, (list = this.db.endpoints(owner)));
-    return list;
-  }
-
-  /** Store observer: must stay cheap and must never throw into the store. */
-  private observe(s: Summary, happenedAt?: number): void {
-    try {
-      const type = STATUS_EVENTS[s.status as keyof typeof STATUS_EVENTS];
-      if (!type) return;
-      const targets = this.endpointsOf(s.owner).filter(
-        (e) =>
-          wants(e, type, s.agentId) && (happenedAt === undefined || e.created_at <= happenedAt),
-      );
-      if (!targets.length) return;
-      const queued = withSavepoint(this.store.db, () => {
-        let seed: Record<string, unknown> = { run_id: s.runId, status: s.status };
-        let dedupe = `${s.runId}:${type}`;
-        if (type === 'run.requires_action') {
-          const pending = pendingApprovalIds(this.store, s.runId);
-          const fresh = this.db.announce(s.runId, pending);
-          if (!fresh.length) return false;
-          seed = { ...seed, approval_ids: pending };
-          dedupe = `${s.runId}:${type}:${fresh.sort().join(',')}`;
-        }
-        const eventId = id('evt');
-        const created = Date.now();
-        for (const e of targets)
-          this.db.enqueue({
-            endpointId: e.id,
-            owner: s.owner,
-            eventId,
-            eventType: type,
-            runId: s.runId,
-            dedupe,
-            seed: { ...seed, created_at: created },
-          });
-        return true;
-      });
-      if (queued) this.kick();
-    } catch (error) {
-      process.emitWarning(`Webhook enqueue failed: ${faultOf(error).message}`, {
-        code: 'OAA_WEBHOOK_ENQUEUE',
-      });
+    if (!list) {
+      this.cache.set(owner, (list = this.db.endpoints(owner)));
+      if (this.cache.size > 128) this.cache.delete(this.cache.keys().next().value!);
     }
+    return list;
   }
 
   /** Queue a `webhook.test` event for one endpoint. */
@@ -184,7 +119,12 @@ export class WebhookDispatcher {
       () => {
         this.timer = undefined;
         this.timerAt = Infinity;
-        this.pump();
+        try {
+          this.pump();
+        } catch (error) {
+          this.outbox.warn(error);
+          this.arm(Date.now() + 1000);
+        }
       },
       // Rounded: an unref'd timer re-armed with exact durations leaks a Node timer list each time.
       coarseDelay(at - Date.now()),
@@ -194,18 +134,46 @@ export class WebhookDispatcher {
   private pump(): void {
     if (!this.running) return;
     const now = Date.now();
-    let next = Infinity;
+    let next = this.outbox.drain(now);
     for (const head of this.db.heads()) {
       if (this.inflight.has(head.endpoint_id)) continue;
       const endpoint = this.endpointsOf(head.owner).find((e) => e.id === head.endpoint_id);
       if (!endpoint?.enabled) continue;
+      const retry = this.storageRetry.get(endpoint.id);
+      if (retry !== undefined) {
+        if (retry > now) {
+          next = Math.min(next, retry);
+          continue;
+        }
+        this.storageRetry.delete(endpoint.id);
+      }
+      if (!this.stillSubscribed(endpoint, head)) {
+        this.db.retire(head);
+        next = now;
+        continue;
+      }
       if (head.next_at > now) {
         next = Math.min(next, head.next_at);
         continue;
       }
-      void this.send(endpoint, head);
+      void this.send(endpoint, head).catch((error) => {
+        this.outbox.warn(error);
+        const retry = Date.now() + 1000;
+        this.storageRetry.set(endpoint.id, retry);
+        this.arm(retry);
+      });
     }
     if (next < Infinity) this.arm(next);
+  }
+  private stillSubscribed(endpoint: WebhookEndpoint, d: Delivery): boolean {
+    if (typeof d.seed.target_hash !== 'string') return true; // Older row: no recorded audience to compare.
+    if (
+      sha(endpoint.url) !== d.seed.target_hash ||
+      !wants(endpoint, d.event_type, String(d.seed.agent))
+    )
+      return false;
+    // Never resend previously disclosed bytes after the operator withdraws output permission.
+    return endpoint.include_output || d.seed.sent_output !== 1;
   }
 
   private body(endpoint: WebhookEndpoint, d: Delivery): string {
@@ -218,6 +186,10 @@ export class WebhookDispatcher {
         endpoint_id: endpoint.id,
         message: 'Test event from Open Agent API.',
       };
+    } else if (d.seed.snapshot) {
+      const snapshot = d.seed.snapshot as Record<string, unknown>;
+      const { output, ...plain } = snapshot;
+      data = endpoint.include_output && output !== undefined ? snapshot : plain;
     } else {
       const run = this.store.run(String(d.seed.run_id));
       const ids = (d.seed.approval_ids as string[] | undefined) ?? undefined;
@@ -241,7 +213,7 @@ export class WebhookDispatcher {
       );
     }
     const body = JSON.stringify({ id: d.event_id, type: d.event_type, created_at: created, data });
-    this.db.setBody(d.id, body);
+    this.db.setBody(d.id, body, Object.hasOwn(data, 'output'));
     return body;
   }
 
@@ -273,12 +245,17 @@ export class WebhookDispatcher {
       });
       if (httpStatus < 200 || httpStatus >= 300) error = `HTTP ${httpStatus}`;
     } catch (e) {
+      // Freezing a body in SQLite can fail before a single byte has been sent.
+      if (e instanceof Error && 'code' in e && String(e.code).startsWith('ERR_SQLITE')) throw e;
       error = faultOf(e).message.slice(0, 500);
     } finally {
       if (this.inflight.get(endpoint.id) === controller) this.inflight.delete(endpoint.id);
     }
     // Aborted by shutdown or deletion: leave the delivery queued, record nothing.
-    if (controller.signal.aborted || !this.running) return;
+    if (controller.signal.aborted || !this.running) {
+      this.kick();
+      return;
+    }
     if (!this.db.secret(endpoint.id)) return;
     const ok = error === null;
     const delay = ok ? undefined : retryDelay(d.attempts + 1);

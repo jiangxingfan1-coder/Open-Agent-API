@@ -4,7 +4,8 @@ import { executionFor } from '../core/contracts.js';
 import type { Store } from '../store/store.js';
 import { permits } from '../fabric/network.js';
 import { responseObject } from './response-object.js';
-import { Fault, checkAbort, faultOf, id } from '../core/util.js';
+import { Fault, checkAbort, faultOf, id, sleep } from '../core/util.js';
+import { WebhookCaptureUnavailable } from '../store/checkpoint.js';
 import { ApprovalSuspension, SchedulingSuspension } from '../core/suspension.js';
 import { ExecutionPool } from './execution-pool.js';
 import { classifyFailure, terminalEventType } from './run-state.js';
@@ -77,6 +78,7 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
     nativeApprovalMs + (activeApprovals ? Date.now() - approvalStart : 0);
   let eventError: Fault | undefined;
   let modelPending = false;
+  let releaseCommitted = true;
   const writer = new RunTextSink(
     rt.store,
     run,
@@ -361,16 +363,34 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
     run.status = classification.status;
     run.error = classification.error;
     delete run.checkpoint.suspension;
-    rt.store.checkpointActions(run, 'expire', writer.finish('incomplete'), (view) => ({
-      type: terminalEventType(run.status),
-      data: { response: responseObject(view) },
-    }));
+    const finalEvents = writer.finish('incomplete');
+    for (;;) {
+      try {
+        rt.store.checkpointActions(run, 'expire', finalEvents, (view) => ({
+          type: terminalEventType(run.status),
+          data: { response: responseObject(view) },
+        }));
+        break;
+      } catch (error) {
+        if (!(error instanceof WebhookCaptureUnavailable)) throw error;
+        // Both queue paths failed even for the failure event. Retry only this final write,
+        // not execution. Shutdown leaves the last durable state for startup recovery.
+        if (rt.closing()) {
+          releaseCommitted = false;
+          break;
+        }
+        await sleep(1000, controller.signal.aborted ? undefined : controller.signal).catch(
+          () => {},
+        );
+      }
+    }
     writer.close();
   } finally {
     clearTimeout(timer);
     controller.abort();
     rt.controllers.delete(runId);
-    if (!run.checkpoint.suspension) {
+    if (!releaseCommitted) rt.hub.releaseRun(run.id);
+    else if (!run.checkpoint.suspension) {
       releaseRun(rt, run);
     }
   }
