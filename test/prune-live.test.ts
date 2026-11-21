@@ -8,6 +8,7 @@ import { agent, FixtureModel, setup, secondToken } from './helpers.js';
 import { makeBundle, builtin } from '../src/lang/bundle.js';
 import { prune } from '../src/store/retention.js';
 import { pruneChannel } from '../src/store/prune-profile.js';
+import { prepareArtifactOrigins } from '../src/store/artifact-origin.js';
 
 type Fixture = Awaited<ReturnType<typeof setup>>;
 
@@ -48,6 +49,50 @@ function age(s: Fixture, id: string) {
 }
 const request = (s: Fixture) =>
   s.request('POST', '/v1/maintenance/prune', { older_than_ms: 60000 });
+
+test('origin retention seeks by producer ID and records only matching same-owner artifact grants', async () => {
+  const s = await setup();
+  try {
+    s.store.publish('owner', makeBundle(agent()));
+    const producer = await finished(s),
+      other = await finished(s);
+    const insert = s.store.prepare('INSERT INTO files(id,owner,payload,subject) VALUES(?,?,?,?)');
+    for (const [id, owner, runId] of [
+      ['first', 'owner', producer],
+      ['second', 'owner', producer],
+      ['other-run', 'owner', other],
+      ['foreign-owner', 'foreign', producer],
+      ['upload', 'owner', undefined],
+    ] as const)
+      insert.run(id, owner, JSON.stringify({ runId }), 'fixture');
+
+    const keep = prepareArtifactOrigins(s.store.db);
+    const ids = JSON.stringify([producer, producer, 'not-a-run']);
+    const plan = s.store.prepare('EXPLAIN QUERY PLAN ' + keep.sourceSQL).all(ids);
+    assert.ok(
+      plan.some((row) =>
+        /SEARCH f USING (?:COVERING )?INDEX file_artifact_run\b/.test(String(row.detail)),
+      ),
+      JSON.stringify(plan),
+    );
+    assert.equal(keep.run(ids).changes, 2);
+    assert.equal(keep.run(ids).changes, 0);
+    const grants = s.store
+      .prepare(
+        'SELECT file_id,owner,run_id,agent_id FROM retained_artifact_origins ORDER BY file_id',
+      )
+      .all();
+    assert.deepEqual(
+      grants.map((r) => [r.file_id, r.owner, r.run_id, r.agent_id]),
+      [
+        ['first', 'owner', producer, 'agent/test'],
+        ['second', 'owner', producer, 'agent/test'],
+      ],
+    );
+  } finally {
+    await s.cleanup();
+  }
+});
 
 test('live deletion commits without waiting for an older WAL reader; offline checkpoint still truncates', async () => {
   const s = await setup();

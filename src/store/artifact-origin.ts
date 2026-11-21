@@ -9,15 +9,15 @@ export function installArtifactOrigins(db: DatabaseSync) {
     WHERE json_valid(payload) AND json_type(payload,'$.runId')='text';`);
 }
 
-/** Preserve the producer grant in the same transaction that removes its run. */
-export function rememberArtifactOrigins(db: DatabaseSync, ids: string[]) {
-  db.prepare(
+/** Keep the grant from the owning run; match both JSON IDs directly so SQLite can seek the expression index. */
+export function prepareArtifactOrigins(db: DatabaseSync) {
+  return db.prepare(
     `INSERT INTO retained_artifact_origins(file_id,owner,run_id,agent_id)
     SELECT f.id,r.owner,r.id,r.agent_id FROM json_each(?) i CROSS JOIN runs r ON r.id=i.value
     CROSS JOIN files f ON json_valid(f.payload) AND json_type(f.payload,'$.runId')='text'
-      AND json_extract(f.payload,'$.runId')=r.id AND f.owner=r.owner
+      AND json_extract(f.payload,'$.runId')=i.value AND f.owner=r.owner
     ON CONFLICT(file_id) DO NOTHING`,
-  ).run(JSON.stringify(ids));
+  );
 }
 
 export function artifactOriginAgent(

@@ -26,7 +26,7 @@ import { RECOVERABLE_WORKFLOW_STATES } from './task-workflows.js';
 import { isStagingArtifact } from './large-artifacts.js';
 import { PruneProfile, pruneChannel } from './prune-profile.js';
 import { pruneWrite } from './prune-write.js';
-import { rememberArtifactOrigins } from './artifact-origin.js';
+import { prepareArtifactOrigins } from './artifact-origin.js';
 
 /**
  * Bumped whenever a prune deleted runs. Caches built from run summaries (the console's activity
@@ -213,6 +213,7 @@ async function executePrune(
     }
     profile?.add('candidate', start);
   } else {
+    const preserveOrigins = prepareArtifactOrigins(db);
     for (;;) {
       const removed = await pruneWrite(
         db,
@@ -226,7 +227,7 @@ async function executePrune(
           const ids = runs.map((r) => r.id);
           const marks = ids.map(() => '?').join(',');
           const phase = performance.now();
-          rememberArtifactOrigins(db, ids);
+          preserveOrigins.run(JSON.stringify(ids));
           const events = Number(
             db.prepare(`DELETE FROM events WHERE run_id IN (${marks})`).run(...ids).changes,
           );
