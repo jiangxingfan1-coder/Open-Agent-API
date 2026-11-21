@@ -1,0 +1,20 @@
+{
+  "name": "dsh-open-agent-api",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness tools for delegating to a self-hosted Open Agent API gateway",
+  "type": "module",
+  "main": "./index.js",
+  "exports": "./index.js",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jiangxingfan1-coder/Open-Agent-API.git",
+    "directory": "integrations/deepseek-harness"
+  },
+  "keywords": ["dsh-plugin", "deepseek-harness", "open-agent-api"],
+  "files": ["index.js", "gateway.js", "cordis.patch.yml"],
+  "engines": { "node": ">=22", "dsh": "0.2.2-rc.5" },
+  "peerDependencies": { "@deepseek-ai/dsh-tools": "0.2.2-rc.5" },
+  "scripts": { "test": "node --test gateway.test.js" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}
