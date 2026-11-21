@@ -8,7 +8,8 @@ export function withSavepoint<T>(db: DatabaseSync, change: () => T): T {
     db.exec('RELEASE oaa_change');
     return result;
   } catch (error) {
-    db.exec('ROLLBACK TO oaa_change; RELEASE oaa_change');
+    // SQLite may already have rolled back the whole transaction (for example, SQLITE_FULL).
+    if (db.isTransaction) db.exec('ROLLBACK TO oaa_change; RELEASE oaa_change');
     throw error;
   }
 }

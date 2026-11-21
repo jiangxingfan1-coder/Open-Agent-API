@@ -147,8 +147,8 @@ srt 后端的边界与局限：
 网关会持久记录**已鉴权**请求被拒绝的事件，记录的错误码有：`scope_denied`、`admin_host_denied`、`isolation_required`、`concurrency_limit`、`subject_concurrency_limit`、`key_concurrency_limit`、`run_quota_exceeded`、`token_quota_exceeded`。
 
 - 每条记录包含：时间、错误码、密钥 ID、subject、HTTP 方法、路径，以及客户端 IP（`trustProxy` 时取 `X-Forwarded-For` 的第一跳）。
-- 同一 owner、同一密钥、同一错误码、同一路径的拒绝，在 60 秒内只写一条；下一条记录的 `suppressed` 字段给出期间被合并的次数。这个次数保存在进程内存里，网关重启会丢失。
-- 每个 owner 最多保留 10,000 条，更早的会被删除。
+- 同一 owner、密钥、错误码和路径的拒绝在 60 秒内合并。下一条的 `suppressed` 给出合并次数；计数只在当前连接有效，重启会清零。重复拒绝不写主数据库。一条审计写入失败或回滚，不会让下一次拒绝被误判为已有记录；审计不可写也不改变原来的拒绝响应。
+- 每个 owner 每成功记录 100 条事件（包括运营者操作）便清理一次，保留最新 10,000 条。清理进度跨重启保留；两次清理之间可暂时多出最多 99 条。
 
 **不记录**的情况：未鉴权的失败（401、`invalid_host`、`origin_denied`）和 `rate_limited`。否则每个被拒绝的请求都会变成一次数据库写入，等于给攻击者一个放大手段。这类流量应该在边缘层限流和记录。
 

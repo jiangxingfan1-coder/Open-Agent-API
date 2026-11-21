@@ -145,8 +145,8 @@ A caller can send its own model-provider key in the `X-OAA-Provider-Key` request
 The gateway persistently records events where an **authenticated** request is rejected. The recorded error codes are: `scope_denied`, `admin_host_denied`, `isolation_required`, `concurrency_limit`, `subject_concurrency_limit`, `key_concurrency_limit`, `run_quota_exceeded`, `token_quota_exceeded`.
 
 - Each record contains the time, error code, key ID, subject, HTTP method, path, and the client IP (with `trustProxy`, the first hop of `X-Forwarded-For`).
-- Rejections with the same owner, key, error code, and path are written as one record within 60 seconds; the `suppressed` field of the next record gives the number merged in between. This count is kept in process memory and is lost on gateway restart.
-- At most 10,000 records are kept per owner; older ones are deleted.
+- Rejections with the same owner, key, error code, and path are coalesced for 60 seconds. The next record's `suppressed` count is connection-local and resets on restart. Repeats do not write to the main database. A failed or rolled-back insert is not grounds to suppress the next denial; if storage is unavailable the original rejection still stands.
+- Every 100 recorded events per owner (including operator actions), the oldest rows beyond 10,000 are deleted. This maintenance count survives restart; up to 99 more rows may accumulate between passes.
 
 **Not recorded**: unauthenticated failures (401, `invalid_host`, `origin_denied`) and `rate_limited`. Otherwise every rejected request would become a database write, which hands an attacker an amplifier. That traffic should be rate limited and logged at the edge.
 
