@@ -507,7 +507,7 @@
             <div class="install-card">
               <div class="install-head">
                 <h3>Cross-platform desktop app</h3>
-                <span class="pill">macOS · Windows · Linux</span>
+                <span class="pill">macOS · Windows</span>
               </div>
               <p>
                 Unified Electron sandboxed shell bundling Node.js 24, the web console, dock approval
@@ -524,29 +524,15 @@
 
             <div class="install-card">
               <div class="install-head">
-                <h3>Linux one-liner</h3>
-                <span class="pill">x64 · arm64 · rootless</span>
+                <h3>Linux from source</h3>
+                <span class="pill">Node.js 24.18–26</span>
               </div>
               <p>
-                Verifies release SHA256SUMS, bundles the Node runtime, and installs under ~/.local:
+                Clone and build the CLI, then run the offline sample. No upstream model key is
+                needed.
               </p>
               <div class="cmd-box">
-                <code
-                  >curl -fsSL
-                  https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh
-                  | sh</code
-                >
-                <button
-                  type="button"
-                  class="copy-btn copy-mini"
-                  data-copy-btn
-                  data-copy-value="curl -fsSL https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh | sh && oaa quickstart"
-                  data-copy-default="Copy"
-                  data-copy-done="✓"
-                  aria-label="Copy Linux install command"
-                >
-                  <span data-copy-label>Copy</span>
-                </button>
+                <a class="cmd-link" href="../docs/install.html#source">Build from source →</a>
               </div>
             </div>
 
@@ -577,10 +563,10 @@
 
             <div class="install-card">
               <div class="install-head">
-                <h3>From source or npm tarball</h3>
+                <h3>Already built from source?</h3>
                 <span class="pill">Node.js 24 / 26</span>
               </div>
-              <p>Install the release .tgz globally, or run directly from a repository checkout:</p>
+              <p>From a built repository checkout, start the local sample:</p>
               <div class="cmd-box">
                 <code>npm run oaa -- quickstart</code>
                 <button

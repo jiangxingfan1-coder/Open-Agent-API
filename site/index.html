@@ -495,7 +495,7 @@
             <div class="install-card">
               <div class="install-head">
                 <h3>跨平台桌面应用</h3>
-                <span class="pill">macOS · Windows · Linux</span>
+                <span class="pill">macOS · Windows</span>
               </div>
               <p>
                 统一基于 Electron 安全沙箱外壳构建，内置 Node.js 24
@@ -512,27 +512,12 @@
 
             <div class="install-card">
               <div class="install-head">
-                <h3>Linux 一键安装</h3>
-                <span class="pill">x64 · arm64 · 免 root</span>
+                <h3>Linux 源码安装</h3>
+                <span class="pill">Node.js 24.18–26</span>
               </div>
-              <p>自动核验发布页同批次的 SHA256SUMS，自带独立运行时并安装至 ~/.local：</p>
+              <p>克隆仓库并构建 CLI，即可运行离线示例，无需上游模型密钥。</p>
               <div class="cmd-box">
-                <code
-                  >curl -fsSL
-                  https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh
-                  | sh</code
-                >
-                <button
-                  type="button"
-                  class="copy-btn copy-mini"
-                  data-copy-btn
-                  data-copy-value="curl -fsSL https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh | sh && oaa quickstart"
-                  data-copy-default="复制"
-                  data-copy-done="✓"
-                  aria-label="复制 Linux 安装命令"
-                >
-                  <span data-copy-label>复制</span>
-                </button>
+                <a class="cmd-link" href="docs/zh-CN/install.html#源码">查看源码构建步骤 →</a>
               </div>
             </div>
 
@@ -563,10 +548,10 @@
 
             <div class="install-card">
               <div class="install-head">
-                <h3>源码目录与 npm 包</h3>
+                <h3>已从源码构建？</h3>
                 <span class="pill">Node.js 24 / 26</span>
               </div>
-              <p>支持从发布页全局安装 .tgz 归档包，或在克隆仓库后一键启动离线快速体验：</p>
+              <p>在已构建的仓库目录中，运行本地示例：</p>
               <div class="cmd-box">
                 <code>npm run oaa -- quickstart</code>
                 <button

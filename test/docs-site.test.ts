@@ -214,6 +214,21 @@ const KNOWN_DOC_DEFECTS: string[] = [];
 /** Documents that are linked before they exist (the same list as PENDING_NEW_DOCS in test/docs.test.ts). */
 const PENDING = ['docs/stability.md', 'docs/zh-CN/stability.md'];
 
+test('docs-site: both landing pages link to the localized source build steps', async () => {
+  for (const [landing, href] of [
+    ['index.html', 'docs/zh-CN/install.html#源码'],
+    ['en/index.html', '../docs/install.html#source'],
+  ] as const) {
+    const html = await readFile(path.join('site', landing), 'utf8');
+    const install = html.match(/<section id="install"[^>]*>([\s\S]*?)<\/section>/)?.[1];
+    assert.ok(install?.includes(`href="${href}"`), `${landing} lacks the source install link`);
+    const target = new URL(href, 'https://example.invalid/' + landing);
+    const fragment = decodeURIComponent(target.hash.slice(1));
+    const page = built.files.get(target.pathname.slice(1)) as string | undefined;
+    assert.ok(page?.includes(`id="${fragment}"`), `${landing} links to missing ${href}`);
+  }
+});
+
 test('docs-site: every document of both languages and the cookbook becomes a page', async () => {
   const { readdir } = await import('node:fs/promises');
   for (const [dir, lang] of [
