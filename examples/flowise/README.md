@@ -1,5 +1,10 @@
 # Run a local Open Agent API sample from Flowise
 
+> For people with an existing, isolated Flowise installation. [Upstream Flowise is archived](https://flowiseai.com/sunset)
+> and no longer receives official fixes. This example is not a recommendation
+> to deploy the archived release, especially not on a network-facing host.
+> Community forks were not tested.
+
 This community example connects the built-in OpenAI node in a self-hosted
 Flowise Chatflow to the OpenAI-compatible route of a local Open Agent API
 gateway. It uses Flowise's standard Prompt Template and LLM Chain nodes. The
