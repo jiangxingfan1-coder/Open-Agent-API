@@ -8,8 +8,7 @@ creates a caller key file, makes one real call, and prints the Base URL, the mod
 Running it again changes nothing. `oaa stop` stops the gateway.
 
 Release files live on the project's GitHub Releases page
-(`https://github.com/jiangxingfan1-coder/Open-Agent-API/releases`). In the examples `<version>` stands for the version you downloaded. The Linux packages, `install.sh`, the npm tarball and the
-Docker image are attached to releases published after 0.0.64; 0.0.64 itself has only the macOS and Windows installers. Each release has a `SHA256SUMS` file: check a download with `sha256sum -c SHA256SUMS --ignore-missing`
+(`https://github.com/jiangxingfan1-coder/Open-Agent-API/releases`). In the examples `<version>` stands for the version you downloaded. Version 0.0.64 includes macOS and Windows installers but no Linux package, `install.sh`, or npm tarball. If a release lacks the asset you need, see [Source](#source) or [Docker](#docker). Use the release's `SHA256SUMS` file to check a download with `sha256sum -c SHA256SUMS --ignore-missing`
 (Linux), `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS) or `Get-FileHash` (Windows).
 
 | Route | Requirements | Best for | Not suited for |
@@ -96,21 +95,22 @@ system settings → Environment Variables). Delete `%LOCALAPPDATA%\OpenAgentAPI`
 
 ## Linux
 
-Packages exist for x64 and arm64 (`Open-Agent-API-<version>-linux-x64.tar.gz`, `…-linux-arm64.tar.gz`). They bundle the
+For [v0.0.64](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/tag/v0.0.64), [start from source](#source) or [build the container](#docker); it has no Linux installer.
+
+When a release lists Linux packages, choose x64 or arm64 (`Open-Agent-API-<version>-linux-x64.tar.gz`, `…-linux-arm64.tar.gz`). They bundle the
 official Node.js runtime and have no desktop shell. They need glibc 2.28 or newer (Debian 10+, Ubuntu 20.04+, RHEL 8+);
 Alpine (musl) is not supported, use Docker there.
 
-**Install with the script** (no root, nothing outside `~/.local` is touched, no shell profile is edited):
+**Install with the script** (no root, nothing outside `~/.local` is touched, no shell profile is edited). Download `install.sh` and `SHA256SUMS` from the same release and run:
 
 ```bash
-curl -fsSL https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh | sh
+sha256sum -c SHA256SUMS --ignore-missing && sh install.sh
 ```
 
 The script downloads the `.tar.gz` for your CPU, verifies it against the release's `SHA256SUMS` (it refuses to install on a
 mismatch), unpacks it to `~/.local/share/open-agent-api` and links `~/.local/bin/oaa` to the launcher. It tells you if
 `~/.local/bin` is not on your `PATH`. Options: `--version X.Y.Z`, `--prefix DIR` (installs under `DIR/share` and `DIR/bin`),
-`--uninstall`, `--help`. The copy attached to a release installs that release; to read it before running it, download it
-and run `sh install.sh`. Running it again upgrades in place.
+`--uninstall`, `--help`. The copy attached to a release installs that release. Running it again upgrades in place.
 
 **Install by hand.**
 
@@ -141,7 +141,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \
 
 The first start initializes `/data/.oaa`, publishes the offline sample agent and writes the caller key file
 `/data/.oaa/keys/quickstart.key` (admin key: `/data/.oaa/admin.token`, used for the console at
-`http://127.0.0.1:8787`). Later starts reuse everything. Once a release is published the image is
+`http://127.0.0.1:8787`). Later starts reuse everything. If a prebuilt image has been published to GHCR, its tag is
 `ghcr.io/jiangxingfan1-coder/open-agent-api:<version>` (and `:latest`) for `linux/amd64` and `linux/arm64`; without a
 checkout use `docker run`:
 
@@ -171,7 +171,7 @@ It does not make the agents installed on the Docker host usable from inside the 
 
 ## npm
 
-The release carries `open-agent-api-<version>.tgz`. The package is marked `private` in `package.json` so that it cannot be
+Use this route only for a release that lists `open-agent-api-<version>.tgz`, or build the archive locally with `npm pack`. The package is marked `private` in `package.json` so that it cannot be
 published to the npm registry by accident; it installs fine from the file or from the release URL.
 
 ```bash
@@ -191,7 +191,7 @@ yourself, run `npm pack` in a checkout (it rebuilds `dist/` first).
 ```bash
 git clone https://github.com/jiangxingfan1-coder/Open-Agent-API.git
 cd Open-Agent-API
-npm ci
+npm ci --omit=optional --ignore-scripts
 npm run build
 npm run oaa -- quickstart
 ```

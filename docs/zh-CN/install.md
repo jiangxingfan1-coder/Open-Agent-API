@@ -7,8 +7,8 @@
 `curl`。重复运行不会重复创建任何东西。`oaa stop` 停止网关。
 
 发布文件在项目的 GitHub 发布页（`https://github.com/jiangxingfan1-coder/Open-Agent-API/releases`）。示例里的 `<version>` 指你下载的那个版本。
-Linux 包、`install.sh`、npm tarball 与 Docker 镜像随 0.0.64 之后发布的版本提供；0.0.64 本身只有 macOS 与 Windows 安装包。每个版本都有一个
-`SHA256SUMS`：Linux 用 `sha256sum -c SHA256SUMS --ignore-missing` 校验下载，macOS 用 `shasum -a 256 -c SHA256SUMS --ignore-missing`，
+0.0.64 提供 macOS 与 Windows 安装包，没有 Linux 包、`install.sh` 或 npm tarball。发布页没有所需文件时，请[从源码启动](#源码)或[用 Docker 构建](#docker)。
+用发布页的 `SHA256SUMS` 校验下载：Linux 用 `sha256sum -c SHA256SUMS --ignore-missing`，macOS 用 `shasum -a 256 -c SHA256SUMS --ignore-missing`，
 Windows 用 `Get-FileHash`。
 
 | 路线 | 环境要求 | 适用场景 | 不适用场景 |
@@ -82,18 +82,20 @@ OAA_DESKTOP_HOME="$(mktemp -d)" OAA_DESKTOP_PORT=18787 "/Applications/Open Agent
 
 ## Linux
 
-x64 与 arm64 都有包（`Open-Agent-API-<version>-linux-x64.tar.gz`、`…-linux-arm64.tar.gz`）。包里自带官方 Node.js 运行时，没有桌面外壳。
+[v0.0.64](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/tag/v0.0.64) 不含 Linux 安装包，请[从源码启动](#源码)或[用 Docker 构建镜像](#docker)。
+
+发布页有 Linux 文件时，按 CPU 选择 x64 或 arm64 压缩包（`Open-Agent-API-<version>-linux-x64.tar.gz`、`…-linux-arm64.tar.gz`）。包里自带官方 Node.js 运行时，没有桌面外壳。
 需要 glibc 2.28 及以上（Debian 10+、Ubuntu 20.04+、RHEL 8+）；Alpine（musl）不支持，请改用 Docker。
 
-**用脚本安装**（不需要 root，`~/.local` 之外什么都不动，也不改 shell 配置文件）：
+**用脚本安装**（不需要 root，`~/.local` 之外什么都不动，也不改 shell 配置文件）。从同一个发布页下载 `install.sh` 和 `SHA256SUMS`，然后运行：
 
 ```bash
-curl -fsSL https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh | sh
+sha256sum -c SHA256SUMS --ignore-missing && sh install.sh
 ```
 
 脚本下载适合你 CPU 的 `.tar.gz`，用发布页的 `SHA256SUMS` 校验（不符就拒绝安装），解压到 `~/.local/share/open-agent-api`，并把
 `~/.local/bin/oaa` 链接到启动脚本；如果 `~/.local/bin` 不在 `PATH` 上，它会告诉你。选项：`--version X.Y.Z`、
-`--prefix DIR`（装到 `DIR/share` 与 `DIR/bin`）、`--uninstall`、`--help`。随发布页附上的那份只安装那个版本；想先读再运行，就下载下来再 `sh install.sh`。
+`--prefix DIR`（装到 `DIR/share` 与 `DIR/bin`）、`--uninstall`、`--help`。随发布页附上的那份只安装那个版本。
 再次运行就是原地升级。
 
 **手动安装。**
@@ -123,7 +125,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \
 ```
 
 第一次启动会初始化 `/data/.oaa`，发布离线示例智能体，写出调用方密钥文件 `/data/.oaa/keys/quickstart.key`（管理员密钥：`/data/.oaa/admin.token`，
-用于 `http://127.0.0.1:8787` 的控制台）。之后的启动都复用它们。发布版本后，镜像是 `ghcr.io/jiangxingfan1-coder/open-agent-api:<version>`（以及 `:latest`），
+用于 `http://127.0.0.1:8787` 的控制台）。之后的启动都复用它们。若已有镜像发布到 GHCR，标签是 `ghcr.io/jiangxingfan1-coder/open-agent-api:<version>`（以及 `:latest`），
 有 `linux/amd64` 与 `linux/arm64`；没有检出目录时用 `docker run`：
 
 ```bash
@@ -149,7 +151,7 @@ docker run -d --init --name oaa -p 127.0.0.1:8787:8787 -v oaa-data:/data \
 
 ## npm
 
-发布页上有 `open-agent-api-<version>.tgz`。这个包在 `package.json` 里标了 `private`，防止误发布到 npm 官方源；从文件或发布页地址安装都没问题。
+只有发布页列出 `open-agent-api-<version>.tgz` 时，才用发布包安装；也可以运行 `npm pack` 自己打包。包在 `package.json` 里标了 `private`，没有发布到 npm 官方源。
 
 ```bash
 npm install -g https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/download/v<version>/open-agent-api-<version>.tgz
@@ -167,7 +169,7 @@ oaa quickstart
 ```bash
 git clone https://github.com/jiangxingfan1-coder/Open-Agent-API.git
 cd Open-Agent-API
-npm ci
+npm ci --omit=optional --ignore-scripts
 npm run build
 npm run oaa -- quickstart
 ```

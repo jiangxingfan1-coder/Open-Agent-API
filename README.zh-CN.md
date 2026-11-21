@@ -83,7 +83,7 @@ Node.js 同理：
 
 ## 三分钟跑起来
 
-下面的源码路线需要 Node.js 24.18 及以上的 24 或 26 版本线（`package.json` 的 `engines` 为 `>=24.18.0 <27`）；安装包与 Linux 包自带 Node.js（其他路线见[其他安装方式](#其他安装方式)）。不需要 Redis，也不需要任何模型密钥。
+下面的源码路线需要 Node.js 24.18 及以上的 24 或 26 版本线（`package.json` 的 `engines` 为 `>=24.18.0 <27`），适合 Linux；桌面下载和 Docker 路线见[其他安装方式](#其他安装方式)。不需要 Redis，也不需要任何模型密钥。
 
 ### 最短路径：一条命令
 
@@ -103,19 +103,12 @@ npm run oaa -- quickstart
 
 ### 其他安装方式
 
-每条安装路线跑完后用 `oaa quickstart` 起步，详细步骤与卸载方式见 [docs/zh-CN/install.md](docs/zh-CN/install.md)。从 `0.0.65` 起，[发布页](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases)同步提供桌面/命令行包、Linux 安装脚本、Docker 镜像与 npm `.tgz` 包。
+各平台的要求和卸载步骤见[安装指南](docs/zh-CN/install.md)。[v0.0.64 发布页](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/tag/v0.0.64)有 macOS 和 Windows 安装包，没有 Linux 压缩包、Linux 安装脚本或 npm `.tgz` 包。
 
-- **跨平台桌面应用与安装包**（macOS `arm64`/`x64` `.dmg`、Windows `x64` `.zip`、Linux `x64`/`arm64` `.tar.gz`）：自带 Node.js 24 运行时。目前安装包未做苹果公证与商业代码签名，首次打开按系统提示手动放行即可（见 install.md）。
-- **Linux 一键脚本**（x64 与 arm64，glibc 2.28 及以上，不需要 root 和预装 Node.js）：
-
-  ```sh
-  curl -fsSL https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh | sh
-  oaa quickstart
-  ```
-
-  脚本会用发布页同批次的 `SHA256SUMS` 校验压缩包，安装到 `~/.local` 下。
+- **macOS 和 Windows**：从[发布页](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases)下载 macOS `arm64`/`x64` DMG 或 Windows `x64` ZIP，安装包自带 Node.js，目前未做苹果公证或商业代码签名。
+- **Linux**：先[从源码启动](docs/zh-CN/install.md#源码)或[用 Docker Compose 构建](docs/zh-CN/install.md#docker)。只有发布页确实列出 Linux 文件时，才使用 [Linux 安装包](docs/zh-CN/install.md#linux)。
 - **Docker**（仓库根目录执行 `docker compose up --build -d`）：只映射宿主机 `127.0.0.1:8787`。镜像内没有宿主机命令行智能体，主要配给「内置智能体 + 自带模型密钥」、「ACP / A2A 远程智能体」或外部工作节点回连使用。每次 push 都会跑 amd64 构建与容器烟雾测试；`ghcr.io` 多架构镜像在正式发布 Release 时推送。
-- **npm tarball**（需本机 Node.js 24.18 及以上的 24/26 版本线）：`npm install -g <发布页 open-agent-api-<版本>.tgz 链接>`，随后 `oaa quickstart`。由于 `package.json` 保持 `private`，包不会发上 npmjs 官方源。
+- **npm tarball**（需本机 Node.js 24.18 及以上的 24/26 版本线）：[从包含 tarball 的发布版本安装，或在本地打包](docs/zh-CN/install.md#npm)。包没有发布到 npmjs.org。
 
 ### 接上你自己的智能体：`oaa connect`
 

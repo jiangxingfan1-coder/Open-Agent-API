@@ -83,9 +83,9 @@ From the caller's side, there are only a Base URL and an API key. `model` names 
 
 ## Running in three minutes
 
-The source route below requires Node.js 24.18 or newer on the 24 or 26 line (`engines` in `package.json` is `>=24.18.0 <27`); the installers and the Linux package bring their own Node.js (other routes: [Other ways to install](#other-ways-to-install)). No Redis or model keys are needed.
+The source route below requires Node.js 24.18 or newer on the 24 or 26 line (`engines` in `package.json` is `>=24.18.0 <27`). Use it on Linux, or see [Other ways to install](#other-ways-to-install) for desktop downloads and Docker. No Redis or model keys are needed.
 
-### Shortest path: one command
+### Start from source
 
 ```sh
 git clone https://github.com/jiangxingfan1-coder/Open-Agent-API.git
@@ -103,19 +103,12 @@ The default port is 8787; if it is taken, `quickstart` reports `port_in_use` and
 
 ### Other ways to install
 
-Every route starts up cleanly with `oaa quickstart`; exact install and uninstall steps live in [docs/install.md](docs/install.md). Since `0.0.65`, the [Releases page](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases) carries installers for every desktop target alongside `install.sh`, the npm tarball, and container builds.
+See [the installation guide](docs/install.md) for platform requirements and uninstall steps. [The v0.0.64 release](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/tag/v0.0.64) has macOS and Windows installers but no Linux archive, Linux install script, or npm tarball.
 
-- **Cross-platform desktop & CLI bundles** (macOS `arm64`/`x64` `.dmg`, Windows `x64` `.zip`, Linux `x64`/`arm64` `.tar.gz`): bundle their own Node.js 24 runtime. They are not Apple-notarized or commercially signed yet, so the OS asks for one extra click on first launch (see install.md).
-- **Linux one-liner** (`x64` and `arm64`, glibc 2.28+, no root and no Node.js needed):
-
-  ```sh
-  curl -fsSL https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/latest/download/install.sh | sh
-  oaa quickstart
-  ```
-
-  Verifies downloads against the release's `SHA256SUMS` and installs under `~/.local`.
+- **macOS and Windows**: download the macOS `arm64`/`x64` DMG or Windows `x64` ZIP from [Releases](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases). The bundles include Node.js and are not Apple-notarized or commercially signed.
+- **Linux**: [start from source](#start-from-source) or [build with Docker Compose](docs/install.md#docker). Use the [Linux package instructions](docs/install.md#linux) only for a release that actually lists Linux assets.
 - **Docker** (`docker compose up --build -d` from a checkout): binds only to host `127.0.0.1:8787`. Because the container does not ship your host agent CLIs, use it for built-in agents with model keys, remote ACP / A2A agents, or external workers connecting in. CI builds and smoke-tests the `amd64` image on every push; multi-arch `ghcr.io` images push on published releases.
-- **npm tarball** (requires Node.js 24.18+ on line 24 or 26): `npm install -g <URL of open-agent-api-<version>.tgz on Releases>`, then `oaa quickstart`. The package stays `private` and is not on npmjs.org.
+- **npm tarball** (requires Node.js 24.18+ on line 24 or 26): [use a release that lists the tarball, or build it locally](docs/install.md#npm). The package is not on npmjs.org.
 
 ### Connect your own agent: `oaa connect`
 
