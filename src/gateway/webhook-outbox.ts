@@ -10,10 +10,12 @@ import { WebhookDb, type DeliveryInput, type WebhookEndpoint } from './webhook-d
 
 const RETRY_MS = 1000;
 const CHUNK = 16;
+const SLICE_MS = 4;
 
 /** Only database work runs on a source checkpoint. HTTP starts after its transaction commits. */
 export class WebhookOutbox {
   private lastWarning = -Infinity;
+  private lastOwner = '';
   constructor(
     private store: Store,
     private db: WebhookDb,
@@ -109,7 +111,7 @@ export class WebhookOutbox {
     return true;
   }
 
-  private publish(entries: DeliveryInput[]) {
+  private publish(entries: DeliveryInput[], capacity: 'new' | 'staged' = 'new') {
     const first = entries[0];
     if (!first) return;
     const marker = first.seed.marker;
@@ -122,14 +124,15 @@ export class WebhookOutbox {
       !this.db.announce(first.runId!, [marker]).length
     )
       return;
-    for (const entry of entries) this.db.insertDelivery(entry);
+    for (const entry of entries) this.db.insertDelivery(entry, capacity);
   }
 
   /** Bounded store retries, independent across owners. Returns the next wake time. */
   drain(now: number): number {
     let handled = 0;
+    const until = performance.now() + SLICE_MS;
     while (handled < CHUNK) {
-      const heads = this.db.stageHeads(CHUNK - handled);
+      const heads = this.db.stageHeads(CHUNK - handled, now, this.lastOwner);
       if (!heads.length) return Infinity;
       for (const h of heads) {
         const next = Number(h.retry_at);
@@ -137,12 +140,15 @@ export class WebhookOutbox {
         const owner = String(h.owner),
           seq = Number(h.source_seq);
         try {
-          withSavepoint(this.store.db, () => this.publish(this.db.takeStage(owner, seq)));
+          withSavepoint(this.store.db, () => this.publish(this.db.takeStage(owner, seq), 'staged'));
         } catch (error) {
           this.warn(error);
           this.db.deferStage(owner, seq, now + RETRY_MS);
         }
+        this.lastOwner = owner;
         handled++;
+        // A single source group stays atomic; yield between groups on a slow disk or large fanout.
+        if (performance.now() >= until) return now;
       }
     }
     return now;

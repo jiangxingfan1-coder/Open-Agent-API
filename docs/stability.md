@@ -16,6 +16,13 @@ The load generator's `--concurrency` counts clients, not execution slots. To com
 
 Add `--profile-prune` to separate maintenance queue time from candidate selection, write-lock acquisition, deletion, commit, file cleanup, yielding and the WAL checkpoint. The report includes P99 for operations finishing before, during and after the manual CLI call, lightweight health probes during it, and the gateway event-loop intervals that overlap it. A percentile with few samples is not a service SLO. V8 physical heap, array buffers and best-effort OS memory summaries help distinguish steady heap from growing resident memory; their sizes overlap and must not be added together.
 
+For cross-owner webhook latency, run `npm run bench:webhook-isolation -- --out result.json`.
+One owner starts with 32,000 queued deliveries and 32,000 recovery rows across eight endpoints.
+Another submits 256 background runs with four loopback clients. A separate process measures HTTP
+submission and signed notification latency with no backlog, a waiting backlog, and an actively
+recovering backlog. The report also measures time to promote the entire backlog; promotion is
+not delivery to the remote receiver. It uses a fixture model, not a production latency target.
+
 `bench/soak.ts` is not part of `npm test`. It:
 
 - starts a **real gateway process** (`node dist/src/cli.js serve`) with a temporary `HOME` and data

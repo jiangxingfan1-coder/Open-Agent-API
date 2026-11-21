@@ -81,11 +81,33 @@ CREATE INDEX IF NOT EXISTS webhook_deliveries_age ON webhook_deliveries(endpoint
 CREATE TABLE IF NOT EXISTS webhook_announced(run_id TEXT NOT NULL,approval_id TEXT NOT NULL,PRIMARY KEY(run_id,approval_id));
 CREATE TABLE IF NOT EXISTS webhook_outbox(seq INTEGER PRIMARY KEY AUTOINCREMENT,owner TEXT NOT NULL,source_seq INTEGER NOT NULL,endpoint_id TEXT NOT NULL REFERENCES webhook_endpoints(id) ON DELETE CASCADE,dedupe TEXT NOT NULL,input TEXT NOT NULL,created_at INTEGER NOT NULL,retry_at INTEGER NOT NULL,UNIQUE(endpoint_id,dedupe));
 CREATE INDEX IF NOT EXISTS webhook_outbox_owner ON webhook_outbox(owner,source_seq,seq);
+CREATE INDEX IF NOT EXISTS webhook_outbox_fifo ON webhook_outbox(owner,seq);
 CREATE INDEX IF NOT EXISTS webhook_outbox_age ON webhook_outbox(endpoint_id,created_at);
 CREATE TABLE IF NOT EXISTS webhook_queue_stats(endpoint_id TEXT PRIMARY KEY REFERENCES webhook_endpoints(id) ON DELETE CASCADE,overflows INTEGER NOT NULL);`);
 }
 
 const newSecret = () => `whsec_${randomBytes(32).toString('base64url')}`;
+
+// Seek past each active key's entire backlog, then fetch only its oldest row. Driving this
+// from the endpoint registry would instead visit every idle endpoint on every sender wake-up.
+function headsSql(queue: 'capture' | 'delivery') {
+  const capture = queue === 'capture';
+  const table = capture ? 'webhook_outbox' : 'webhook_deliveries';
+  const key = capture ? 'owner' : 'endpoint_id';
+  const pending = capture ? '' : "status='pending' AND ";
+  return `WITH RECURSIVE active(k) AS (
+    SELECT (SELECT ${key} FROM ${table} ${capture ? '' : "WHERE status='pending'"} ORDER BY ${key} LIMIT 1)
+    UNION ALL SELECT (SELECT ${key} FROM ${table} WHERE ${pending}${key}>active.k ORDER BY ${key} LIMIT 1)
+      FROM active WHERE k IS NOT NULL
+  ) SELECT ${capture ? 'h.owner,h.source_seq,h.retry_at' : 'h.*'} FROM active
+    JOIN ${table} h ON h.seq=(SELECT seq FROM ${table} WHERE ${pending}${key}=active.k ORDER BY seq LIMIT 1)`;
+}
+const deliveryHeads = headsSql('delivery');
+// All ready owners rotate past the last served owner; a future head can never be bypassed
+// within its own FIFO. If none are ready, the earliest retry is first for the wake timer.
+const captureHeads =
+  headsSql('capture') +
+  ' ORDER BY CASE WHEN h.retry_at<=? THEN 0 ELSE h.retry_at END,(h.owner<=?),h.owner LIMIT ?';
 
 const endpointOf = (row: Record<string, unknown>): WebhookEndpoint => ({
   ...(JSON.parse(row.payload as string) as WebhookEndpoint),
@@ -229,7 +251,7 @@ export class WebhookDb {
     const inserted = this.insertDelivery(input);
     return inserted ? this.delivery(inserted) : undefined;
   }
-  insertDelivery(input: DeliveryInput): string | undefined {
+  insertDelivery(input: DeliveryInput, capacity: 'new' | 'staged' = 'new'): string | undefined {
     const now = input.createdAt ?? Date.now();
     const deliveryId = id('whd');
     const res = this.q(
@@ -249,7 +271,9 @@ export class WebhookDb {
       now,
     );
     if (Number(res.changes) === 0) return undefined;
-    this.boundQueue(input.endpointId);
+    // Promotion removes these exact reservations in the same savepoint, so the combined
+    // count cannot grow. Fresh rows must still enforce the endpoint ceiling.
+    if (capacity === 'new') this.boundQueue(input.endpointId);
     return deliveryId;
   }
   boundQueue(endpointId: string): void {
@@ -297,11 +321,8 @@ export class WebhookDb {
   hasStagedOwner(owner: string) {
     return !!this.q('SELECT 1 FROM webhook_outbox WHERE owner=? LIMIT 1').get(owner);
   }
-  stageHeads(limit: number) {
-    return this.q(
-      `SELECT o.owner,o.source_seq,o.retry_at FROM (SELECT owner,min(seq) AS head FROM webhook_outbox GROUP BY owner) h
-      JOIN webhook_outbox o ON o.seq=h.head ORDER BY o.retry_at,o.seq LIMIT ?`,
-    ).all(limit);
+  stageHeads(limit: number, now = Date.now(), afterOwner = '') {
+    return this.q(captureHeads).all(now, afterOwner, limit);
   }
   takeStage(owner: string, seq: number): DeliveryInput[] {
     const args = [owner, seq];
@@ -355,11 +376,7 @@ export class WebhookDb {
   }
   /** Oldest pending delivery of each endpoint that has one (the head of its serial queue). */
   heads(): Delivery[] {
-    return this.q(
-      `SELECT d.* FROM webhook_deliveries d JOIN (SELECT endpoint_id,min(seq) AS seq FROM webhook_deliveries WHERE status='pending' GROUP BY endpoint_id) h ON d.seq=h.seq`,
-    )
-      .all()
-      .map(deliveryOf);
+    return this.q(deliveryHeads).all().map(deliveryOf);
   }
   pendingCount(endpointId: string): number {
     return (
