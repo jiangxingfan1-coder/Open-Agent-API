@@ -4,7 +4,7 @@ import { withSavepoint } from './savepoint.js';
 
 export type UsageConnection =
   DatabaseSync | { db: DatabaseSync; prepare(sql: string): StatementSync };
-export const fileBytes = (payload: 'payload' | 'NEW.payload') =>
+export const fileBytes = (payload: 'payload' | 'NEW.payload' | 'OLD.payload') =>
   `CASE WHEN json_valid(${payload}) THEN CASE WHEN json_type(${payload},'$.bytes')='integer' AND json_extract(${payload},'$.bytes')>=0 THEN json_extract(${payload},'$.bytes') END END`;
 const max = Number.MAX_SAFE_INTEGER;
 const total = (value: string) =>
@@ -36,7 +36,9 @@ const schema = `
     ${displaced}
   END;
   CREATE TEMP TRIGGER oaa_usage_delete AFTER DELETE ON main.files BEGIN
-    DELETE FROM oaa_upload_usage WHERE owner=OLD.owner AND subject=OLD.subject;
+    UPDATE oaa_upload_usage SET used=CASE WHEN ${fileBytes('OLD.payload')}<=used
+      THEN used-${fileBytes('OLD.payload')} END WHERE owner=OLD.owner AND subject=OLD.subject;
+    DELETE FROM oaa_upload_usage WHERE owner=OLD.owner AND subject=OLD.subject AND used IS NULL;
   END;`;
 
 /** Never authoritative: rebuild from canonical files on a miss. Pending reservations are

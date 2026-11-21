@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import { Store } from '../src/store/store.js';
+import { prune } from '../src/store/retention.js';
 import { checkUploadRoom } from '../src/store/upload-budget.js';
 
 function fixture(t: TestContext) {
@@ -61,6 +62,51 @@ test('upload usage: warm totals follow file edits, retention and implicit REPLAC
   exact('first', 'new', 7);
   s.db.exec('ROLLBACK');
   exact('first', 'new', 19);
+});
+
+test('upload usage: live retention releases bytes without rescanning the subject after each page', async (t) => {
+  const { s, exact } = fixture(t);
+  const expired: string[] = [],
+    kept: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    const { id } = await s.addFile('o', 'fixture', Buffer.alloc(7), undefined, undefined, 's');
+    if (i % 2 === 0) {
+      expired.push(id);
+      s.prepare("UPDATE files SET payload=json_set(payload,'$.createdAt',1) WHERE id=?").run(id);
+    } else kept.push(id);
+  }
+  const other = await s.addFile('other', 'fixture', Buffer.alloc(7), undefined, undefined, 's');
+  exact('o', 's', 84);
+  exact('other', 's', 7);
+  const stored = s.prepare(
+    "SELECT sum(json_extract(payload,'$.bytes')) AS n FROM files WHERE owner='o' AND subject='s'",
+  );
+  const prepare = s.prepare.bind(s);
+  let fills = 0,
+    pages = 0;
+  t.mock.method(s, 'prepare', (sql: string) => {
+    if (sql.startsWith('INSERT OR REPLACE INTO temp.oaa_upload_usage')) fills++;
+    return prepare(sql);
+  });
+  const report = await prune(s, {
+    owner: 'o',
+    olderThanMs: 60000,
+    batchSize: 2,
+    live: true,
+    pause: async () => {
+      pages++;
+      exact('o', 's', Number(stored.get()!.n));
+    },
+  });
+  assert.ok(pages >= 5);
+  assert.equal(report.files, 6);
+  assert.equal(report.file_bytes, 42);
+  exact('o', 's', 42);
+  exact('other', 's', 7);
+  assert.equal(fills, 0, 'known committed deletes must not make the next upload scan all files');
+  const present = (id: string) => existsSync(path.join(s.root, 'files', id));
+  assert.ok(expired.every((id) => !present(id)));
+  assert.ok([...kept, other.id].every(present));
 });
 
 test('upload usage: a concurrent writer neither blocks cold preflight nor supplies an uncommitted total', (t) => {

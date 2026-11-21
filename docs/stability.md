@@ -30,7 +30,9 @@ process times real HTTP uploads, another owner's file reads during those uploads
 after the cap is full. Historical metadata is synthetic; no user files or model accounts are used.
 With a cap enabled, the gateway keeps recent callers' committed file totals on its SQLite
 connection. External commits invalidate those totals; a cold check rebuilds from the caller's file
-records. In-flight reservations are always read from the database, including on a cache hit.
+records. Retention subtracts a known file size in the same transaction as deletion; an unknown
+size instead forces a fresh count. In-flight reservations are always read from the database,
+including on a cache hit.
 
 `bench/soak.ts` is not part of `npm test`. It:
 
