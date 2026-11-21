@@ -14,6 +14,7 @@ const pending = `SELECT ${total("CASE WHEN typeof(bytes)='integer' AND bytes>=0 
   FROM main.oaa_inline_inputs WHERE owner=:owner AND subject=:subject AND phase='writing'`;
 const version = '(SELECT data_version FROM main.pragma_data_version)';
 const scopeLimit = 256;
+const latestAdmission = '(SELECT coalesce(max(touched),0) FROM temp.oaa_upload_usage)';
 
 // REPLACE may discard a row without invoking DELETE triggers. Invalidate both possible
 // conflicts (the public id and an explicitly supplied rowid) before SQLite discards them.
@@ -21,9 +22,11 @@ const displaced = `DELETE FROM oaa_upload_usage WHERE (owner,subject) IN
   (SELECT owner,subject FROM main.files WHERE id=NEW.id OR rowid=NEW.rowid);`;
 const schema = `
   CREATE TEMP TABLE oaa_upload_usage(owner TEXT NOT NULL,subject TEXT NOT NULL,
-    version INTEGER NOT NULL,used INTEGER,PRIMARY KEY(owner,subject));
-  CREATE TEMP TRIGGER oaa_usage_bound AFTER INSERT ON oaa_upload_usage BEGIN
-    DELETE FROM oaa_upload_usage WHERE rowid=(SELECT rowid FROM oaa_upload_usage ORDER BY rowid DESC LIMIT 1 OFFSET ${scopeLimit});
+    version INTEGER NOT NULL,used INTEGER,touched INTEGER NOT NULL,PRIMARY KEY(owner,subject));
+  CREATE INDEX temp.oaa_usage_recency ON oaa_upload_usage(touched);
+  CREATE TEMP TRIGGER oaa_usage_bound AFTER INSERT ON oaa_upload_usage
+    WHEN (SELECT count(*) FROM oaa_upload_usage)>${scopeLimit} BEGIN
+    DELETE FROM oaa_upload_usage WHERE rowid=(SELECT rowid FROM oaa_upload_usage ORDER BY touched,rowid LIMIT 1);
   END;
   CREATE TEMP TRIGGER oaa_usage_replace BEFORE INSERT ON main.files
     WHEN EXISTS(SELECT 1 FROM oaa_upload_usage) BEGIN ${displaced} END;
@@ -56,17 +59,27 @@ export function uploadUsage(store: UsageConnection, owner: string, subject: stri
       withSavepoint(db, () => db.exec(schema));
     const hit = store
       .prepare(
-        `SELECT used,(${pending}) AS reserved FROM temp.oaa_upload_usage
+        `SELECT used,(${pending}) AS reserved,${latestAdmission}-touched>=${scopeLimit / 2} AS refresh FROM temp.oaa_upload_usage
       WHERE owner=:owner AND subject=:subject AND version=${version}`,
       )
       .get(scope);
-    if (hit) return hit;
+    if (hit) {
+      // Only a cache fill advances the clock. Repeated hits without admission pressure
+      // do not write to TEMP or invalidate retention's total_changes() observation.
+      if (hit.refresh)
+        store
+          .prepare(
+            `UPDATE temp.oaa_upload_usage SET touched=${latestAdmission} WHERE owner=:owner AND subject=:subject`,
+          )
+          .run(scope);
+      return hit;
+    }
     // This statement only writes TEMP. Even a permanently over-quota caller can warm the
     // cache without taking the main writer lock. A NULL total means unknown, never zero.
     return store
       .prepare(
-        `INSERT OR REPLACE INTO temp.oaa_upload_usage(owner,subject,version,used)
-      VALUES(:owner,:subject,${version},(${files})) RETURNING used,(${pending}) AS reserved`,
+        `INSERT OR REPLACE INTO temp.oaa_upload_usage(owner,subject,version,used,touched)
+      VALUES(:owner,:subject,${version},(${files}),${latestAdmission}+1) RETURNING used,(${pending}) AS reserved`,
       )
       .get(scope)!;
   } catch (error) {

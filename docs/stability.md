@@ -28,8 +28,9 @@ To measure upload latency as a caller's file history grows, run
 The fixture compares an empty history with a large one, with and without a storage cap. A separate
 process times real HTTP uploads, another owner's file reads during those uploads, and rejections
 after the cap is full. Historical metadata is synthetic; no user files or model accounts are used.
-With a cap enabled, the gateway keeps recent callers' committed file totals on its SQLite
-connection. External commits invalidate those totals; a cold check rebuilds from the caller's file
+With a cap enabled, the SQLite connection caches at most 256 caller totals. Eviction favors keeping
+frequently checked callers over one-off callers; this does not limit how many callers may upload.
+External commits invalidate those totals; a cold check rebuilds from the caller's file
 records. Retention subtracts a known file size in the same transaction as deletion; an unknown
 size instead forces a fresh count. In-flight reservations are always read from the database,
 including on a cache hit.

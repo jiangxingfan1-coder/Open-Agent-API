@@ -225,3 +225,30 @@ test('upload usage: losing the outer writer cannot turn a failed cache fill into
   assert.ok(!s.db.isTransaction);
   exact('o', 'uncached', 0);
 });
+
+test('upload usage: rotating callers cannot evict a frequently checked scope or make steady reads write', (t) => {
+  const { s, file, exact } = fixture(t);
+  file('busy-file', 'busy', 'shared', 41);
+  exact('busy', 'shared', 41);
+  const cached = s.prepare(
+    "SELECT used FROM temp.oaa_upload_usage WHERE owner='busy' AND subject='shared'",
+  );
+  for (let i = 0; i < 640; i++) {
+    checkUploadRoom(s, 'caller-' + i, 'shared', 0, 0);
+    if (i % 8 === 7) {
+      assert.equal(cached.get()?.used, 41, 'a hot scope was evicted between checks');
+      exact('busy', 'shared', 41);
+    }
+  }
+  const residents = s.prepare('SELECT owner FROM temp.oaa_upload_usage ORDER BY rowid').all();
+  assert.equal(residents.length, 256);
+  const visit = () => {
+    for (const { owner } of residents)
+      checkUploadRoom(s, String(owner), 'shared', 0, owner === 'busy' ? 41 : 0);
+  };
+  visit();
+  const changes = s.prepare('SELECT total_changes() AS n');
+  const before = changes.get()!.n;
+  for (let i = 0; i < 3; i++) visit();
+  assert.equal(changes.get()!.n, before, 'a stable working set must not write on ordinary hits');
+});
