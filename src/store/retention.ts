@@ -260,6 +260,7 @@ async function executePrune(
     `SELECT f.rowid AS position,f.id,f.owner,json_extract(f.payload,'$.bytes') AS bytes,json_extract(f.payload,'$.runId') AS run_id,
         json_extract(f.payload,'$.createdAt') AS created FROM files f
        WHERE f.rowid>? AND f.rowid<=? AND json_valid(f.payload) ${options.owner === undefined ? '' : 'AND f.owner=?'}
+       ${hasTable(db, 'oaa_inline_inputs') ? 'AND NOT EXISTS(SELECT 1 FROM oaa_inline_inputs p WHERE p.file_id=f.id)' : ''}
        ORDER BY f.rowid LIMIT ?`,
   );
   const upper = Number(db.prepare('SELECT max(rowid) AS n FROM files').get()?.n ?? 0);
@@ -345,10 +346,15 @@ async function sweepOrphanBlobs(db: DatabaseSync, root: string, cutoff: number):
   const dir = path.join(root, 'files');
   const names = await readdir(dir).catch(() => [] as string[]);
   const known = db.prepare('SELECT 1 FROM files WHERE id=?');
+  const pending = hasTable(db, 'oaa_inline_inputs')
+    ? db.prepare('SELECT 1 FROM oaa_inline_inputs WHERE file_id=?')
+    : undefined;
+  const protectedBlob = (name: string) =>
+    known.get(name) || pending?.get(name) || isStagingArtifact(db, name);
   for (const name of names) {
-    if (known.get(name) || isStagingArtifact(db, name)) continue;
+    if (protectedBlob(name)) continue;
     const info = await stat(path.join(dir, name)).catch(() => undefined);
-    if (info?.isFile() && info.mtimeMs < cutoff && !known.get(name) && !isStagingArtifact(db, name))
+    if (info?.isFile() && info.mtimeMs < cutoff && !protectedBlob(name))
       await rm(path.join(dir, name), { force: true });
   }
 }

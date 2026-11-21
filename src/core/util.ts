@@ -204,6 +204,7 @@ export async function writePrivate(
   name: string,
   data: Buffer | string,
   exclusive = false,
+  beforeWrite?: (handle: import('node:fs/promises').FileHandle) => Promise<void>,
 ): Promise<void> {
   const target = await safePath(root, name, true);
   const handle = await open(
@@ -215,6 +216,7 @@ export async function writePrivate(
     0o600,
   );
   try {
+    if (beforeWrite) await beforeWrite(handle);
     await handle.writeFile(data);
   } finally {
     await handle.close();

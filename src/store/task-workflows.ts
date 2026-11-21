@@ -2,6 +2,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { Principal, Run, RunStatus } from '../core/contracts.js';
 import { Fault, canonical, sha, id } from '../core/util.js';
 import { withSavepoint } from './savepoint.js';
+import { installWorkflowInputClaims } from './input-journal.js';
 import {
   enableWorkflowEvents,
   type PendingWorkflowEvent,
@@ -100,6 +101,7 @@ export class TaskWorkflows<T extends { id: string }> {
       CREATE TABLE IF NOT EXISTS workflow_pending_events(owner TEXT NOT NULL,workflow TEXT NOT NULL,event TEXT NOT NULL,revision TEXT NOT NULL,input TEXT NOT NULL,PRIMARY KEY(owner,workflow,event));
       CREATE INDEX IF NOT EXISTS workflow_active_owner ON workflow_executions(owner,status);
     `);
+    installWorkflowInputClaims(store.db);
     enableWorkflowEvents(store.db);
   }
   list(owner?: string): WorkflowRecord<T>[] {

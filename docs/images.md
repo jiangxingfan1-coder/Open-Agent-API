@@ -63,6 +63,13 @@ and an idempotent retry produces the same request. When the request is refused b
 exists (for example the agent does not accept images), the files this request newly stored are
 removed again, so the caller's storage use does not grow; an earlier copy that was reused stays.
 
+For new implicit uploads, SQLite records the file ID, caller and exclusive file identity before
+payload bytes are written. A committed run or stored workflow reference releases the cleanup
+right in the same transaction. On restart, unclaimed inputs are reclaimed in bounded batches,
+including a partial write or a file whose catalog row was removed before its blob. A locked
+writer defers cleanup. Explicit uploads and pre-upgrade files without proof are never inferred
+to be temporary, even if their name or contents match. An unexpected replacement is left alone.
+
 `GET /v1/runs/{id}/state` and `GET /v1/runs/{id}/timeline` list the images of a run
 (`images: [{kind:"file", file_id, name, mime, bytes}]`; for a URL image only its host). The console's
 task inspector shows "This task came with N image(s)" with names, sizes and thumbnails; the

@@ -172,8 +172,10 @@ An already-committed idempotent replay needs no writer. Waiting requests recheck
 Disconnecting before admission abandons the wait; it does not cancel a run already committed.
 This applies to creating the run, not to every database write or to the transfer of input files.
 If a waiting request abandons an inline image, another waiting request can still use its copy.
-An unclaimed upload is removed once the writer is available. A process exit before that cleanup
-can leave a private upload subject to normal retention; it cannot remove an accepted run's input.
+The input journal rolls back abandoned materialization even after restart, independently of
+retention. It records deletion before unlinking and keeps the receipt until absence is confirmed.
+It does not sweep unmarked files. In particular, an empty filesystem entry left before the first
+journal write contains no image bytes or quota row and is left to ordinary orphan-blob retention.
 
 ## 3. Upgrades, backups and downgrades
 
@@ -227,7 +229,8 @@ What grows with use, and what bounds it:
 | `server.log` of `oaa serve --detach` / `quickstart` | `<dataDir>/server.log` | rotated to `server.log.1` at start when larger than 10 MB (one generation) |
 | Pre-migration backups | `<dataDir>/backups/` | newest 3 per source version |
 
-**Defaults delete nothing.** Without a `retention` block the gateway never removes data on its own.
+**Retention is off by default.** Without a `retention` block no accepted run or ordinary upload
+expires automatically. Rolling back a journaled, unclaimed input is not a retention policy.
 
 ```json
 "retention": { "runsDays": 30, "intervalMinutes": 60, "warnDatabaseMb": 1024 }

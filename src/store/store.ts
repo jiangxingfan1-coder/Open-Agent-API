@@ -17,7 +17,7 @@ import { TIMELINE_EVENT_TYPES, type RunEventType } from '../core/events.js';
 import { LIMITS } from '../core/limits.js';
 import { sourcesOf, transitionFault } from '../core/run-status.js';
 import { inputPreview, textPrefix } from './inspection.js';
-import { Fault, id, noAgent, sha, writePrivate, readBounded, relativeName } from '../core/util.js';
+import { Fault, id, noAgent, sha, readBounded, relativeName } from '../core/util.js';
 import {
   finishOutput,
   isOutputEvent,
@@ -52,13 +52,14 @@ import { backupBeforeMigration } from './backup.js';
 import { GatewayLease, hasLiveLease } from './gateway-lease.js';
 import { beginRunWrite, tryBeginWrite, type RunWriteMode } from './write-lock.js';
 import { ProvisionalInputs } from './provisional-inputs.js';
+import { writeFileRecord } from './file-write.js';
+import { installInputJournal } from './input-journal.js';
 import {
   commitNewRun,
   idemKey,
   replayId,
   insertNewRun,
   linkDelegateStart,
-  UnconfirmedRunCommit,
   type ParentStepStart,
 } from './run-creation.js';
 type Row = Record<string, unknown>;
@@ -184,6 +185,7 @@ export class Store {
         CREATE INDEX IF NOT EXISTS node_policy_owner ON node_policy_events(owner,node_id,id);
         CREATE TABLE IF NOT EXISTS memories (${MEMORY_COLUMNS});`);
       this.migrateSubjects();
+      const previousInputs = installInputJournal(this.db);
       installArtifactOrigins(this.db);
       installApprovalIndexes(this.db);
       indexRecoveryCandidates(this.db);
@@ -208,7 +210,9 @@ export class Store {
       if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
       this.db.exec('COMMIT');
       this.lease.acquired();
+      this.provisionalInputs.start(previousInputs);
     } catch (e) {
+      this.provisionalInputs.close();
       if (this.db.isTransaction) this.db.exec('ROLLBACK');
       this.db.close();
       throw e;
@@ -568,8 +572,6 @@ export class Store {
       return { run, created: true };
     } catch (e) {
       if (this.db.isTransaction) this.db.exec('ROLLBACK');
-      // Keep the inputs private but intact if their run might already be durable.
-      if (e instanceof UnconfirmedRunCommit) this.provisionalInputs.adopt(run.fileIds);
       if (String(e).includes('runs.owner, runs.session_id'))
         throw new Fault('session_busy', 'This session already has active work.', 409);
       throw e;
@@ -1358,6 +1360,7 @@ export class Store {
     allowedNodes?: string[],
     runId?: string,
     subject?: string,
+    origin?: 'inline',
   ): Promise<FileRecord> {
     const fileSubject = runId
       ? String(
@@ -1377,13 +1380,7 @@ export class Store {
       allowedNodes,
       runId,
     };
-    await writePrivate(path.join(this.root, 'files'), file.id, bytes, true);
-    this.prepare('INSERT INTO files(id,owner,payload,subject) VALUES(?,?,?,?)').run(
-      file.id,
-      owner,
-      JSON.stringify(file),
-      fileSubject,
-    );
+    await writeFileRecord(this, file, fileSubject, bytes, origin);
     if (bytes.length <= LIMITS.fileBytes) {
       const payload: FilePayload = {
         id: file.id,

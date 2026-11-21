@@ -33,6 +33,12 @@ const liveBlobs = new WeakMap<DatabaseSync, Set<string>>();
 export function isStagingArtifact(db: DatabaseSync, fileId: string): boolean {
   return liveBlobs.get(db)?.has(fileId) ?? false;
 }
+export function trackStagingBlob(db: DatabaseSync, fileId: string) {
+  let active = liveBlobs.get(db);
+  if (!active) liveBlobs.set(db, (active = new Set()));
+  active.add(fileId);
+  return () => active.delete(fileId);
+}
 
 export function setArtifactByteLimit(store: ArtifactStoreLike, maxBytes?: number): void {
   if (maxBytes === undefined) {
@@ -132,9 +138,7 @@ export async function stageArtifact(store: ArtifactStoreLike, params: ArtifactSo
   const hash = createHash('sha256');
   let total = 0;
   let succeeded = false;
-  let active = liveBlobs.get(store.db);
-  if (!active) liveBlobs.set(store.db, (active = new Set()));
-  active.add(fileId);
+  const unpin = trackStagingBlob(store.db, fileId);
   try {
     if (params.sourcePath) {
       const src = await open(params.sourcePath, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -200,20 +204,20 @@ export async function stageArtifact(store: ArtifactStoreLike, params: ArtifactSo
         store
           .prepare('INSERT INTO files(id,owner,payload,subject) VALUES(?,?,?,?)')
           .run(record.id, params.owner, JSON.stringify(record), fileSubject);
-        active.delete(fileId);
+        unpin();
         return record;
       },
       async discard() {
         try {
           await unlink(target);
         } finally {
-          active.delete(fileId);
+          unpin();
         }
       },
     };
   } finally {
     if (!succeeded) {
-      active.delete(fileId);
+      unpin();
       await out.close().catch(() => {});
       await unlink(target).catch(() => {});
     }

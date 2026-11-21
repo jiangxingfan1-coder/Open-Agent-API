@@ -83,15 +83,35 @@ function storedCopy(store: Store, p: Principal, digest: string): string | undefi
   return typeof row?.id === 'string' ? row.id : undefined;
 }
 
+type InputConfig = Pick<GatewayConfig, 'images' | 'maxStoredBytesPerSubject' | 'security'>;
 export async function materializeImages(
   store: Store,
-  config: Pick<GatewayConfig, 'images' | 'maxStoredBytesPerSubject' | 'security'>,
+  config: InputConfig,
   principal: Principal,
   invocation: Invocation,
   transport?: ImageTransport,
 ): Promise<Invocation> {
   const images = invocation.images;
   if (!images?.length) return invocation;
+  const held: string[] = [];
+  try {
+    const result = await prepareImages(store, config, principal, images, held, transport);
+    const materialized = { ...invocation, images: result };
+    if (held.length) heldBy.set(materialized, held);
+    return materialized;
+  } catch (error) {
+    await store.provisionalInputs.release(held);
+    throw error;
+  }
+}
+async function prepareImages(
+  store: Store,
+  config: InputConfig,
+  principal: Principal,
+  images: ImageInput[],
+  held: string[],
+  transport?: ImageTransport,
+) {
   const limits = config.images;
   const paramOf = (image: ImageInput, i: number) => image.param ?? `images.${i}`;
   if (images.length > limits.maxImagesPerRequest)
@@ -124,6 +144,7 @@ export async function materializeImages(
       out.push({ ...fetched, param });
     } else {
       const file = store.file(image.file_id, principal.owner, visibleSubject(principal));
+      held.push(...store.provisionalInputs.hold(principal.owner, [file.id]));
       if (file.bytes > limits.maxImageBytes)
         throw tooLarge(
           param,
@@ -160,39 +181,29 @@ export async function materializeImages(
     [...fresh.values()].reduce((sum, d) => sum + d.bytes.length, 0),
   );
   const ids = new Map<string, string>();
-  const held: string[] = [];
   const result: StoredImage[] = [];
-  try {
-    for (const [i, item] of out.entries()) {
-      if (!('bytes' in item)) {
-        if ('file_id' in item)
-          held.push(...store.provisionalInputs.hold(principal.owner, [item.file_id]));
-        result.push(item);
-        continue;
-      }
-      const digest = sha(item.bytes);
-      let fileId = ids.get(digest) ?? storedCopy(store, principal, digest);
-      if (!fileId) {
-        const file = await store.addFile(
-          principal.owner,
-          `image-${i + 1}.${IMAGE_EXT[item.mime]}`,
-          item.bytes,
-          undefined,
-          undefined,
-          principalSubject(principal),
-        );
-        fileId = file.id;
-        store.provisionalInputs.created(principal.owner, fileId);
-      }
-      held.push(...store.provisionalInputs.hold(principal.owner, [fileId]));
-      ids.set(digest, fileId);
-      result.push({ file_id: fileId, mime: item.mime, param: item.param });
+  for (const [i, item] of out.entries()) {
+    if (!('bytes' in item)) {
+      result.push(item);
+      continue;
     }
-  } catch (error) {
-    await store.provisionalInputs.release(held);
-    throw error;
+    const digest = sha(item.bytes);
+    let fileId = ids.get(digest) ?? storedCopy(store, principal, digest);
+    if (!fileId) {
+      const file = await store.addFile(
+        principal.owner,
+        `image-${i + 1}.${IMAGE_EXT[item.mime]}`,
+        item.bytes,
+        undefined,
+        undefined,
+        principalSubject(principal),
+        'inline',
+      );
+      fileId = file.id;
+    }
+    held.push(...store.provisionalInputs.hold(principal.owner, [fileId]));
+    ids.set(digest, fileId);
+    result.push({ file_id: fileId, mime: item.mime, param: item.param });
   }
-  const materialized = { ...invocation, images: result };
-  if (held.length) heldBy.set(materialized, held);
-  return materialized;
+  return result;
 }
