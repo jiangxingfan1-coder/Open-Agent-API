@@ -10,11 +10,18 @@ import type { Auth } from './auth.js';
 import { assertUploadRoom } from './upload-quota.js';
 import { artifactOriginAgent } from '../store/artifact-origin.js';
 import { requestGrant } from './request-grant.js';
+import type { ColdUploadReads } from '../store/upload-cold-reads.js';
 
 // 文件上传（multipart 与 JSON 两种）与下载：POST /v1/files、GET /v1/files/:id/content。
 // 从 gateway/server.ts 拆出。
 
-export type FileRouteDeps = { auth: Auth; config: GatewayConfig; store: Store; kernel: Kernel };
+export type FileRouteDeps = {
+  auth: Auth;
+  config: GatewayConfig;
+  store: Store;
+  kernel: Kernel;
+  coldReads?: ColdUploadReads;
+};
 
 export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): void {
   const { auth, config, store, kernel } = deps;
@@ -53,7 +60,15 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
           );
       }
       if (!uploaded) throw new Fault('file_required', 'A file part is required.');
-      assertUploadRoom(store, config, req.principal, uploaded.bytes.length);
+      const quota = assertUploadRoom(
+        store,
+        config,
+        req.principal,
+        uploaded.bytes.length,
+        deps.coldReads,
+        policy.guard,
+      );
+      if (quota) await quota;
       const f = await store.addFile(
         req.principal.owner,
         uploaded.name,
@@ -83,7 +98,15 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
       .parse(req.body);
     relativeName(b.filename);
     const bytes = Buffer.from(b.content, b.encoding === 'utf8' ? 'utf8' : 'base64');
-    assertUploadRoom(store, config, req.principal, bytes.length);
+    const quota = assertUploadRoom(
+      store,
+      config,
+      req.principal,
+      bytes.length,
+      deps.coldReads,
+      policy.guard,
+    );
+    if (quota) await quota;
     const file = await store.addFile(
       req.principal.owner,
       b.filename,

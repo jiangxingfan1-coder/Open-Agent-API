@@ -58,6 +58,7 @@
     "bench:fair": "npm run build && node dist/bench/fairness.js",
     "bench:webhook-isolation": "npm run build && node dist/bench/webhook-isolation.js",
     "bench:upload-quota": "npm run build && node dist/bench/upload-quota.js",
+    "bench:upload-cold-start": "npm run build && node dist/bench/upload-cold-start.js",
     "bench:protocol": "npm run build && node dist/bench/protocol-speed.js",
     "bench:queue": "npm run build && node dist/bench/queue-estimate.js",
     "bench:paired": "npm run build && node dist/bench/paired/run.js",

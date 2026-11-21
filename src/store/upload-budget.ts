@@ -4,7 +4,8 @@ import { Fault, RetryLaterFault } from '../core/util.js';
 import { bi } from '../core/locale.js';
 import { isWriteContended, isWriteUnavailable } from './checkpoint.js';
 import { tryBeginWrite } from './write-lock.js';
-import { fileBytes, uploadUsage, type UsageConnection } from './upload-usage.js';
+import { fileBytes } from './upload-facts.js';
+import { uploadUsage, type UsageConnection } from './upload-usage.js';
 
 export type UploadPolicy = { kind: 'inline' | 'upload'; limit?: number; guard?: () => void };
 export class UnconfirmedFileCommit extends Fault {

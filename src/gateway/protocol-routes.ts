@@ -3,6 +3,7 @@ import type { GatewayConfig } from '../config/config.js';
 import type { Principal, Run } from '../core/contracts.js';
 import type { Kernel } from '../kernel/kernel.js';
 import type { Store } from '../store/store.js';
+import type { ColdUploadReads } from '../store/upload-cold-reads.js';
 import type { Auth } from './auth.js';
 import type { VisibleAgent } from './agent-views.js';
 import {
@@ -43,6 +44,7 @@ import { requestGrant } from './request-grant.js';
 // 调用路由，以及 /v1/compat/models。从 gateway/server.ts 拆出，注册顺序与拆分前一致。
 
 export type ProtocolRouteDeps = {
+  coldReads?: ColdUploadReads;
   admission: HttpRunAdmission;
   auth: Auth;
   config: GatewayConfig;
@@ -88,6 +90,7 @@ export function registerProtocolRoutes(app: FastifyInstance, deps: ProtocolRoute
           invocation,
           undefined,
           requestGrant(auth, req, reply),
+          deps.coldReads,
         );
       resumed = resumeBridged(kernel, store, req.principal, invocation);
       const trace = parseTraceHeaders(req.headers as Record<string, unknown>);

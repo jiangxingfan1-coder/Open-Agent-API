@@ -35,6 +35,20 @@ records. Retention subtracts a known file size in the same transaction as deleti
 size instead forces a fresh count. In-flight reservations are always read from the database,
 including on a cache hit.
 
+For simultaneous first uploads after restart, run
+`npm run bench:upload-cold-start -- --accounts 8 --rows 128000 --restarts 16 --out cold.json`.
+Each gateway process serves a cold and a warm burst against the same disk database, while a
+different caller reads a real file. The report includes upload and reader latency, reader
+response gaps through the whole burst, and one-byte over-limit rejections. The OS disk cache is
+not cleared. Add `--compare PATH_TO_PRIOR_DIST` to alternate two local builds in AB/BA order.
+
+A capped gateway can prepare one read-only helper when the catalog has at least 4,096 files;
+it does not rebuild every caller's total at startup. Only a cold caller with at least that many
+files is sent to it. Concurrent requests for the same owner and subject share the count, not
+their authorization or reservation. A changed or unavailable snapshot is never used as proof
+of room: the serving connection can count again, and still checks outstanding reservations inside
+the write transaction. Uncapped gateways start no helper. The thread retires when idle.
+
 `bench/soak.ts` is not part of `npm test`. It:
 
 - starts a **real gateway process** (`node dist/src/cli.js serve`) with a temporary `HOME` and data

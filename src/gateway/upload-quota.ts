@@ -2,6 +2,7 @@ import type { Store } from '../store/store.js';
 import type { GatewayConfig } from '../config/config.js';
 import { principalSubject, type Principal } from '../core/contracts.js';
 import { checkUploadRoom } from '../store/upload-budget.js';
+import type { ColdUploadReads } from '../store/upload-cold-reads.js';
 
 /**
  * Optional per-caller cap on stored file bytes (`maxStoredBytesPerSubject`), checked before an
@@ -13,6 +14,14 @@ export function assertUploadRoom(
   config: Pick<GatewayConfig, 'maxStoredBytesPerSubject'>,
   p: Principal,
   incoming: number,
-): void {
-  checkUploadRoom(store, p.owner, principalSubject(p), incoming, config.maxStoredBytesPerSubject);
+  cold?: ColdUploadReads,
+  guard?: () => void,
+  retainedBytes = incoming,
+): void | Promise<void> {
+  const limit = config.maxStoredBytesPerSubject;
+  if (limit === undefined) return;
+  const subject = principalSubject(p);
+  const verify = () => checkUploadRoom(store, p.owner, subject, incoming, limit);
+  const pending = cold?.warm(p.owner, subject, retainedBytes, guard);
+  return pending ? pending.then(verify) : verify();
 }

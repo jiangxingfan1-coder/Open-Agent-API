@@ -17,6 +17,7 @@ import { checkImageUrl, fetchImage, type ImageTransport } from './image-fetch.js
 import { imageFault } from './image-parts.js';
 import { IMAGE_EXT, normalizeImageType, sniffImage, type ImageType } from './image-sniff.js';
 import { assertUploadRoom } from './upload-quota.js';
+import type { ColdUploadReads } from '../store/upload-cold-reads.js';
 import { storedUploadCopy, type UploadPolicy } from '../store/upload-budget.js';
 import { stageImage, stagingCopy } from './image-staging.js';
 export { acceptsImages } from './image-catalog.js';
@@ -83,12 +84,22 @@ export async function materializeImages(
   invocation: Invocation,
   transport?: ImageTransport,
   guard?: () => void,
+  coldReads?: ColdUploadReads,
 ): Promise<Invocation> {
   const images = invocation.images;
   if (!images?.length) return invocation;
   const held: string[] = [];
   try {
-    const result = await prepareImages(store, config, principal, images, held, transport, guard);
+    const result = await prepareImages(
+      store,
+      config,
+      principal,
+      images,
+      held,
+      transport,
+      guard,
+      coldReads,
+    );
     const materialized = { ...invocation, images: result };
     if (held.length) heldBy.set(materialized, held);
     return materialized;
@@ -105,6 +116,7 @@ async function prepareImages(
   held: string[],
   transport?: ImageTransport,
   guard?: () => void,
+  coldReads?: ColdUploadReads,
 ) {
   const limits = config.images;
   const paramOf = (image: ImageInput, i: number) => image.param ?? `images.${i}`;
@@ -180,12 +192,16 @@ async function prepareImages(
             : item.bytes.length,
         );
     }
-  assertUploadRoom(
+  const quota = assertUploadRoom(
     store,
     config,
     principal,
     [...costs.values()].reduce((sum, n) => sum + n, 0),
+    coldReads,
+    guard,
+    out.reduce((n, item) => n + ('bytes' in item ? item.bytes.length : 0), 0),
   );
+  if (quota) await quota;
   const ids = new Map<string, string>();
   const result: StoredImage[] = [];
   for (const [i, item] of out.entries()) {

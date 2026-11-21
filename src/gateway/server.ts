@@ -19,6 +19,7 @@ import { catalogEntries, visibleAgentsFor } from './agent-views.js';
 import { registerAgentRoutes } from './agent-routes.js';
 import { registerCatalogFeedRoutes } from './catalog-feed-routes.js';
 import { registerFileRoutes } from './file-routes.js';
+import { ColdUploadReads } from '../store/upload-cold-reads.js';
 import { registerNodeEnrollRoute, registerNodeRoutes } from './node-routes.js';
 import { registerOverviewRoutes } from './overview-routes.js';
 import { registerProtocolRoutes } from './protocol-routes.js';
@@ -61,7 +62,9 @@ export async function createGateway(
   setArtifactByteLimit(store, config.maxArtifactBytes);
   let cleanupHub = async () => {};
   let cleanupCatalog = () => {};
+  let coldReads: ColdUploadReads | undefined;
   try {
+    if (config.maxStoredBytesPerSubject !== undefined) coldReads = new ColdUploadReads(store);
     const auth = new Auth(store);
     await auth.load(config);
     store.db.exec(
@@ -535,6 +538,7 @@ export async function createGateway(
     app.addHook('preClose', async () => {
       admission.close();
       store.provisionalInputs.stopAccepting();
+      await coldReads?.close();
     });
     registerOwnerRoutes(app, { auth, audit, config, store, kernel, hub, providerKeyOf, admission });
     registerMetricsRoutes(app, {
@@ -596,7 +600,7 @@ export async function createGateway(
       };
     });
     registerCatalogFeedRoutes(app, { auth, catalog });
-    registerFileRoutes(app, { auth, config, store, kernel });
+    registerFileRoutes(app, { auth, config, store, kernel, coldReads });
     registerProtocolRoutes(app, {
       auth,
       config,
@@ -606,6 +610,7 @@ export async function createGateway(
       providerKeyOf,
       cachedAgents,
       admission,
+      coldReads,
     });
     registerOverviewRoutes(app, {
       auth,
@@ -656,6 +661,7 @@ export async function createGateway(
     };
   } catch (error) {
     cleanupCatalog();
+    await coldReads?.close();
     await cleanupHub().catch(() => {});
     store.close();
     throw error;

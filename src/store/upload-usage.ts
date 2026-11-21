@@ -1,19 +1,16 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { isWriteUnavailable } from './checkpoint.js';
 import { withSavepoint } from './savepoint.js';
+import { exactTotal, fileBytes, storedFileTotalSql } from './upload-facts.js';
 
 export type UsageConnection =
   DatabaseSync | { db: DatabaseSync; prepare(sql: string): StatementSync };
-export const fileBytes = (payload: 'payload' | 'NEW.payload' | 'OLD.payload') =>
-  `CASE WHEN json_valid(${payload}) THEN CASE WHEN json_type(${payload},'$.bytes')='integer' AND json_extract(${payload},'$.bytes')>=0 THEN json_extract(${payload},'$.bytes') END END`;
 const max = Number.MAX_SAFE_INTEGER;
-const total = (value: string) =>
-  `CASE WHEN count(*)=count(${value}) AND total(${value})<=${max} THEN CAST(total(${value}) AS INTEGER) END`;
-const files = `SELECT ${total(fileBytes('payload'))} FROM main.files INDEXED BY file_upload_facts WHERE owner=:owner AND subject=:subject`;
-const pending = `SELECT ${total("CASE WHEN typeof(bytes)='integer' AND bytes>=0 THEN bytes END")}
+const pending = `SELECT ${exactTotal("CASE WHEN typeof(bytes)='integer' AND bytes>=0 THEN bytes END")}
   FROM main.oaa_inline_inputs WHERE owner=:owner AND subject=:subject AND phase='writing'`;
 const version = '(SELECT data_version FROM main.pragma_data_version)';
 const scopeLimit = 256;
+export const coldReadRows = 4096;
 const latestAdmission = '(SELECT coalesce(max(touched),0) FROM temp.oaa_upload_usage)';
 
 // REPLACE may discard a row without invoking DELETE triggers. Invalidate both possible
@@ -22,7 +19,7 @@ const displaced = `DELETE FROM oaa_upload_usage WHERE (owner,subject) IN
   (SELECT owner,subject FROM main.files WHERE id=NEW.id OR rowid=NEW.rowid);`;
 const schema = `
   CREATE TEMP TABLE oaa_upload_usage(owner TEXT NOT NULL,subject TEXT NOT NULL,
-    version INTEGER NOT NULL,used INTEGER,touched INTEGER NOT NULL,PRIMARY KEY(owner,subject));
+    version INTEGER NOT NULL,used INTEGER,touched INTEGER NOT NULL,scan TEXT,PRIMARY KEY(owner,subject));
   CREATE INDEX temp.oaa_usage_recency ON oaa_upload_usage(touched);
   CREATE TEMP TRIGGER oaa_usage_bound AFTER INSERT ON oaa_upload_usage
     WHEN (SELECT count(*) FROM oaa_upload_usage)>${scopeLimit} BEGIN
@@ -31,6 +28,7 @@ const schema = `
   CREATE TEMP TRIGGER oaa_usage_replace BEFORE INSERT ON main.files
     WHEN EXISTS(SELECT 1 FROM oaa_upload_usage) BEGIN ${displaced} END;
   CREATE TEMP TRIGGER oaa_usage_append AFTER INSERT ON main.files BEGIN
+    DELETE FROM oaa_upload_usage WHERE owner=NEW.owner AND subject=NEW.subject AND scan IS NOT NULL;
     UPDATE oaa_upload_usage SET used=CASE WHEN ${fileBytes('NEW.payload')}<=${max}-used
       THEN used+${fileBytes('NEW.payload')} END WHERE owner=NEW.owner AND subject=NEW.subject;
   END;
@@ -44,6 +42,66 @@ const schema = `
     DELETE FROM oaa_upload_usage WHERE owner=OLD.owner AND subject=OLD.subject AND used IS NULL;
   END;`;
 
+type CachedStore = { db: DatabaseSync; prepare(sql: string): StatementSync };
+function ensureCache(store: UsageConnection, db: DatabaseSync) {
+  if (
+    !store
+      .prepare("SELECT 1 FROM sqlite_temp_schema WHERE type='table' AND name='oaa_upload_usage'")
+      .get()
+  )
+    withSavepoint(db, () => db.exec(schema));
+}
+
+/** A ticket belongs to this connection. Local file edits discard it; external commits
+ * invalidate its data_version. Neither reservations nor another owner's append spoil it. */
+export function needsColdTotal(store: CachedStore, owner: string, subject: string) {
+  if (store.db.isTransaction) return false;
+  ensureCache(store, store.db);
+  const scope = { owner, subject };
+  if (
+    store
+      .prepare(
+        `SELECT 1 FROM temp.oaa_upload_usage WHERE owner=:owner AND subject=:subject AND scan IS NULL AND version=${version}`,
+      )
+      .get(scope)
+  )
+    return false;
+  // Bound the probe, not the account: small scopes are cheaper to count locally than dispatch.
+  return !!store
+    .prepare(
+      `SELECT 1 FROM main.files INDEXED BY file_owner_subject WHERE owner=:owner AND subject=:subject LIMIT 1 OFFSET ${coldReadRows - 1}`,
+    )
+    .get(scope);
+}
+export function startColdTotal(store: CachedStore, owner: string, subject: string, scan: string) {
+  store
+    .prepare(
+      `INSERT OR REPLACE INTO temp.oaa_upload_usage(owner,subject,version,used,touched,scan)
+    VALUES(:owner,:subject,${version},NULL,${latestAdmission}+1,:scan)`,
+    )
+    .run({ owner, subject, scan });
+}
+export function acceptColdTotal(
+  store: CachedStore,
+  owner: string,
+  subject: string,
+  scan: string,
+  used: number | null,
+) {
+  if (store.db.isTransaction || (used !== null && (!Number.isSafeInteger(used) || used < 0)))
+    return false;
+  return !!store
+    .prepare(
+      `UPDATE temp.oaa_upload_usage SET used=:used,scan=NULL WHERE owner=:owner AND subject=:subject AND scan=:scan AND version=${version}`,
+    )
+    .run({ owner, subject, scan, used }).changes;
+}
+export function discardColdTotal(store: CachedStore, owner: string, subject: string, scan: string) {
+  store
+    .prepare('DELETE FROM temp.oaa_upload_usage WHERE owner=? AND subject=? AND scan=?')
+    .run(owner, subject, scan);
+}
+
 /** Never authoritative: rebuild from canonical files on a miss. Pending reservations are
  * read live in the same main snapshot, including when another connection is the writer. */
 export function uploadUsage(store: UsageConnection, owner: string, subject: string) {
@@ -51,16 +109,11 @@ export function uploadUsage(store: UsageConnection, owner: string, subject: stri
   const scope = { owner, subject },
     outer = db.isTransaction;
   try {
-    if (
-      !store
-        .prepare("SELECT 1 FROM sqlite_temp_schema WHERE type='table' AND name='oaa_upload_usage'")
-        .get()
-    )
-      withSavepoint(db, () => db.exec(schema));
+    ensureCache(store, db);
     const hit = store
       .prepare(
         `SELECT used,(${pending}) AS reserved,${latestAdmission}-touched>=${scopeLimit / 2} AS refresh FROM temp.oaa_upload_usage
-      WHERE owner=:owner AND subject=:subject AND version=${version}`,
+      WHERE owner=:owner AND subject=:subject AND scan IS NULL AND version=${version}`,
       )
       .get(scope);
     if (hit) {
@@ -79,13 +132,15 @@ export function uploadUsage(store: UsageConnection, owner: string, subject: stri
     return store
       .prepare(
         `INSERT OR REPLACE INTO temp.oaa_upload_usage(owner,subject,version,used,touched)
-      VALUES(:owner,:subject,${version},(${files}),${latestAdmission}+1) RETURNING used,(${pending}) AS reserved`,
+      VALUES(:owner,:subject,${version},(${storedFileTotalSql}),${latestAdmission}+1) RETURNING used,(${pending}) AS reserved`,
       )
       .get(scope)!;
   } catch (error) {
     // Read-only preflight can still count the original rows. Never continue a reservation
     // if SQLite has rolled back the writer transaction itself.
     if (!isWriteUnavailable(error) || (outer && !db.isTransaction)) throw error;
-    return store.prepare(`SELECT (${files}) AS used,(${pending}) AS reserved`).get(scope)!;
+    return store
+      .prepare(`SELECT (${storedFileTotalSql}) AS used,(${pending}) AS reserved`)
+      .get(scope)!;
   }
 }
