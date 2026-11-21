@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { makeBundle } from '../src/lang/bundle.js';
 import { requiredExecution, type ToolBinding } from '../src/core/contracts.js';
 import { AuditLog } from '../src/store/audit.js';
@@ -203,7 +204,18 @@ test('audit rows carry the suppressed count and are pruned to the retention limi
     );
     assert.equal(log.page('other').data.length, 0, 'owners are separated');
 
-    for (let i = 0; i < 10_050; i++) log.record({ ...denial, path: `/p/${i}` });
+    assert.equal(log.record({ ...denial, owner: 'other' }), true);
+    // This is a retention test, not a per-transaction disk flush benchmark.
+    // Keep every real record() call while building the synthetic history in one commit.
+    store.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (let i = 0; i < 10_050; i++)
+        assert.equal(log.record({ ...denial, path: `/p/${i}` }), true);
+      store.db.exec('COMMIT');
+    } catch (error) {
+      if (store.db.isTransaction) store.db.exec('ROLLBACK');
+      throw error;
+    }
     log.prune('o');
     const count = Number(
       store.db.prepare("SELECT count(*) AS n FROM audit_events WHERE owner='o'").get()!.n,
@@ -211,7 +223,29 @@ test('audit rows carry the suppressed count and are pruned to the retention limi
     assert.equal(count, 10_000);
     const first = log.page('o', 0, 1);
     assert.equal(first.data.length, 1);
+    assert.equal(first.data[0]!.path, '/p/50');
     assert.notEqual(first.next_after, null);
+    const check = new DatabaseSync(path.join(root, 'state.sqlite'), { readOnly: true });
+    try {
+      assert.equal(
+        check.prepare("SELECT count(*) AS n FROM audit_events WHERE owner='o'").get()!.n,
+        10_000,
+      );
+      assert.equal(
+        check
+          .prepare(
+            "SELECT json_extract(payload,'$.path') AS path FROM audit_events WHERE owner='o' ORDER BY id DESC LIMIT 1",
+          )
+          .get()!.path,
+        '/p/10049',
+      );
+      assert.equal(
+        check.prepare("SELECT count(*) AS n FROM audit_events WHERE owner='other'").get()!.n,
+        1,
+      );
+    } finally {
+      check.close();
+    }
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
