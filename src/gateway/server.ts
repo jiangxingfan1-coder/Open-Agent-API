@@ -22,6 +22,7 @@ import { registerFileRoutes } from './file-routes.js';
 import { registerNodeEnrollRoute, registerNodeRoutes } from './node-routes.js';
 import { registerOverviewRoutes } from './overview-routes.js';
 import { registerProtocolRoutes } from './protocol-routes.js';
+import { HttpRunAdmission } from './run-admission.js';
 import { registerLocalBackendRoutes } from './local-backend-routes.js';
 import { registerLocalConnectionRoutes } from './local-connection-routes.js';
 import type { LocalTargetOptions } from './local-managed-targets.js';
@@ -530,7 +531,9 @@ export async function createGateway(
       isLocalRequest: isLocalProbe,
     });
     registerWebhookRoutes(app, webhooks, config);
-    registerOwnerRoutes(app, { auth, audit, config, store, kernel, hub, providerKeyOf });
+    const admission = new HttpRunAdmission(auth, kernel);
+    app.addHook('preClose', async () => admission.close());
+    registerOwnerRoutes(app, { auth, audit, config, store, kernel, hub, providerKeyOf, admission });
     registerMetricsRoutes(app, {
       auth,
       store,
@@ -591,7 +594,16 @@ export async function createGateway(
     });
     registerCatalogFeedRoutes(app, { auth, catalog });
     registerFileRoutes(app, { auth, config, store, kernel });
-    registerProtocolRoutes(app, { auth, config, store, kernel, hub, providerKeyOf, cachedAgents });
+    registerProtocolRoutes(app, {
+      auth,
+      config,
+      store,
+      kernel,
+      hub,
+      providerKeyOf,
+      cachedAgents,
+      admission,
+    });
     registerOverviewRoutes(app, {
       auth,
       config,

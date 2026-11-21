@@ -17,24 +17,16 @@ import { checkImageUrl, fetchImage, type ImageTransport } from './image-fetch.js
 import { imageFault } from './image-parts.js';
 import { IMAGE_EXT, normalizeImageType, sniffImage, type ImageType } from './image-sniff.js';
 import { assertUploadRoom } from './upload-quota.js';
-import { rm } from 'node:fs/promises';
-import path from 'node:path';
 export { acceptsImages } from './image-catalog.js';
 
-/** Files this request stored for the first time, keyed by the invocation that carries them. */
-const createdBy = new WeakMap<Invocation, string[]>();
-
-/**
- * Undo the storage of a request that was refused before its run existed: only files this request
- * newly stored are removed (a reused earlier copy stays), so the caller's storage use is unchanged.
- */
-export async function discardNewImages(store: Store, owner: string, invocation: Invocation) {
-  const ids = createdBy.get(invocation) ?? [];
-  createdBy.delete(invocation);
-  for (const fileId of ids) {
-    store.db.prepare('DELETE FROM files WHERE id=? AND owner=?').run(fileId, owner);
-    await rm(path.join(store.root, 'files', fileId), { force: true }).catch(() => {});
+const heldBy = new WeakMap<Invocation, string[]>();
+export function releaseImageInputs(store: Store, invocation: Invocation) {
+  const ids = heldBy.get(invocation);
+  if (ids) {
+    heldBy.delete(invocation);
+    return store.provisionalInputs.release(ids);
   }
+  return undefined;
 }
 
 type Limits = GatewayConfig['images'];
@@ -168,31 +160,39 @@ export async function materializeImages(
     [...fresh.values()].reduce((sum, d) => sum + d.bytes.length, 0),
   );
   const ids = new Map<string, string>();
-  const created: string[] = [];
+  const held: string[] = [];
   const result: StoredImage[] = [];
-  for (const [i, item] of out.entries()) {
-    if (!('bytes' in item)) {
-      result.push(item);
-      continue;
+  try {
+    for (const [i, item] of out.entries()) {
+      if (!('bytes' in item)) {
+        if ('file_id' in item)
+          held.push(...store.provisionalInputs.hold(principal.owner, [item.file_id]));
+        result.push(item);
+        continue;
+      }
+      const digest = sha(item.bytes);
+      let fileId = ids.get(digest) ?? storedCopy(store, principal, digest);
+      if (!fileId) {
+        const file = await store.addFile(
+          principal.owner,
+          `image-${i + 1}.${IMAGE_EXT[item.mime]}`,
+          item.bytes,
+          undefined,
+          undefined,
+          principalSubject(principal),
+        );
+        fileId = file.id;
+        store.provisionalInputs.created(principal.owner, fileId);
+      }
+      held.push(...store.provisionalInputs.hold(principal.owner, [fileId]));
+      ids.set(digest, fileId);
+      result.push({ file_id: fileId, mime: item.mime, param: item.param });
     }
-    const digest = sha(item.bytes);
-    let fileId = ids.get(digest) ?? storedCopy(store, principal, digest);
-    if (!fileId) {
-      const file = await store.addFile(
-        principal.owner,
-        `image-${i + 1}.${IMAGE_EXT[item.mime]}`,
-        item.bytes,
-        undefined,
-        undefined,
-        principalSubject(principal),
-      );
-      fileId = file.id;
-      created.push(fileId);
-    }
-    ids.set(digest, fileId);
-    result.push({ file_id: fileId, mime: item.mime, param: item.param });
+  } catch (error) {
+    await store.provisionalInputs.release(held);
+    throw error;
   }
   const materialized = { ...invocation, images: result };
-  if (created.length) createdBy.set(materialized, created);
+  if (held.length) heldBy.set(materialized, held);
   return materialized;
 }

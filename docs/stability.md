@@ -163,6 +163,18 @@ output that never reached storage is not reported as successful. An unconfirmed 
 requires reconciliation. On shutdown, recovery uses the last committed state. A responding
 `/health` is not proof that new writes will succeed. These retries do not repair a corrupt database.
 
+New HTTP run submissions (including media jobs and workflow drafts) wait for SQLite's writer
+without blocking the gateway. The wait is at most the connection timeout or five seconds,
+whichever is shorter. One FIFO admits at most eight waiting requests per owner and 64 in total;
+pending request bodies are also budgeted at 32 MiB per owner and 64 MiB per gateway. On pressure
+or expiry the caller gets `503 admission_busy` and `Retry-After: 1`, with no run or usage reservation.
+An already-committed idempotent replay needs no writer. Waiting requests recheck authorization.
+Disconnecting before admission abandons the wait; it does not cancel a run already committed.
+This applies to creating the run, not to every database write or to the transfer of input files.
+If a waiting request abandons an inline image, another waiting request can still use its copy.
+An unclaimed upload is removed once the writer is available. A process exit before that cleanup
+can leave a private upload subject to normal retention; it cannot remove an accepted run's input.
+
 ## 3. Upgrades, backups and downgrades
 
 - The storage schema version is `PRAGMA user_version` (currently 4). Every start migrates older

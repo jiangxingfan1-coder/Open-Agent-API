@@ -50,7 +50,8 @@ import {
 export type { Approval } from './approval-rows.js';
 import { backupBeforeMigration } from './backup.js';
 import { GatewayLease, hasLiveLease } from './gateway-lease.js';
-import { tryBeginWrite } from './write-lock.js';
+import { beginRunWrite, tryBeginWrite, type RunWriteMode } from './write-lock.js';
+import { ProvisionalInputs } from './provisional-inputs.js';
 type Row = Record<string, unknown>;
 /**
  * v4 partitions caller data by `subject` (normally the API key ID): runs, summaries, files,
@@ -112,6 +113,7 @@ const summaryRow = (row: Row, created: number): SummaryRow => ({
 });
 export class Store {
   readonly db: DatabaseSync;
+  readonly provisionalInputs: ProvisionalInputs;
   readonly events = new EventEmitter();
   /** Synchronous database-only sink; public notifications and network I/O follow commit. */
   stageWebhook?: (run: Run, event: RunEvent) => (() => void) | undefined;
@@ -137,6 +139,7 @@ export class Store {
     mkdirSync(root, { recursive: true, mode: 0o700 });
     const file = path.join(root, 'state.sqlite');
     this.db = new DatabaseSync(file);
+    this.provisionalInputs = new ProvisionalInputs(this.db, root);
     chmodSync(file, 0o600);
     try {
       this.db.exec(
@@ -516,10 +519,11 @@ export class Store {
     fingerprint?: string,
     initial?: EventInput,
     stageAdmission?: () => () => void,
+    writeMode?: RunWriteMode,
   ): { run: Run; created: boolean } {
     const subject = run.subject ?? LEGACY_SUBJECT;
     run.subject = subject;
-    this.db.exec('BEGIN IMMEDIATE');
+    beginRunWrite(this, writeMode, run.fileIds);
     try {
       if (idem) {
         const found = this.findIdempotent(run.owner, subject, idem);
@@ -555,6 +559,7 @@ export class Store {
       const event = initial ? this.insertEvent(run.id, initial) : undefined;
       const publishAdmission = stageAdmission?.();
       this.db.exec('COMMIT');
+      this.provisionalInputs.adopt(run.fileIds);
       publishAdmission?.();
       this.rememberOwner(run.id, run.owner);
       this.remember(run.id, {
@@ -1526,6 +1531,7 @@ export class Store {
     }
   }
   close(): void {
+    this.provisionalInputs.close();
     delete this.stageWebhook;
     this.events.removeAllListeners();
     this.projections.clear();

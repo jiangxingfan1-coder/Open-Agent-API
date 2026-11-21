@@ -5,6 +5,7 @@ import type { GatewayConfig } from '../config/config.js';
 import type { Store } from '../store/store.js';
 import type { Kernel } from '../kernel/kernel.js';
 import type { Auth } from './auth.js';
+import type { HttpRunAdmission } from './run-admission.js';
 import { WorkflowRunner } from '../kernel/task-workflows.js';
 import { taskWorkflowSchema, validateTaskWorkflow } from '../lang/task-workflow.js';
 import { invocationSchema } from '../kernel/invocation.js';
@@ -39,7 +40,14 @@ export function registerTaskWorkflowRoutes(
     config,
     store,
     kernel,
-  }: { auth: Auth; config?: GatewayConfig; store: Store; kernel: Kernel },
+    admission,
+  }: {
+    auth: Auth;
+    config?: GatewayConfig;
+    store: Store;
+    kernel: Kernel;
+    admission: HttpRunAdmission;
+  },
 ) {
   const runner = new WorkflowRunner(store, kernel, (p) => auth.refreshPrincipal(p));
   const rateBuckets = new Map<string, { count: number; resetAt: number }>();
@@ -282,7 +290,7 @@ export function registerTaskWorkflowRoutes(
       ),
     );
   });
-  app.post('/v1/workflows/draft', async (req) => {
+  app.post('/v1/workflows/draft', async (req, reply) => {
     auth.requireNodeAdmin(req.principal);
     const body = z
       .object({
@@ -308,7 +316,9 @@ export function registerTaskWorkflowRoutes(
       output_contract: contract,
     });
     invocation.input += `\n\n${contractInstruction(contract)}`;
-    const run = kernel.submit(req.principal, invocation);
+    const run = await admission.run(req, reply, (submitter) =>
+      submitter.submit(req.principal, invocation),
+    );
     const result = await kernel.wait(run.id, true);
     auth.requireNodeAdmin(auth.revalidate(req.headers.authorization));
     if (result.status !== 'completed')

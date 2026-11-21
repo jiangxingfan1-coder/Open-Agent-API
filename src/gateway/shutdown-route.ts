@@ -9,12 +9,16 @@ import { registerMemoryRoutes } from './memory-routes.js';
 import { registerRunRoutes } from './run-routes.js';
 import { registerTaskWorkflowRoutes } from './task-workflow-routes.js';
 import { registerMediaRoutes } from './media-routes.js';
+import type { HttpRunAdmission } from './run-admission.js';
 
 type RunDeps = Parameters<typeof registerRunRoutes>[1];
 type KeyDeps = Parameters<typeof registerKeyRoutes>[1];
 
 /** Owner-facing routes registered as one group (keeps gateway/server.ts within its line budget). */
-export function registerOwnerRoutes(app: FastifyInstance, deps: RunDeps & KeyDeps): void {
+export function registerOwnerRoutes(
+  app: FastifyInstance,
+  deps: RunDeps & KeyDeps & { admission: HttpRunAdmission },
+): void {
   registerKeyRoutes(app, deps);
   registerShutdownRoute(app, deps.auth);
   registerMemoryRoutes(app, deps);

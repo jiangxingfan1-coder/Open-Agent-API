@@ -18,6 +18,7 @@ import { responseObject } from './response-object.js';
 import { asRoutingStrategy, resolveSemanticProfile } from './routing.js';
 import { Fault, canonical, faultOf, id, scopeDenied, sha } from '../core/util.js';
 import { LIMITS } from '../core/limits.js';
+import type { RunWriteMode } from '../store/write-lock.js';
 import { agentFallbackChain, routeInspector, toTopologyHint } from './fallback.js';
 import { portableSessions, prepareRunHandoff } from './handoff.js';
 import type { KernelRuntime } from './runtime.js';
@@ -272,6 +273,7 @@ export function submit(
   providerKey?: string,
   trace?: TraceContext,
   linkStage?: (run: Run) => void,
+  writeMode?: RunWriteMode,
 ): Run {
   if (rt.closing()) throw new Fault('shutting_down', 'Gateway is shutting down.', 503);
   authorize(principal, invocation.agent, 'invoke');
@@ -558,6 +560,7 @@ export function submit(
         setImmediate(() => rt.admission.pump());
       };
     },
+    writeMode,
   );
   if (!created.created) linkStage?.(created.run);
   return created.run;

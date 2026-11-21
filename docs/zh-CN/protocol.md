@@ -718,6 +718,7 @@ HTTP 错误响应默认使用形状 `{"error":{"code":"…","message":"…","typ
 | `authorization_changed` | 403 | 长连接期间密钥授权发生变化，需用当前授权重连 |
 | `rate_limited` | 429 | 超出该密钥每分钟请求数（默认 600） |
 | `concurrency_limit` | 429 | owner 的活跃请求过多 |
+| `admission_busy` | 503 | 尚未创建运行：数据库写锁等待超时或准入等待队列已满。请遵守 `Retry-After` 并沿用同一幂等键。 |
 | `subject_concurrency_limit` | 429 | 同一调用方（subject）的未完成请求达到 `maxActiveRunsPerSubject` |
 | `key_concurrency_limit` | 429 | 达到该密钥的并发运行上限 |
 | `run_quota_exceeded` | 429 | 该密钥的运行次数配额已用完 |

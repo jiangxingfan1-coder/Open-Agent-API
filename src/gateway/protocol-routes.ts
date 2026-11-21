@@ -24,7 +24,7 @@ import {
   parseUapRequest,
   uapResponseObject,
 } from './uap.js';
-import { discardNewImages, materializeImages } from './image-input.js';
+import { releaseImageInputs, materializeImages } from './image-input.js';
 import { observeAuthorization, revalidateObservation } from './streams.js';
 import { streamEvents, streamOptions, streamSlots, type StreamMode } from './compat-stream.js';
 import { ignoredParamsHeader, paramFamily } from './compat-params.js';
@@ -36,11 +36,13 @@ import type { NodeHub } from '../fabric/network.js';
 import { checkAccessPolicy } from '../kernel/access-policy.js';
 import { parseTraceHeaders } from '../core/trace-context.js';
 import { geminiMethod, registerGeminiModelRoutes } from './gemini.js';
+import type { HttpRunAdmission } from './run-admission.js';
 
 // 协议入口：OAA Responses / Invoke、OpenAI Chat、Claude Messages、Gemini、UAP 与 /v1/universal 的
 // 调用路由，以及 /v1/compat/models。从 gateway/server.ts 拆出，注册顺序与拆分前一致。
 
 export type ProtocolRouteDeps = {
+  admission: HttpRunAdmission;
   auth: Auth;
   config: GatewayConfig;
   store: Store;
@@ -82,19 +84,22 @@ export function registerProtocolRoutes(app: FastifyInstance, deps: ProtocolRoute
       const trace = parseTraceHeaders(req.headers as Record<string, unknown>);
       run =
         resumed?.run ??
-        submitClientTools(
-          kernel,
-          req.principal,
-          invocation,
-          req.headers['idempotency-key'] as string | undefined,
-          providerKeyOf(req),
-          config.clientTools.default,
-          trace,
-        );
+        (await deps.admission.run(req, reply, (submitter) =>
+          submitClientTools(
+            submitter,
+            req.principal,
+            invocation,
+            req.headers['idempotency-key'] as string | undefined,
+            providerKeyOf(req),
+            config.clientTools.default,
+            trace,
+          ),
+        ));
     } catch (error) {
       release?.();
-      await discardNewImages(store, req.principal.owner, invocation);
       throw error;
+    } finally {
+      if (invocation.images?.length) await releaseImageInputs(store, invocation);
     }
     reply.header('X-Run-ID', run.id);
     if (responseDialect === 'uap') reply.header('X-UAP-Version', '1.0');

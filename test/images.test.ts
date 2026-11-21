@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
+import { DatabaseSync } from 'node:sqlite';
 import type { ClientRequest, IncomingMessage, RequestOptions } from 'node:http';
 import { agent, FixtureModel, principal, secondToken, token, waitFor } from './helpers.js';
 import { makeBundle } from '../src/lang/bundle.js';
@@ -1189,6 +1190,61 @@ test('images: a refused request leaves the caller storage unchanged; reused file
     await s.cleanup();
   }
 });
+
+for (const share of [false, true])
+  test(`images: expiring admission does not block cleanup or delete another waiting run's input (shared=${share})`, async (t) => {
+    const s = await imageGateway(),
+      db = s.store.db;
+    const other = new DatabaseSync(path.join(s.store.root, 'state.sqlite'));
+    let locked = false,
+      attempted = false;
+    const release = () => {
+      if (locked) {
+        locked = false;
+        other.exec('ROLLBACK');
+      }
+    };
+    try {
+      db.exec('PRAGMA busy_timeout=150');
+      const create = s.store.createRun.bind(s.store);
+      t.mock.method(s.store, 'createRun', (...args: Parameters<typeof create>) => {
+        if (!attempted) {
+          attempted = true;
+          other.exec('BEGIN IMMEDIATE');
+          locked = true;
+        }
+        return create(...args);
+      });
+      const send = () =>
+        s.request('POST', '/v1/chat/completions', {
+          model: 'agent/vision',
+          messages: [
+            { role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl(PNG) } }] },
+          ],
+        });
+      const first = send();
+      await waitFor(() => attempted);
+      db.exec('PRAGMA busy_timeout=1500');
+      const second = share ? send() : undefined;
+      const refused = await first;
+      assert.equal(refused.statusCode, 503, refused.body);
+      assert.equal(refused.json().error.code, 'admission_busy');
+      assert.equal(s.runs(), 0);
+      release();
+      if (second) {
+        const accepted = await second;
+        assert.equal(accepted.statusCode, 200, accepted.body);
+        assert.equal(s.runs(), 1);
+        assert.equal(storedBytes(s), PNG.length);
+        const file = s.store.run(String(accepted.headers['x-run-id'])).fileIds[0]!;
+        assert.equal((await s.request('GET', `/v1/files/${file}/content`)).statusCode, 200);
+      } else await waitFor(() => storedBytes(s) === 0);
+    } finally {
+      release();
+      other.close();
+      await s.cleanup();
+    }
+  });
 
 test('images: with caller tools (auto bridge) the image stays in the bridged and resumed turns', async () => {
   const s = await imageGateway();

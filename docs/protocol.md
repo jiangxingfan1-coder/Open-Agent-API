@@ -694,6 +694,7 @@ Error codes and response shapes do not depend on language; only the text of `mes
 | `authorization_changed` | 403 | The key's authorization changed during a long-lived connection; reconnect with the current authorization |
 | `rate_limited` | 429 | The key exceeded its requests per minute (600 by default) |
 | `concurrency_limit` | 429 | The owner has too many active requests |
+| `admission_busy` | 503 | No run was created: the database writer wait expired or the admission queue was full. Respect `Retry-After` and reuse the same idempotency key. |
 | `subject_concurrency_limit` | 429 | The same caller (subject) reached `maxActiveRunsPerSubject` unfinished requests |
 | `key_concurrency_limit` | 429 | The key reached its concurrent run limit |
 | `run_quota_exceeded` | 429 | The key's run quota is used up |

@@ -2,6 +2,7 @@ import { JsonSchemas } from '../core/schemas.js';
 import { setMaxListeners } from 'node:events';
 import type { Principal, Run, TraceContext, WorkContext } from '../core/contracts.js';
 import { Store } from '../store/store.js';
+import type { RunWriteMode } from '../store/write-lock.js';
 import { NodeHub } from '../fabric/network.js';
 import { type Invocation, type PreviewRequest } from './invocation.js';
 import * as clientTools from './client-tools.js';
@@ -145,8 +146,9 @@ export class Kernel {
     idem?: string,
     providerKey?: string,
     trace?: TraceContext,
+    writeMode?: RunWriteMode,
   ): Run {
-    return submit(this.rt, principal, invocation, idem, providerKey, trace);
+    return submit(this.rt, principal, invocation, idem, providerKey, trace, undefined, writeMode);
   }
   submitWorkflowStage(
     principal: Principal,

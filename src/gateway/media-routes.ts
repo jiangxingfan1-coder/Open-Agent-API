@@ -10,6 +10,7 @@ import { invocationSchema } from '../kernel/invocation.js';
 import { responseObject } from '../kernel/response-object.js';
 import { applyConnectionDefaults } from './connection-defaults.js';
 import { refreshAgentModels } from '../fabric/model-pool.js';
+import type { HttpRunAdmission } from './run-admission.js';
 
 export function registerMediaRoutes(
   app: FastifyInstance,
@@ -17,11 +18,13 @@ export function registerMediaRoutes(
     auth,
     store,
     kernel,
+    admission,
     providerKeyOf,
   }: {
     auth: Auth;
     store: Store;
     kernel: Kernel;
+    admission: HttpRunAdmission;
     providerKeyOf: (request: FastifyRequest) => string | undefined;
   },
 ) {
@@ -76,11 +79,13 @@ export function registerMediaRoutes(
     ).agent;
     if (publication.modelPolicy?.mode === 'discover')
       await refreshAgentModels(kernel.hub, req.principal.owner, publication.engine);
-    const run = kernel.submit(
-      auth.revalidate(req.headers.authorization),
-      invocation,
-      req.headers['idempotency-key'] as string | undefined,
-      providerKeyOf(req),
+    const run = await admission.run(req, reply, (submitter) =>
+      submitter.submit(
+        req.principal,
+        invocation,
+        req.headers['idempotency-key'] as string | undefined,
+        providerKeyOf(req),
+      ),
     );
     return reply.code(202).send(responseObject(run));
   });

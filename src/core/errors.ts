@@ -75,6 +75,7 @@ const ROWS: Row[] = [
   ['authorization_changed', 403, 'request', _, '长连接期间密钥授权发生变化，需用当前授权重连'],
   ['rate_limited', 429, 'request', R, '超出该密钥每分钟请求数（默认 600）', '稍后重试，或请 owner 调高该密钥的每分钟请求数'],
   ['concurrency_limit', 429, 'request', R, 'owner 的活跃请求过多', '等待已有请求完成后重试'],
+  ['admission_busy', 503, 'request', R, '运行尚未创建，数据库写入准入等待超时或已满', '稍后使用相同的幂等键重试'],
   ['subject_concurrency_limit', 429, 'request', R, '同一调用方的未完成请求数已达上限', '等待已有请求完成后重试'],
   ['key_concurrency_limit', 429, 'request', R, '达到该密钥的并发运行上限', '等待已有运行完成后重试'],
   ['run_quota_exceeded', 429, 'request', _, '该密钥的运行次数配额已用完', '请 owner 调高或重置该密钥的配额'],
