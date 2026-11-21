@@ -2,7 +2,7 @@ name: Verify Open Agent API Scoop install 0.0.64
 
 on:
   push:
-    tags: [scoop-check-open-agent-api-v0.0.64]
+    tags: [scoop-check-open-agent-api-v0.0.64-r2]
 
 permissions: {}
 
@@ -35,8 +35,11 @@ jobs:
           $manifest = Join-Path $env:RUNNER_TEMP 'open-agent-api.json'
           Invoke-WebRequest "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA/open-agent-api.json" -OutFile $manifest
           & $scoop install $manifest
-          $shim = Join-Path $env:SCOOP 'shims\oaa.cmd'
+          $shim = Join-Path $env:SCOOP 'shims\oaa.exe'
           if (-not (Test-Path $shim -PathType Leaf)) { throw 'Scoop did not create the oaa shim' }
+          $entry = Join-Path $env:SCOOP 'apps\open-agent-api\0.0.64\app\dist\src\cli.js'
+          $shimSpec = Get-Content (Join-Path $env:SCOOP 'shims\oaa.shim') -Raw
+          if (-not $shimSpec.Contains($entry)) { throw 'Scoop shim did not select the real version directory' }
           $node = Join-Path $env:SCOOP 'apps\open-agent-api\current\runtime\node.exe'
           $runtime = (& $node --version | Out-String).Trim()
           if ($LASTEXITCODE -ne 0 -or $runtime -ne 'v24.18.0') { throw 'Unexpected bundled Node runtime' }
@@ -47,8 +50,11 @@ jobs:
           $socket.Stop()
           try {
             $output = (& $shim quickstart --dir $sample --port $port 2>&1 | Out-String)
-            if ($LASTEXITCODE -ne 0 -or $output -notmatch 'agent/sample' -or $output -notmatch '5/5') {
-              throw "Offline sample did not complete (exit $LASTEXITCODE)"
+            $code = $LASTEXITCODE
+            if ($code -ne 0 -or $output -notmatch 'agent/sample' -or $output -notmatch '5/5') {
+              $stages = ([regex]::Matches($output, '(?m)^[1-5]/5') | ForEach-Object Value) -join ', '
+              $fault = [regex]::Match($output, '"code"\s*:\s*"([a-z_]+)"').Groups[1].Value
+              throw "Offline sample did not complete (exit $code, stages: $stages, fault: $fault)"
             }
             Write-Host "Installed through Scoop and completed the offline agent sample using bundled Node $runtime."
           } finally {

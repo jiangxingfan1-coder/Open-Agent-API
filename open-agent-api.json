@@ -10,6 +10,12 @@
         }
     },
     "extract_dir": "Open-Agent-API-win-x64",
-    "bin": "oaa.cmd",
+    "bin": [
+        [
+            "runtime\\node.exe",
+            "oaa",
+            "\"$original_dir\\app\\dist\\src\\cli.js\""
+        ]
+    ],
     "notes": "Run 'oaa quickstart' for the built-in offline sample."
 }
