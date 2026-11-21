@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "open-agent-api",
+  "version": "0.1.0",
+  "description": "Inspect published coding agents and their runs on a self-hosted Open Agent API gateway.",
+  "author": {
+    "name": "Open Agent API",
+    "url": "https://openagentapi.pages.dev/"
+  },
+  "keywords": ["Open Agent API", "OAA gateway", "oaa_list_agents"],
+  "repository": "https://github.com/jiangxingfan1-coder/Open-Agent-API",
+  "license": "Apache-2.0"
+}
