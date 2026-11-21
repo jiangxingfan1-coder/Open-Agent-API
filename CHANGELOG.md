@@ -4,6 +4,8 @@ English · [简体中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+- Added a separately installable DeepSeek Harness tool bundle for discovering published agents, delegating tasks, and reading run results. Delegation is off by default; approvals stay with the gateway operator.
+
 ## 0.0.70 (2026-11-18)
 
 - **Native Two-Layer Harness & Protocol Compatibility**: Bridge caller tools via `oaa-caller` (`oaa mcp-relay`) for built-in `claude` and `codex` native engines (including Codex `mcpServer/elicitation/request` auto-allowance for declared caller tools), add token-level partial streaming for Claude and cooperative `turn/interrupt` cancellation for Codex, and unlock tool-free reasoning (`toolsDisabled`) across Codex and ACP adapters. Push native JSON Schema structured output and `tool_choice` (`none`, `auto`, `required`, named function) to OpenAI Chat/Responses, Anthropic and Gemini model drivers (with streaming passthrough on strict native `repairs === 0`), and enforce forced `tool_choice` via bounded correction turns (`422 tool_choice_unmet`) for bridged external agents.

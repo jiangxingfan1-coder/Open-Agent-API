@@ -31,6 +31,10 @@
 
 ---
 
+## DeepSeek Harness 工具插件
+
+[Open Agent API 社区插件](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/tag/dsh-open-agent-api-v0.1.0)为 DSH `0.2.2-rc.5` 增加原生委派和任务查询工具。它独立于上文的「API 提供方自动接入」，不会自动安装，也不会修改 DSH 的模型提供方。请使用专用网关密钥，只授权不会再委派回同一 DSH profile 的智能体。需要显式开启委派，插件本身不能批准任务。
+
 ## 安全与防自环保护
 
 - **仅限本机回环管理**：所有本地互联读写接口均要求本机 `127.0.0.1` 直接回环访问、同源请求与所有者管理员权限；经公网或反向代理转发的请求一律拒绝改写宿主机配置文件。

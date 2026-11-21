@@ -4,6 +4,8 @@
 
 ## 未发布
 
+- 增加可独立安装的 DeepSeek Harness 工具插件，可以发现已发布的智能体、委派任务并读取运行结果。默认不开启委派，审批仍由网关操作者处理。
+
 ## 0.0.70（2026-11-18）
 
 - **双层 Harness 与协议兼容性增强**：通过 `oaa-caller`（`oaa mcp-relay`）为内置 `claude` 与 `codex` 原生引擎打通调用方工具桥接（含 Codex `mcpServer/elicitation/request` 声明工具自动放行），补齐 Claude Token 级增量流式与 Codex `turn/interrupt` 协议级优雅中断，并解锁 Codex 与全部 ACP 适配器的无工具纯推理通道（`toolsDisabled`）。面向 OpenAI Chat/Responses、Anthropic 与 Gemini 驱动原生下推 JSON Schema 结构化输出及 `tool_choice`（`none` / `auto` / `required` / 具名函数），在 `repairs === 0` 严格原生模式下解除流式阻塞，并为外部桥接智能体提供强制工具纠正轮与 `422 tool_choice_unmet` 错误契约。

@@ -31,6 +31,10 @@ For clients without an automated config writer (such as **Qoder Desktop**), clic
 
 ---
 
+## DeepSeek Harness tool bundle
+
+The [Open Agent API community bundle](https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/tag/dsh-open-agent-api-v0.1.0) adds native delegation and run inspection tools to DSH `0.2.2-rc.5`. This is independent of the managed API provider setup above: it does not change DSH's model provider or install automatically. Use a dedicated gateway key restricted to agents that cannot delegate back into the same DSH profile. Delegation is opt-in and the bundle cannot approve a task.
+
 ## Safety & Loop Prevention
 
 - **Strict loopback guard**: Local connection endpoints require a direct `127.0.0.1` loopback request, same-origin headers, and an owner-wide admin key. Requests arriving over public networks or reverse proxies can never write host client files.
