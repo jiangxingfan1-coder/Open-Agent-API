@@ -1,0 +1,61 @@
+name: Verify Open Agent API Scoop install 0.0.64
+
+on:
+  push:
+    tags: [scoop-check-open-agent-api-v0.0.64]
+
+permissions: {}
+
+jobs:
+  windows:
+    if: github.repository == 'jiangxingfan1-coder/Open-Agent-API'
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - name: Install Scoop in a disposable Windows profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:XDG_CONFIG_HOME = Join-Path $env:RUNNER_TEMP 'oaa-scoop-config'
+          $scoopRoot = Join-Path $env:RUNNER_TEMP 'oaa-scoop'
+          $globalRoot = Join-Path $env:RUNNER_TEMP 'oaa-unused-global'
+          $installer = Join-Path $env:RUNNER_TEMP 'scoop-install.ps1'
+          Invoke-WebRequest 'https://raw.githubusercontent.com/ScoopInstaller/Install/1e2f334083d609986d8c8bc9e31ae8e87c39fab4/install.ps1' -OutFile $installer
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ine '94f983b190438311e006b957db7c8422709e0ba62a6c2ac04e278164108f2512') { throw 'Scoop installer hash mismatch' }
+          & $installer -ScoopDir $scoopRoot -ScoopGlobalDir $globalRoot -NoProxy -RunAsAdmin
+      - name: Install the manifest, exercise the local sample, and uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:XDG_CONFIG_HOME = Join-Path $env:RUNNER_TEMP 'oaa-scoop-config'
+          $env:SCOOP = Join-Path $env:RUNNER_TEMP 'oaa-scoop'
+          $env:SCOOP_GLOBAL = Join-Path $env:RUNNER_TEMP 'oaa-unused-global'
+          $env:PATH = "$env:SCOOP\shims;$env:PATH"
+          $scoop = Join-Path $env:SCOOP 'apps\scoop\current\bin\scoop.ps1'
+          $manifest = Join-Path $env:RUNNER_TEMP 'open-agent-api.json'
+          Invoke-WebRequest "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA/open-agent-api.json" -OutFile $manifest
+          & $scoop install $manifest
+          $shim = Join-Path $env:SCOOP 'shims\oaa.cmd'
+          if (-not (Test-Path $shim -PathType Leaf)) { throw 'Scoop did not create the oaa shim' }
+          $node = Join-Path $env:SCOOP 'apps\open-agent-api\current\runtime\node.exe'
+          $runtime = (& $node --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $runtime -ne 'v24.18.0') { throw 'Unexpected bundled Node runtime' }
+          $sample = Join-Path $env:RUNNER_TEMP 'oaa sample data'
+          $socket = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+          $socket.Start()
+          $port = $socket.LocalEndpoint.Port
+          $socket.Stop()
+          try {
+            $output = (& $shim quickstart --dir $sample --port $port 2>&1 | Out-String)
+            if ($LASTEXITCODE -ne 0 -or $output -notmatch 'agent/sample' -or $output -notmatch '5/5') {
+              throw "Offline sample did not complete (exit $LASTEXITCODE)"
+            }
+            Write-Host "Installed through Scoop and completed the offline agent sample using bundled Node $runtime."
+          } finally {
+            if (Test-Path (Join-Path $sample 'config.json')) {
+              & $shim stop --dir $sample 2>&1 | Out-Null
+            }
+          }
+          & $scoop uninstall open-agent-api
+          if (Test-Path $shim) { throw 'Scoop uninstall left the oaa shim in place' }
+          Write-Host 'Scoop uninstalled the package and removed the shim.'

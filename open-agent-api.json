@@ -1,0 +1,15 @@
+{
+    "version": "0.0.64",
+    "description": "Run your own coding agents behind an OpenAI-compatible API.",
+    "homepage": "https://github.com/jiangxingfan1-coder/Open-Agent-API",
+    "license": "Apache-2.0",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/jiangxingfan1-coder/Open-Agent-API/releases/download/v0.0.64/Open-Agent-API-0.0.64-win-x64.zip",
+            "hash": "64f2e1553b0bfe307b6e49eb52efe15c816b550a9ec7631286515964d7be6f7c"
+        }
+    },
+    "extract_dir": "Open-Agent-API-win-x64",
+    "bin": "oaa.cmd",
+    "notes": "Run 'oaa quickstart' for the built-in offline sample."
+}
