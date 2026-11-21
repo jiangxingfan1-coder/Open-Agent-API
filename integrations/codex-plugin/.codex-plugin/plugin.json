@@ -1,0 +1,14 @@
+{
+  "name": "open-agent-api",
+  "version": "0.1.0",
+  "description": "Connect Codex to an Open Agent API gateway using the local oaa MCP server.",
+  "author": {
+    "name": "Open Agent API"
+  },
+  "repository": "https://github.com/jiangxingfan1-coder/Open-Agent-API",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Open Agent API",
+    "shortDescription": "Inspect your published agents and delegate with a scoped key."
+  }
+}

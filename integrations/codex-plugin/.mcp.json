@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "open-agent-api": {
+      "command": "oaa",
+      "args": ["mcp"],
+      "env_vars": ["OAA_GATEWAY_URL", "OAA_TOKEN_FILE"]
+    }
+  }
+}
