@@ -1,0 +1,20 @@
+type ReviewEntry = { path: string(min=1) selected: bool }
+
+agent "agent/selected-documents" {
+  description = "Read only caller-selected workspace files"
+  model = "configure-your-model"
+  provider = "default"
+  use builtin read_file
+
+  flow "read_selected" {
+    params { documents: ReviewEntry[] }
+    step files = read_file(path = $item.path) foreach row in $input.documents (max=8) where $(row.selected)
+    return $files
+  }
+
+  limits { max_turns = 4 tool_concurrency = 2 timeout = 2m }
+  instructions """
+    Use read_selected on a list supplied by the caller. Report only files that were
+    selected and actually read. An empty selection is a valid result.
+  """
+}

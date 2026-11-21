@@ -374,7 +374,7 @@ function renderOaaLang(agent: AgentDefinition, files: string[], options: RenderO
         arguments: Record<string, unknown>;
         depends_on?: string[];
         when?: unknown;
-        foreach?: { $ref: string; as: string; max_items: number };
+        foreach?: { $ref: string; as: string; max_items: number; where?: unknown };
         fallback?: { tool?: string; arguments?: Record<string, unknown>; value?: unknown };
         retry?: { attempts: number; backoff_ms?: number };
         timeout_ms?: number;
@@ -388,6 +388,7 @@ function renderOaaLang(agent: AgentDefinition, files: string[], options: RenderO
           (typeDsl ? sugarRef(s.foreach.$ref) : undefined) ??
           (s.foreach.$ref.startsWith('$') ? s.foreach.$ref : `$${s.foreach.$ref}`);
         stepLine += ` foreach ${s.foreach.as} in ${ref} (max=${s.foreach.max_items})`;
+        if (s.foreach.where !== undefined) stepLine += ` where ${fv(s.foreach.where)}`;
       }
       if (s.depends_on?.length) stepLine += ` depends_on = ${JSON.stringify(s.depends_on)}`;
       if (s.when !== undefined) {

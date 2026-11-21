@@ -517,7 +517,7 @@ Multi-tenant privacy: count fields never include other owners' runs; the estimat
 
 `/health` (and `/healthz`) remain public and contain no secrets or load information. They add a sorted `features` array that lets the console, the CLI and SDKs tell whether an optional endpoint exists without probing for a 404:
 
-`a2a-adapters-v1`, `acp-adapters-v1`, `adapter-stream-v1`, `approval-policy-v1`, `catalog-events-v1`, `client-tools-policy-v1`, `conversion-profile-v1`, `error-catalog-v1`, `error-codes-v1`, `harness-bridge-acp-v1`, `harness-bridge-v1`, `image-input-v1`, `local-backends-v1`, `oaa-lang-roundtrip-v1`, `overview-activity-v1`, `overview-etag-v1`, `overview-events-v1`, `platform-setup-v1`, `queue-insight-v1`, `run-timeline-v1`, `structured-output-v1`, `webhooks-v1`, `workflow-output-v1`, and, when the `platform` section is configured, `platform-v1`.
+`a2a-adapters-v1`, `acp-adapters-v1`, `adapter-stream-v1`, `approval-policy-v1`, `catalog-events-v1`, `client-tools-policy-v1`, `conversion-profile-v1`, `error-catalog-v1`, `error-codes-v1`, `foreach-where-v1`, `harness-bridge-acp-v1`, `harness-bridge-v1`, `image-input-v1`, `local-backends-v1`, `oaa-lang-roundtrip-v1`, `overview-activity-v1`, `overview-etag-v1`, `overview-events-v1`, `platform-setup-v1`, `queue-insight-v1`, `run-timeline-v1`, `structured-output-v1`, `webhooks-v1`, `workflow-output-v1`, and, when the `platform` section is configured, `platform-v1`.
 
 (Added 2026-11-11) `client-tools-policy-v1`: caller tools are handled according to `X-OAA-Client-Tools` (or `metadata["oaa.client_tools"]`) (auto / managed / reject; for bridge see `harness-bridge-v1`), the response carries `X-OAA-Client-Tools: ignored` when the agent keeps its own tools and `bridge` when the tools were handed over; the profile contains a `client_tools` field. Gateway configuration `clientTools.default` (`auto` by default, or `managed` / `bridge` / `reject`) is what a request gets when it chooses nothing. `harness-bridge-v1`: kernel agents support `bridge` through Chat Completions, Responses and Claude Messages (caller tools are handed back to the caller as `tool_calls` to execute, and the same run continues). See [harness.md](harness.md).
 
@@ -573,6 +573,8 @@ Compat streams can carry a short line per run phase (queued, started, each tool 
 ## Workflow return contract
 
 `workflow-output-v1` in `GET /health` means the gateway supports a workflow's `output` / `outputSchema` and the dynamic `execute_graph.output`; `oaa-lang-roundtrip-v1` means DSL formatting recompiles and compares the contract. Neither requires clients to change existing requests: when no return projection is specified, the full step results are still returned. See the [OAA-Lang execution contract](language.md).
+
+`foreach-where-v1` adds an optional per-item predicate to `foreach`, for example `{"$ref":"source#/rows","as":"row","max_items":8,"where":{"$expr":"row.enabled"}}`. The original array remains bounded; accepted items keep their original execution indices. Older gateways reject rather than ignore the new field.
 
 ## Run-event webhooks (`webhooks-v1`)
 

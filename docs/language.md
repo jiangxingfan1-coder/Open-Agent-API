@@ -258,16 +258,19 @@ A step is written `step ID = tool(argument = value, ...)`. The tool can be a nam
 
 An authored flow can declare up to 64 static steps. A model-generated `execute_graph` remains limited to 32. Before publication, the primary-item budget counts each non-loop step once and each loop at its declared `max_items`; the sum may not exceed 1,024. This does not increase tool concurrency or the run's tool-call allowance. Use upgraded gateways and workers when publishing a flow larger than 32 steps.
 
-A step can be followed by modifiers, in any order, each at most once:
+A step can be followed by modifiers, each at most once. An item predicate follows its `foreach`:
 
 | Modifier | Description |
 | --- | --- |
 | `foreach variable in $reference (max=N)` | Runs once per list item; `max` defaults to 16 and is at most 32 |
+| `foreach row in $input.rows (max=8) where $(row.enabled)` | Runs only matching items. The item alias, `$item` and original zero-based `$index` are available in `where`; choose an alias other than `index`. |
 | `when value` | A condition; it is evaluated once as a whole before the loop starts and cannot refer to the loop variable |
 | `fallback tool(...)` / `fallback = value` | A fallback call or fallback value used on failure |
 | `depends_on = ["step", ...]` | Explicit dependencies |
 | `retry N` / `retry(N, backoff=duration)` | Retries up to N more times after a failure (1–3) |
 | `timeout duration` | The timeout per attempt (100 milliseconds to 10 minutes); on expiry it reports `step_timeout` |
+
+The source length is checked **before** filtering. All predicates of one map are checked before its first tool call. Rejected items have no tool call, approval or fallback. If only source items 1 and 3 match step `send`, their execution IDs are `send_1` and `send_3`; the result is a compact array in source order. No matches yields `[]`. A false whole-step `when` still yields `{skipped: true}`. Neither loop limits nor tool budgets increase.
 
 `retry` and `timeout` are allowed only on read-only or `idempotent-write` tools; otherwise compilation reports `unsafe_graph_retry`. While waiting for approval, when the run is cancelled, or when the outcome of a side effect is unknown, there is no retry, and the failure is not hidden by a fallback value.
 
@@ -421,6 +424,8 @@ agent "agent/limits" {
 - There are also hints: an empty description, empty instructions for the kernel engine, only one route, and the number of topological layers and the maximum parallel width of each flow.
 
 `workflow-output-v1` and `oaa-lang-roundtrip-v1` in `GET /health` indicate that the gateway supports workflow result projection and formatting round-trip comparison.
+Require `foreach-where-v1` for per-item filtering in authored workflows or dynamic graphs (`foreach.where` in JSON).
+The [selected documents example](../examples/filtered-workflow.oaa) uses the same predicate in a deployable agent definition.
 
 ## Upgrade notes (0.2.0)
 

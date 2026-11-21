@@ -279,6 +279,7 @@ const FEATURE_LABELS = {
   'trace-context-v1': t('feature.trace-context-v1'),
   'webhooks-v1': t('feature.webhooks-v1'),
   'workflow-output-v1': t('feature.workflow-output-v1'),
+  'foreach-where-v1': t('feature.foreach-where-v1'),
 };
 // A capability this console does not know yet (a newer gateway) reads as plain words and a
 // version, "New thing · v2", never as a raw identifier.

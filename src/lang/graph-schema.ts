@@ -9,6 +9,7 @@ const foreachSchema = z
       .regex(/^[a-zA-Z_][a-zA-Z0-9_]{0,31}$/)
       .default('item'),
     max_items: z.number().int().min(1).max(GRAPH_LIMITS.foreachItems).default(16),
+    where: z.unknown().optional(),
   })
   .strict();
 

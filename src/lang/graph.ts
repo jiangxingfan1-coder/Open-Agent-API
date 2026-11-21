@@ -1,4 +1,5 @@
 import { GRAPH_LIMITS } from '../core/limits.js';
+import { setImmediate as yieldTurn } from 'node:timers/promises';
 import { graphSchema, publishedGraphSchema, type GraphStep } from './graph-schema.js';
 export { graphSchema, type GraphStep } from './graph-schema.js';
 import type {
@@ -52,7 +53,7 @@ export interface CompiledGraphPlan {
   maxParallelWidth: number;
 }
 
-export function extractPointerValue(baseObj: unknown, pointer?: string): unknown {
+function pointerTarget(baseObj: unknown, pointer?: string): unknown {
   let result = baseObj;
   for (const raw of pointer ? pointer.slice(1).split('/') : []) {
     const part = raw.replaceAll('~1', '/').replaceAll('~0', '~');
@@ -73,7 +74,10 @@ export function extractPointerValue(baseObj: unknown, pointer?: string): unknown
       result = (result as Record<string, unknown>)[part];
     }
   }
-  return structuredClone(result);
+  return result;
+}
+export function extractPointerValue(baseObj: unknown, pointer?: string): unknown {
+  return structuredClone(pointerTarget(baseObj, pointer));
 }
 
 // ---------------------------------------------------------------------------
@@ -834,6 +838,14 @@ function checkGraph(
       localVars.add(`$${s.foreach.as}`);
       localVars.add('$item');
       localVars.add('$index');
+      if (s.foreach.where !== undefined) {
+        if (s.foreach.as === 'index')
+          throw new Fault(
+            'invalid_graph',
+            `Step '${s.id}': filtered foreach reserves 'index'; choose another item alias.`,
+          );
+        foreachDeps.push(...references(s.foreach.where, localVars, true));
+      }
     }
 
     if (s.retry || s.timeout_ms !== undefined) {
@@ -893,7 +905,7 @@ function checkGraph(
       if (misuse !== undefined)
         throw new Fault(
           'invalid_graph',
-          `Step '${s.id}': 'when' is checked once before the loop starts, so it cannot use the loop variable '${misuse.replace(/^\$/, '')}'. To skip individual items, filter the list the loop runs over instead.`,
+          `Step '${s.id}': 'when' is checked once before the loop starts, so it cannot use the loop variable '${misuse.replace(/^\$/, '')}'. Use foreach with 'where' to select individual items.`,
         );
     }
     s.depends_on = [
@@ -1152,6 +1164,7 @@ export async function executeGraph(
     next: number;
     completed: number;
     items?: unknown[];
+    selected?: number[];
     mapped?: unknown[];
   };
   type Completion = {
@@ -1160,6 +1173,14 @@ export async function executeGraph(
     outcome: PromiseSettledResult<unknown>;
   };
   const results = new Map<string, unknown>(Object.entries(initialScope ?? {}));
+  const itemScope = (as: string, item: unknown, index: number) => {
+    const scope = new Map(results);
+    scope.set('$item', item);
+    scope.set('$index', index);
+    scope.set(as, item);
+    scope.set(`$${as}`, item);
+    return scope;
+  };
   const states = new Map<string, State>(
     steps.map((step) => [
       step.id,
@@ -1198,8 +1219,11 @@ export async function executeGraph(
   const approvals = new Set<string>();
   let remaining = steps.length;
   let stopping = false;
+  let filterUntil: number | undefined;
   const complete = (state: State, value: unknown) => {
     results.set(state.step.id, value);
+    delete state.items;
+    delete state.selected;
     remaining--;
     for (const dependent of state.dependents) {
       if (--dependent.waiting === 0) ready.push(dependent);
@@ -1229,7 +1253,7 @@ export async function executeGraph(
             const [source, pointer] = step.foreach.$ref.split('#');
             if (!results.has(source!))
               throw new Fault('invalid_reference', 'Referenced foreach source has not completed.');
-            const items = extractPointerValue(results.get(source!), pointer);
+            const items = pointerTarget(results.get(source!), pointer);
             if (!Array.isArray(items))
               throw new Fault(
                 'invalid_reference',
@@ -1240,36 +1264,49 @@ export async function executeGraph(
                 'foreach_limit_exceeded',
                 `foreach array length (${items.length}) exceeds max_items (${step.foreach.max_items}).`,
               );
-            state.items = items;
-            state.mapped = new Array(items.length);
-            if (!items.length) {
+            state.items = structuredClone(items) as unknown[];
+            if (step.foreach.where !== undefined) {
+              // Validate all predicates before dispatching any side effect of this map.
+              state.selected = [];
+              filterUntil ??= performance.now() + 4;
+              for (const [index, item] of state.items.entries()) {
+                // Even an all-false graph must let cancellation and active siblings run.
+                if (performance.now() >= filterUntil) {
+                  await yieldTurn();
+                  checkAbort(signal);
+                  if (stopping) break;
+                  filterUntil = performance.now() + 4;
+                }
+                if (resolveReferences(step.foreach.where, itemScope(step.foreach.as, item, index)))
+                  state.selected.push(index);
+              }
+              if (stopping) break;
+            }
+            state.mapped = new Array(state.selected?.length ?? items.length);
+            if (!state.mapped.length) {
               complete(state, []);
               continue;
             }
           }
         }
-        const index = state.next++;
+        const slot = state.next++,
+          index = state.selected?.[slot] ?? slot;
         let scope = results;
         let invocation = step;
         if (step.foreach) {
-          scope = new Map(results);
-          const item = state.items![index];
-          scope.set('$item', item);
-          scope.set('$index', index);
-          scope.set(step.foreach.as, item);
-          scope.set(`$${step.foreach.as}`, item);
+          scope = itemScope(step.foreach.as, state.items![index], index);
           invocation = { ...step, id: `${step.id}_${index}` };
           // One item per visit keeps sibling maps inside the same concurrency budget.
-          if (state.next < state.items!.length) ready.push(state);
+          if (state.next < state.mapped!.length) ready.push(state);
         }
         active++;
         void runSingleInvocation(invocation, scope, signal, execute).then(
-          (value) => publish({ state, index, outcome: { status: 'fulfilled', value } }),
+          (value) => publish({ state, index: slot, outcome: { status: 'fulfilled', value } }),
           (reason) => {
             // Fence admissions immediately, before the consumer drains a successful sibling.
             state.blocked = true;
             fail(reason);
-            publish({ state, index, outcome: { status: 'rejected', reason } });
+            publish({ state, index: slot, outcome: { status: 'rejected', reason } });
           },
         );
       }
@@ -1285,7 +1322,7 @@ export async function executeGraph(
     if (outcome.status === 'fulfilled') {
       if (state.mapped) {
         state.mapped[index] = outcome.value;
-        if (++state.completed === state.items!.length) complete(state, state.mapped);
+        if (++state.completed === state.mapped.length) complete(state, state.mapped);
       } else complete(state, outcome.value);
     }
 

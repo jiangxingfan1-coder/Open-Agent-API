@@ -541,7 +541,7 @@ data: {"revision":1794312000123460,"reasons":["runs","nodes"]}
 
 `/health`（以及 `/healthz`）仍然公开，不含任何秘密或负载信息，新增排好序的 `features` 数组，供控制台、CLI、SDK 判断可选接口是否存在，不必靠 404 试探：
 
-`a2a-adapters-v1`、`acp-adapters-v1`、`adapter-stream-v1`、`approval-policy-v1`、`catalog-events-v1`、`client-tools-policy-v1`、`conversion-profile-v1`、`error-catalog-v1`、`error-codes-v1`、`harness-bridge-acp-v1`、`harness-bridge-v1`、`image-input-v1`、`local-backends-v1`、`oaa-lang-roundtrip-v1`、`overview-activity-v1`、`overview-etag-v1`、`overview-events-v1`、`platform-setup-v1`、`queue-insight-v1`、`run-timeline-v1`、`structured-output-v1`、`webhooks-v1`、`workflow-output-v1`；配置了 `platform` 段时再加上 `platform-v1`。
+`a2a-adapters-v1`、`acp-adapters-v1`、`adapter-stream-v1`、`approval-policy-v1`、`catalog-events-v1`、`client-tools-policy-v1`、`conversion-profile-v1`、`error-catalog-v1`、`error-codes-v1`、`foreach-where-v1`、`harness-bridge-acp-v1`、`harness-bridge-v1`、`image-input-v1`、`local-backends-v1`、`oaa-lang-roundtrip-v1`、`overview-activity-v1`、`overview-etag-v1`、`overview-events-v1`、`platform-setup-v1`、`queue-insight-v1`、`run-timeline-v1`、`structured-output-v1`、`webhooks-v1`、`workflow-output-v1`；配置了 `platform` 段时再加上 `platform-v1`。
 
 （2026-11-11 新增）`client-tools-policy-v1`：按 `X-OAA-Client-Tools`（或 `metadata["oaa.client_tools"]`）处理调用方传入的工具（auto / managed / reject；bridge 见 `harness-bridge-v1`），智能体继续用自己的工具时响应带 `X-OAA-Client-Tools: ignored`，工具交给了智能体时带 `bridge`；画像含 `client_tools` 字段。网关配置 `clientTools.default`（缺省 `auto`，也可以是 `managed` / `bridge` / `reject`）决定请求什么都没选时得到什么。`harness-bridge-v1`：内核智能体经 Chat Completions、Responses 与 Claude Messages 支持 `bridge`（调用方工具以 `tool_calls` 交回调用方执行，同一个运行续接）。见 [harness.md](harness.md)。
 
@@ -597,6 +597,8 @@ data: {"revision":1794312000123460,"reasons":["runs","nodes"]}
 ## 工作流返回契约
 
 `GET /health` 的 `workflow-output-v1` 表示网关支持工作流的 `output` / `outputSchema` 与动态 `execute_graph.output`；`oaa-lang-roundtrip-v1` 表示 DSL 格式化会重新编译并比较契约。它们不要求客户端改变现有请求：未指定返回投影时仍返回完整步骤结果。详见 [OAA-Lang 执行契约](language.md)。
+
+`foreach-where-v1` 表示可用 `foreach.where` 逐项筛选，例如 `{"$ref":"source#/rows","as":"row","max_items":8,"where":{"$expr":"row.enabled"}}`。仍限制原数组长度，匹配项保留原始执行索引；旧网关拒绝新字段，不会忽略条件后执行全部项。
 
 ## 运行事件回调（`webhooks-v1`）
 

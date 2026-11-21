@@ -41,6 +41,7 @@ export const GATEWAY_FEATURES = [
   'trace-context-v1',
   'webhooks-v1',
   'workflow-output-v1',
+  'foreach-where-v1',
 ].sort();
 
 export const buildEndpointDirectory = (baseUrl: string) => {

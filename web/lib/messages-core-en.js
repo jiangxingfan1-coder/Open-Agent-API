@@ -166,6 +166,7 @@ export const en = {
   'feature.trace-context-v1': 'W3C Trace Context',
   'feature.webhooks-v1': 'Run-event webhooks',
   'feature.workflow-output-v1': 'Workflow result projection',
+  'feature.foreach-where-v1': 'Per-item workflow filters',
   'html.nav.console': 'Console navigation',
   'html.nav.workspace': 'Workspace',
   'html.brand.overview': 'Open Agent API overview',

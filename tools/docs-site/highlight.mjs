@@ -206,6 +206,7 @@ function oaa(code) {
         'flow',
         'step',
         'foreach',
+        'where',
         'import',
         'tool',
         'if',

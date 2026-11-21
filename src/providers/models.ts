@@ -51,7 +51,7 @@ function parseToolArguments(name: string, raw: string): Record<string, unknown> 
 export const graphTool = {
   name: 'execute_graph',
   description:
-    'Execute an explicit dependency graph of registered tools (OAA-VM v2). Independent read operations run concurrently. Supports {"$ref":"stepId#/field","$default":val}, {"$template":"{{stepId#/field}}"}, {"$expr":"stepId#/n > 0"}, virtual zero-RPC tool "$transform", conditional "when", bounded parallel map "foreach" ({"$ref":"s1#/items","as":"item","max_items":16}), and read-only "fallback". Optional "output" selects the returned value using the same reference/expression syntax; all declared steps still execute. Omit output to return the full step-result map. Never use this for tools not in the registered tool list.',
+    'Execute an explicit dependency graph of registered tools (OAA-VM v2). Independent read operations run concurrently. Supports {"$ref":"stepId#/field","$default":val}, {"$template":"{{stepId#/field}}"}, {"$expr":"stepId#/n > 0"}, virtual zero-RPC tool "$transform", whole-step "when", bounded parallel map "foreach" ({"$ref":"s1#/items","as":"row","max_items":16,"where":{"$expr":"row.enabled"}}), and read-only "fallback". Optional foreach.where selects items before dispatch, retaining their source indices. Optional "output" projects the result after the graph finishes. Omit output to return the full step-result map. Never use tools outside the registered tool list.',
   parameters: {
     type: 'object',
     properties: {
@@ -93,6 +93,10 @@ export const graphTool = {
                 $ref: { type: 'string' },
                 as: { type: 'string' },
                 max_items: { type: 'integer', minimum: 1, maximum: GRAPH_LIMITS.foreachItems },
+                where: {
+                  description:
+                    'Optional per-item predicate in the loop scope; max_items still applies to the original array.',
+                },
               },
               required: ['$ref'],
               additionalProperties: false,

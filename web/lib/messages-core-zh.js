@@ -154,6 +154,7 @@ export const zh = {
   'feature.trace-context-v1': 'W3C 全链路追踪',
   'feature.webhooks-v1': '运行事件回调',
   'feature.workflow-output-v1': '工作流结果投影',
+  'feature.foreach-where-v1': '工作流逐项筛选',
   'html.nav.console': '控制台导航',
   'html.nav.workspace': '工作区',
   'html.brand.overview': 'Open Agent API 概览',

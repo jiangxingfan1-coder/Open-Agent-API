@@ -258,16 +258,19 @@ agent "agent/delegates" {
 
 预先编写的流程最多可声明 64 个静态步骤；模型临时生成的 `execute_graph` 仍最多 32 步。发布前，普通步骤按 1 项、循环按声明的 `max_items` 项计数，主分支合计不得超过 1,024 项。这不增加工具并发或单次运行的工具调用额度。使用超过 32 步的流程时，请同时升级网关和执行节点。
 
-步骤后面可以跟修饰，顺序任意，每种只能写一次：
+步骤可以跟修饰，每种只能写一次；逐项筛选条件写在它所属的 `foreach` 后面：
 
 | 修饰 | 说明 |
 | --- | --- |
 | `foreach 变量 in $引用 (max=N)` | 对列表逐项执行，`max` 默认 16、最大 32 |
+| `foreach row in $input.rows (max=8) where $(row.enabled)` | 只执行匹配项。`where` 可引用别名、`$item` 和原列表从零开始的 `$index`；别名不要使用 `index`。 |
 | `when 值` | 条件；在循环开始前整体判断一次，不能引用循环变量 |
 | `fallback 工具(...)` / `fallback = 值` | 失败时的回退调用或回退值 |
 | `depends_on = ["步骤", ...]` | 显式依赖 |
 | `retry N` / `retry(N, backoff=时长)` | 失败后最多再试 N 次（1–3） |
 | `timeout 时长` | 每次尝试的超时（100 毫秒到 10 分钟），到点报 `step_timeout` |
+
+**先检查原列表长度，再筛选。** 同一循环全部条件算完才开始派发；不匹配项不执行工具、不创建审批、不走回退。例如步骤 `send` 只有原索引 1、3 匹配，则执行编号是 `send_1`、`send_3`；返回数组按原顺序紧凑排列。全不匹配返回 `[]`，整个步骤的 `when` 为假仍返回 `{skipped: true}`。循环上限和工具预算都不变。网关通过 `GET /health` 的 `foreach-where-v1` 声明支持此语法，在 JSON 图中对应 `foreach.where`。
 
 `retry` 与 `timeout` 只允许用在只读或 `idempotent-write` 的工具上，否则编译期报 `unsafe_graph_retry`。等待审批、运行取消、副作用结果未知时不会重试，也不会被回退值掩盖。
 
@@ -421,6 +424,7 @@ agent "agent/limits" {
 - 另有提示：描述为空、kernel 引擎的指令为空、只有一条 route、每个 flow 的拓扑层数与最大并行宽度。
 
 `GET /health` 中的 `workflow-output-v1` 与 `oaa-lang-roundtrip-v1` 表示网关支持工作流结果投影和格式化往返比对。
+[按勾选项读取文档的示例](../../examples/filtered-workflow.oaa) 是一份使用逐项筛选的完整智能体定义。
 
 ## 升级说明（0.2.0）
 

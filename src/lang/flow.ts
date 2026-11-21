@@ -98,10 +98,10 @@ export function parseFlow(
           arguments: stepArgs,
         };
 
-        // Optional modifiers after tool(...): foreach, when, fallback, depends_on, retry, timeout
+        // A where predicate belongs to the preceding foreach, unlike the whole-step when.
         while (
           ctx.peek().type === 'IDENT' &&
-          ['when', 'foreach', 'fallback', 'depends_on', 'retry', 'timeout'].includes(
+          ['when', 'foreach', 'where', 'fallback', 'depends_on', 'retry', 'timeout'].includes(
             ctx.peek().value,
           )
         ) {
@@ -147,6 +147,8 @@ export function parseFlow(
             ctx.match('EQ');
             stepObj.when = parseFlowValue(ctx, localVars);
           } else if (mod === 'foreach') {
+            if (stepObj.foreach && Object.hasOwn(stepObj.foreach, 'where'))
+              ctx.fail(modTok, "Cannot replace a filtered 'foreach' modifier.");
             const varName = ctx.readStringOrIdent('foreach variable');
             localVars.add(varName);
             const inTok = ctx.expect('IDENT', "'in'");
@@ -174,6 +176,12 @@ export function parseFlow(
               ctx.expect('RPAREN', ')');
             }
             stepObj.foreach = { $ref: refStr, as: varName, max_items: maxItems };
+          } else if (mod === 'where') {
+            const loop = stepObj.foreach as { where?: unknown } | undefined;
+            if (!loop) ctx.fail(modTok, "'where' requires a preceding 'foreach' modifier.");
+            if (Object.hasOwn(loop, 'where')) ctx.fail(modTok, "Duplicate 'where' modifier.");
+            ctx.match('EQ');
+            loop.where = parseFlowValue(ctx, localVars);
           } else if (mod === 'fallback') {
             if (stepObj.fallback !== undefined) ctx.fail(modTok, "Duplicate 'fallback' modifier.");
             ctx.match('EQ');
