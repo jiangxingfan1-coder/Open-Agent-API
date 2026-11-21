@@ -1,11 +1,19 @@
 /** 一次执行的主流程：把模型轮次、工具阶段、外部智能体回合串起来，并处理挂起、失败与换用备选智能体。 */
-import type { AgentBundle, AgentDefinition, Principal, Run, WorkEvent } from '../core/contracts.js';
+import type {
+  AgentBundle,
+  AgentDefinition,
+  ExecutionStep,
+  Principal,
+  Run,
+  WorkEvent,
+} from '../core/contracts.js';
 import { executionFor } from '../core/contracts.js';
 import type { Store } from '../store/store.js';
 import { permits } from '../fabric/network.js';
 import { responseObject } from './response-object.js';
-import { Fault, checkAbort, faultOf, id, sleep } from '../core/util.js';
-import { WebhookCaptureUnavailable } from '../store/checkpoint.js';
+import { Fault, checkAbort, faultOf, id } from '../core/util.js';
+import { isWriteUnavailable, isCheckpointUnavailable } from '../store/checkpoint.js';
+import { commitTerminal } from './terminal-checkpoint.js';
 import { ApprovalSuspension, SchedulingSuspension } from '../core/suspension.js';
 import { ExecutionPool } from './execution-pool.js';
 import { classifyFailure, terminalEventType } from './run-state.js';
@@ -293,10 +301,18 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
     await validateMediaOutput(rt.store, run);
     run.status = 'completed';
     run.checkpoint.phase = 'done';
-    rt.store.checkpoint(run, [], (view) => ({
-      type: 'response.completed',
-      data: { response: responseObject(view) },
-    }));
+    releaseCommitted = false;
+    releaseCommitted = await commitTerminal(
+      rt,
+      run,
+      controller.signal,
+      () =>
+        rt.store.checkpointTerminal(run, [], (view) => ({
+          type: 'response.completed',
+          data: { response: responseObject(view) },
+        })),
+      isWriteUnavailable,
+    );
   } catch (error) {
     const suspended = error instanceof ApprovalSuspension || error instanceof SchedulingSuspension;
     if (suspended && !controller.signal.aborted && !rt.closing()) {
@@ -333,7 +349,13 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
       eventError ??
       (suspended
         ? new Fault('shutting_down', 'The gateway shut down at a scheduling boundary.', 503)
-        : faultOf(error));
+        : isWriteUnavailable(error)
+          ? new Fault(
+              'persistence_failed',
+              'A run checkpoint could not be committed. Execution was stopped.',
+              500,
+            )
+          : faultOf(error));
     if (
       !suspended &&
       !eventError &&
@@ -345,45 +367,53 @@ export async function execute(rt: KernelRuntime, runId: string, preloaded?: Run)
     )
       return;
     if (modelPending) run.metadata['oaa.usage_complete'] = 'false';
-    if (agent.engine !== 'kernel') {
-      const step = rt.store.getStep(nativeStepId(run));
-      if (step?.status === 'running') {
-        step.status = fault.uncertain ? 'uncertain' : 'failed';
-        step.error = fault.code;
-        rt.store.step(step);
-      }
-    }
-    const classification = classifyFailure({
-      fault,
+    releaseCommitted = false;
+    const failure = {
       closing: rt.closing(),
       timedOut,
       aborted: controller.signal.aborted,
       hadEventError: Boolean(eventError),
-    });
-    run.status = classification.status;
-    run.error = classification.error;
+    };
     delete run.checkpoint.suspension;
     const finalEvents = writer.finish('incomplete');
-    for (;;) {
-      try {
-        rt.store.checkpointActions(run, 'expire', finalEvents, (view) => ({
-          type: terminalEventType(run.status),
-          data: { response: responseObject(view) },
-        }));
-        break;
-      } catch (error) {
-        if (!(error instanceof WebhookCaptureUnavailable)) throw error;
-        // Both queue paths failed even for the failure event. Retry only this final write,
-        // not execution. Shutdown leaves the last durable state for startup recovery.
-        if (rt.closing()) {
-          releaseCommitted = false;
-          break;
-        }
-        await sleep(1000, controller.signal.aborted ? undefined : controller.signal).catch(
-          () => {},
+    releaseCommitted = await commitTerminal(
+      rt,
+      run,
+      controller.signal,
+      (sawStorageOutage) => {
+        const step = external ? rt.store.getStep(nativeStepId(run)) : undefined;
+        const uncertain =
+          !!fault.uncertain ||
+          (fault.code === 'persistence_failed' &&
+            (sawStorageOutage || isWriteUnavailable(error)) &&
+            step?.status === 'running' &&
+            step.effect !== 'read');
+        const classification = classifyFailure({
+          ...failure,
+          fault: { code: fault.code, message: fault.message, uncertain },
+        });
+        run.status = classification.status;
+        run.error = classification.error;
+        const failedStep: ExecutionStep | undefined =
+          step?.status === 'running'
+            ? {
+                ...step,
+                status: uncertain ? 'uncertain' : 'failed',
+                error: fault.code,
+              }
+            : undefined;
+        rt.store.checkpointTerminal(
+          run,
+          finalEvents,
+          (view) => ({
+            type: terminalEventType(run.status),
+            data: { response: responseObject(view) },
+          }),
+          { step: failedStep },
         );
-      }
-    }
+      },
+      isCheckpointUnavailable,
+    );
     writer.close();
   } finally {
     clearTimeout(timer);

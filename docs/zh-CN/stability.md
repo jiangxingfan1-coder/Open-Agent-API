@@ -88,6 +88,10 @@ npm run soak -- --minutes 30 --concurrency 8 --retention-minutes 5 [--dir DIR] [
 
 `interrupted` 在展示与计费上算已结束，但对运维人员不是终点：`POST /v1/runs/{id}/resume`（或 `oaa resume`）可以继续它；有未知外部副作用的步骤需要先核对（`POST /v1/runs/{id}/reconcile`）。默认由人工恢复。对[显式启用持久恢复的任务](workstation.md)，启动时只按每页 64 条读取候选记录；自动恢复被接受时，尝试次数、恢复标记和重新入队一起提交，未知副作用仍不会自动重放。外部智能体进程是网关的子进程，网关退出它们也退出（压测核对了 SIGTERM 和 SIGKILL 之后都没有残留）。
 
+**SQLite 暂时无法写入时：** 执行中的任务保留原有槽位，终态提交前不结算用量。写最终检查点时不在事件循环里等待写锁，而是退避重试。
+`OAA_CHECKPOINT_RETRY` 表示正在等待本地写入，不是重跑模型或工具。已经落盘的输出可以正常完成；未能保存的输出不会被报告为成功。
+外部操作的结果无法确认时，仍需人工核对。关机后从最近一次已提交的状态恢复。`/health` 能响应不代表可以接受新的写入，重试也不会修复已损坏的数据库。
+
 ## 3. 升级、备份与降级
 
 - 存储结构版本是 `PRAGMA user_version`（目前为 4）。每次启动都会在一个 `BEGIN IMMEDIATE` 事务里迁移旧数据库；失败就回滚，数据库保持原版本（测试：`streaming.test.ts`、`node-policy.test.ts`）。测试覆盖了从结构版本 1、2、3 以及一份真实 0.0.64 数据库的升级（`test/upgrade.test.ts`、`test/fixtures/upgrade-0.0.64.sqlite`）。

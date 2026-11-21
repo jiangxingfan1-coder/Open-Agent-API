@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import type { DatabaseSync } from 'node:sqlite';
 import type { PruneProfile } from './prune-profile.js';
+import { tryBeginWrite } from './write-lock.js';
 
 /** Retry only BEGIN, never a mutation. Restore the shared connection policy before yielding. */
 export async function pruneWrite<T>(
@@ -16,12 +17,8 @@ export async function pruneWrite<T>(
   try {
     for (;;) {
       try {
-        if (live && budget) db.exec('PRAGMA busy_timeout=0');
-        try {
-          db.exec('BEGIN IMMEDIATE');
-        } finally {
-          if (live && budget) db.exec(`PRAGMA busy_timeout=${budget}`);
-        }
+        if (live) tryBeginWrite(db, budget);
+        else db.exec('BEGIN IMMEDIATE');
         break;
       } catch (error) {
         const left = budget - (performance.now() - started);

@@ -12,7 +12,7 @@ import { Admission } from './admission.js';
 import type { KernelRuntime } from './runtime.js';
 import type { KernelAuth, KernelLimits, QueueInsight } from './types.js';
 import { linkWorkflowStage } from '../store/task-workflows.js';
-import { WebhookCaptureUnavailable } from '../store/checkpoint.js';
+import { isCheckpointUnavailable } from '../store/checkpoint.js';
 import { keepParkedOnRestart } from '../store/approval-rows.js';
 import { authorize, preview, submit } from './submission.js';
 import { context } from './model-turn.js';
@@ -230,7 +230,7 @@ export class Kernel {
             'The gateway shut down while awaiting approval. Explicit resume is required.',
           );
         } catch (error) {
-          if (!(error instanceof WebhookCaptureUnavailable)) throw error;
+          if (!isCheckpointUnavailable(error)) throw error;
           this.admission.clearParked(runId);
         }
       } else this.admission.clearParked(runId);

@@ -30,7 +30,7 @@ import { installRunOutcomes } from './run-outcomes.js';
 import { installArtifactOrigins } from './artifact-origin.js';
 import { indexRecoveryCandidates } from './recovery-candidates.js';
 import { getArtifactByteLimit } from './large-artifacts.js';
-import { validateStepCompletion, type CheckpointOptions } from './checkpoint.js';
+import { terminalOptions, validateStepCompletion, type CheckpointOptions } from './checkpoint.js';
 import {
   stageWorkflowCompletion,
   WORKFLOW_EVENT_READY,
@@ -49,6 +49,8 @@ import {
 } from './approval-rows.js';
 export type { Approval } from './approval-rows.js';
 import { backupBeforeMigration } from './backup.js';
+import { GatewayLease, hasLiveLease } from './gateway-lease.js';
+import { tryBeginWrite } from './write-lock.js';
 type Row = Record<string, unknown>;
 /**
  * v4 partitions caller data by `subject` (normally the API key ID): runs, summaries, files,
@@ -113,7 +115,7 @@ export class Store {
   readonly events = new EventEmitter();
   /** Synchronous database-only sink; public notifications and network I/O follow commit. */
   stageWebhook?: (run: Run, event: RunEvent) => (() => void) | undefined;
-  private leaseId = id('gateway');
+  private lease = new GatewayLease();
   private projections = new Map<string, Projection>();
   private runOwners = new Map<string, string>();
   private eventRing = new Map<string, { fromZero: boolean; events: RunEvent[] }>();
@@ -140,23 +142,12 @@ export class Store {
       this.db.exec(
         'PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-16000',
       );
-      backupBeforeMigration(this.db, root, SCHEMA_VERSION, () => this.leaseHolderAlive());
+      backupBeforeMigration(this.db, root, SCHEMA_VERSION, () => hasLiveLease(this.db));
       this.db.exec('BEGIN IMMEDIATE');
       const version = Number(this.prepare('PRAGMA user_version').get()!.user_version);
       if (version > SCHEMA_VERSION)
         throw new Fault('schema_too_new', 'This data directory requires a newer gateway.', 409);
-      this.db.exec(
-        'CREATE TABLE IF NOT EXISTS gateway_owner (slot INTEGER PRIMARY KEY CHECK(slot=1),pid INTEGER NOT NULL,lease_id TEXT NOT NULL)',
-      );
-      if (this.leaseHolderAlive())
-        throw new Fault(
-          'gateway_already_running',
-          'Another gateway owns this data directory. Use its API or a different data directory.',
-          409,
-        );
-      this.prepare(
-        'INSERT INTO gateway_owner VALUES(1,?,?) ON CONFLICT(slot) DO UPDATE SET pid=excluded.pid,lease_id=excluded.lease_id',
-      ).run(process.pid, this.leaseId);
+      this.lease.claim(this.db);
       this.db.exec(`
       CREATE TABLE IF NOT EXISTS bundles (digest TEXT PRIMARY KEY, owner TEXT NOT NULL, agent_id TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS agents (owner TEXT NOT NULL, id TEXT NOT NULL, digest TEXT NOT NULL REFERENCES bundles(digest), PRIMARY KEY(owner,id));
@@ -206,6 +197,7 @@ export class Store {
       installRunOutcomes(this.db);
       if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
       this.db.exec('COMMIT');
+      this.lease.acquired();
     } catch (e) {
       if (this.db.isTransaction) this.db.exec('ROLLBACK');
       this.db.close();
@@ -220,16 +212,6 @@ export class Store {
         .all()
         .map((r) => String(r.name)),
     );
-  }
-  private leaseHolderAlive(): boolean {
-    const previous = this.db.prepare('SELECT pid FROM gateway_owner WHERE slot=1').get();
-    if (!previous) return false;
-    try {
-      process.kill(Number(previous.pid), 0);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ESRCH') return false;
-    }
-    return true;
   }
   /**
    * v4: attribute existing rows to a subject inside the startup transaction. Malformed payloads
@@ -986,6 +968,14 @@ export class Store {
   ): void {
     this.record(run, events, true, { actions, final, committed });
   }
+  checkpointTerminal(
+    run: Run,
+    events: EventInput[],
+    final: (view: Run) => EventInput,
+    failure?: { step?: ExecutionStep },
+  ): void {
+    this.record(run, events, true, terminalOptions(run, final, failure));
+  }
   openApproval(run: Run, approval: Approval): void {
     const previous = run.status;
     run.status = 'requires_action';
@@ -1041,8 +1031,9 @@ export class Store {
     run: Run,
     specs: EventInput[],
     snapshot: boolean,
-    { final, completion, reassign, stageAdmission, actions, committed }: CheckpointOptions = {},
+    options: CheckpointOptions = {},
   ): void {
+    const { final, completion, reassign, stageAdmission, actions, committed } = options;
     const owner = this.ownerOf(run.id);
     if (owner !== run.owner) throw new Fault('run_not_found', 'Response not found.', 404);
     let messages = this.output(run.id).messages;
@@ -1060,7 +1051,9 @@ export class Store {
     let changed: Approval[] = [];
     let pending: WorkflowEventKey[] = [];
     let wakeWebhook: (() => void) | undefined;
-    this.db.exec('BEGIN IMMEDIATE');
+    if (options.tryLock)
+      tryBeginWrite(this.db, Number(this.prepare('PRAGMA busy_timeout').get()!.timeout));
+    else this.db.exec('BEGIN IMMEDIATE');
     try {
       const enteringTerminal =
         snapshot &&
@@ -1069,6 +1062,7 @@ export class Store {
         !this.prepare('SELECT 1 FROM runs WHERE id=? AND status=?').get(run.id, view.status);
       if (actions) changed = changeApprovalRows(this, run, actions);
       if (completion) this.step(completion.step);
+      if (options.failedStep) this.step(options.failedStep);
       if (reassign) {
         this.prepare('UPDATE runs SET agent_id=? WHERE id=? AND owner=?').run(
           run.agentId,
@@ -1538,11 +1532,10 @@ export class Store {
     this.runOwners.clear();
     this.eventRing.clear();
     this.notifications = [];
-    this.prepare('DELETE FROM gateway_owner WHERE slot=1 AND lease_id=?').run(this.leaseId);
     this.stmts.clear();
     this.filePayloadCache.clear();
     this.bundleCache.clear();
     this.aliasDigestCache.clear();
-    this.db.close();
+    this.lease.close(this.db);
   }
 }

@@ -155,6 +155,14 @@ must be reconciled first (`POST /v1/runs/{id}/reconcile`). Recovery is manual by
 [opt-in durable runs](workstation.md#durable-runs), startup selects eligible interruption records in pages of 64. An accepted automatic resume commits its attempt count and recovery marker with its queue reservation. Unknown side effects still require reconciliation. External agent processes are children of the gateway; they exit when it exits
 (the soak checks that none survive SIGTERM or SIGKILL).
 
+**If SQLite temporarily cannot write:** an active run retains its slot and does not settle usage
+until its terminal checkpoint is durable. The final writer tries the lock without blocking the
+event loop and retries contention with backoff. `OAA_CHECKPOINT_RETRY` means a local write is
+waiting, not that the model or tool is running again. Output already saved can still complete;
+output that never reached storage is not reported as successful. An unconfirmed external effect
+requires reconciliation. On shutdown, recovery uses the last committed state. A responding
+`/health` is not proof that new writes will succeed. These retries do not repair a corrupt database.
+
 ## 3. Upgrades, backups and downgrades
 
 - The storage schema version is `PRAGMA user_version` (currently 4). Every start migrates older
