@@ -30,6 +30,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
     const policy = {
       kind: 'upload' as const,
       limit: config.maxStoredBytesPerSubject,
+      coldReads: deps.coldReads,
       guard: requestGrant(auth, req, reply),
     };
     if (req.isMultipart()) {

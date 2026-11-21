@@ -176,7 +176,12 @@ async function prepareImages(
   // Quota for the bytes that will be newly written, checked once before anything is stored.
   const subject = principalSubject(principal),
     owner = principal.owner;
-  const policy: UploadPolicy = { kind: 'inline', limit: config.maxStoredBytesPerSubject, guard };
+  const policy: UploadPolicy = {
+    kind: 'inline',
+    limit: config.maxStoredBytesPerSubject,
+    guard,
+    coldReads,
+  };
   const costs = new Map<string, number>(),
     digests = new Map<Decoded, string>();
   for (const item of out)

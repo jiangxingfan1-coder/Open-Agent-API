@@ -49,6 +49,22 @@ their authorization or reservation. A changed or unavailable snapshot is never u
 of room: the serving connection can count again, and still checks outstanding reservations inside
 the write transaction. Uncapped gateways start no helper. The thread retires when idle.
 
+When the helper times out, the serving connection counts from the existing file index in small
+pages. Different callers take turns; no writer lock or cursor is held between pages.
+If the last waiting upload disconnects, no further pages are read for that request. An edit
+that invalidates a partial count restarts that count. If even the reservation's final check
+goes stale, the gateway releases the writer before recounting. Continued changes can return
+`503 upload_busy` with `Retry-After`; no new file is accepted on that response. A single
+slow disk read may still stall a page, and finishing a batch can take longer than one blocking scan.
+
+To reproduce the degraded path, add `--helper-timeout` to the cold-start benchmark. This withholds
+fixture worker messages and waits for the real timeout; it does not slow the device artificially.
+The `fallback` section measures other-owner reads and upload completion **after** that timeout.
+On a filesystem supporting clones, `--fresh-copy` puts the closed fixture catalog on a new inode
+before each start. To measure rather than assume whether its OS pages are cold on macOS/Linux,
+compile `bench/file-residency.c` with `cc -O2` and pass the executable via `--page-probe PATH`.
+The probe reads page-residency metadata only. Neither option flushes host or device caches.
+
 `bench/soak.ts` is not part of `npm test`. It:
 
 - starts a **real gateway process** (`node dist/src/cli.js serve`) with a temporary `HOME` and data

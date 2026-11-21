@@ -8,6 +8,7 @@ import { hashFileStreaming } from './large-artifacts.js';
 import { isWriteUnavailable } from './checkpoint.js';
 import { tryBeginWrite } from './write-lock.js';
 import { withSavepoint } from './savepoint.js';
+import { UploadRecountRequired } from './upload-usage.js';
 import {
   checkUploadRoom,
   UploadWriter,
@@ -103,22 +104,32 @@ export class ProvisionalInputs {
       await writePrivate(dir, file.id, bytes, true, async (handle) => {
         bound = identity(await handle.stat({ bigint: true }));
         this.requireWriter();
-        await this.writer.run(file.owner, file.bytes, policy.guard, () => {
-          checkUploadRoom(
-            { db: this.db, prepare: (sql: string) => this.q(sql) },
-            file.owner,
-            subject,
-            file.bytes,
-            policy.limit,
-          );
-          attempted = true;
-          const r = this.q(
-            `INSERT INTO oaa_inline_inputs(file_id,owner,subject,digest,bytes,identity,phase)
+        const reserve = () =>
+          this.writer.run(file.owner, file.bytes, policy.guard, () => {
+            checkUploadRoom(
+              { db: this.db, prepare: (sql: string) => this.q(sql) },
+              file.owner,
+              subject,
+              file.bytes,
+              policy.limit,
+              !!policy.coldReads,
+            );
+            attempted = true;
+            const r = this.q(
+              `INSERT INTO oaa_inline_inputs(file_id,owner,subject,digest,bytes,identity,phase)
           SELECT ?,?,?,?,?,?,'writing' WHERE NOT EXISTS(SELECT 1 FROM files WHERE id=?)`,
-          ).run(file.id, file.owner, subject, file.sha256, file.bytes, bound!, file.id);
-          if (!r.changes)
-            throw new Fault('persistence_failed', 'Could not reserve the inline input.', 500);
-        });
+            ).run(file.id, file.owner, subject, file.sha256, file.bytes, bound!, file.id);
+            if (!r.changes)
+              throw new Fault('persistence_failed', 'Could not reserve the inline input.', 500);
+          });
+        try {
+          await reserve();
+        } catch (e) {
+          // The pre-write check threw before the INSERT. UploadWriter rolled back the
+          // writer transaction; never hold it across a recount or repeat a reservation.
+          if (!(e instanceof UploadRecountRequired) || attempted || !policy.coldReads) throw e;
+          await policy.coldReads.retry(file.owner, subject, file.bytes, policy.guard, reserve);
+        }
         registered = true;
       });
       this.requireWriter();

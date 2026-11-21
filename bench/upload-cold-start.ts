@@ -9,6 +9,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
+import {
+  cloneCatalog,
+  fileResidency,
+  observeFallback,
+  withholdReader,
+} from './upload-fallback-probe.js';
 
 const { values } = parseArgs({
   options: {
@@ -17,6 +23,9 @@ const { values } = parseArgs({
     restarts: { type: 'string', default: '8' },
     uncapped: { type: 'boolean' },
     compare: { type: 'string' },
+    'helper-timeout': { type: 'boolean' },
+    'fresh-copy': { type: 'boolean' },
+    'page-probe': { type: 'string' },
     out: { type: 'string' },
     root: { type: 'string' },
     round: { type: 'string' },
@@ -28,6 +37,7 @@ const accounts = Number(values.accounts),
 assert.ok(Number.isInteger(accounts) && accounts >= 2 && accounts <= 32);
 assert.ok(Number.isInteger(rows) && rows >= 0 && rows * accounts <= 4_194_304);
 assert.ok(Number.isInteger(restarts) && restarts >= 1 && restarts <= 64);
+if (values['helper-timeout']) assert.ok(!values.uncapped && rows >= 4096);
 const owner = (i: number) => 'cold-fixture-' + i;
 const token = (i: number) => 'test-cold-quota-local-fixture-only-' + i;
 const bytes = 77,
@@ -87,6 +97,7 @@ async function gateway() {
     return { name: owner(i), owner: owner(i), scopes: ['files'], tokenEnv, quota: { rpm: 100000 } };
   });
   const start = performance.now();
+  const restore = values['helper-timeout'] ? withholdReader() : undefined;
   const s = await setup(undefined, {
     dataDir: values.root,
     keys,
@@ -99,10 +110,12 @@ async function gateway() {
     process.send!({ base: await s.listen(), ready: performance.now() - start });
     await disconnected;
   } finally {
+    restore?.();
     await s.cleanup();
   }
 }
 const stats = (times: number[]) => {
+  if (!times.length) return { count: 0, p50: null, p95: null, p99: null, max: null };
   const a = times.toSorted((x, y) => x - y),
     at = (p: number) => +a[Math.ceil(p * a.length) - 1]!.toFixed(2);
   return { count: a.length, p50: at(0.5), p95: at(0.95), p99: at(0.99), max: at(1) };
@@ -115,7 +128,16 @@ const sample = () => ({
   quietGaps: [] as number[],
   lateProbes: 0,
 });
-const measurements = () => ({ cold: sample(), warm: sample(), startup: [] as number[] });
+const measurements = () => ({
+  cold: sample(),
+  warm: sample(),
+  startup: [] as number[],
+  fallback: [] as Awaited<ReturnType<typeof observeFallback>>[],
+  residency: [] as Awaited<ReturnType<typeof fileResidency>>[],
+  initialResidency: [] as Awaited<ReturnType<typeof fileResidency>>[],
+  beforeDeadline: [] as (Awaited<ReturnType<typeof fileResidency>> & { sample_ms: number })[],
+  afterCold: [] as Awaited<ReturnType<typeof fileResidency>>[],
+});
 async function measure() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'oaa-cold-quota-'));
   try {
@@ -127,7 +149,21 @@ async function measure() {
     for (let round = 0; round < processes; round++) {
       // AB, BA: each version sees the first and second position equally often.
       const before = !!values.compare && (round % 4 === 0 || round % 4 === 3);
-      const { cold, warm, startup } = before ? prior : current;
+      const {
+        cold,
+        warm,
+        startup,
+        fallback,
+        residency,
+        initialResidency,
+        beforeDeadline,
+        afterCold,
+      } = before ? prior : current;
+      if (values['fresh-copy']) await cloneCatalog(root);
+      const probePages = values['page-probe']
+        ? () => fileResidency(root, values['page-probe']!)
+        : undefined;
+      if (probePages) initialResidency.push(await probePages());
       const args = [
         '--accounts',
         String(accounts),
@@ -139,6 +175,7 @@ async function measure() {
         root,
       ];
       if (values.uncapped) args.push('--uncapped');
+      if (values['helper-timeout']) args.push('--helper-timeout');
       if (before) args.push('--compare', values.compare!);
       const child = fork(import.meta.filename, args, {
         stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
@@ -171,6 +208,7 @@ async function measure() {
         };
         // Establish HTTP connections without checking any measured account's upload quota.
         await Promise.all(Array.from({ length: accounts + probes }, () => read()));
+        if (probePages) residency.push(await probePages());
         for (const phase of [cold, warm]) {
           const start = performance.now();
           let finished = Infinity;
@@ -183,6 +221,17 @@ async function measure() {
             arrivals.push(end);
           };
           await Promise.all([
+            phase === cold && values['helper-timeout'] && probePages
+              ? delay(4500).then(async () => {
+                  const pages = await probePages();
+                  beforeDeadline.push({ ...pages, sample_ms: performance.now() - start });
+                })
+              : undefined,
+            phase === cold && values['helper-timeout']
+              ? observeFallback(child, accounts, start, read, () => finished).then((r) =>
+                  fallback.push(r),
+                )
+              : undefined,
             Promise.all(
               Array.from({ length: accounts }, async (_, i) => {
                 const t = performance.now(),
@@ -218,6 +267,7 @@ async function measure() {
               }
             })(),
           ]);
+          if (phase === cold && probePages) afterCold.push(await probePages());
           const points = [
             start,
             ...arrivals.filter((n) => n < finished).sort((a, b) => a - b),
@@ -264,6 +314,33 @@ async function measure() {
       ready_ms: stats(x.startup),
       cold: describe(x.cold),
       warm: describe(x.warm),
+      ...(x.fallback.length
+        ? {
+            fallback: {
+              timeout_observed_ms: stats(x.fallback.map((r) => r.timeout_observed_ms)),
+              recount_and_accept_ms: stats(x.fallback.map((r) => r.recount_and_accept_ms)),
+              other_owner_read_ms: stats(x.fallback.flatMap((r) => r.read_ms)),
+              fixed_cadence_read_ms: stats(x.fallback.flatMap((r) => r.fixed_read_ms)),
+              max_quiet_gap_per_wave_ms: stats(x.fallback.map((r) => r.max_quiet_gap_ms)),
+              withheld_worker_messages: x.fallback.reduce((n, r) => n + r.withheld, 0),
+            },
+          }
+        : {}),
+      ...(x.residency.length
+        ? {
+            catalog_before_process: x.initialResidency,
+            catalog_before_upload: x.residency,
+            catalog_after_cold: x.afterCold,
+            ...(x.beforeDeadline.length
+              ? {
+                  catalog_near_timeout: x.beforeDeadline.map((p, i) => ({
+                    ...p,
+                    before_timeout: p.sample_ms < x.fallback[i]!.timeout_observed_ms,
+                  })),
+                }
+              : {}),
+          }
+        : {}),
     });
     const report = {
       fixture:
@@ -273,6 +350,8 @@ async function measure() {
       rows_per_account: rows,
       restarts,
       quota: !values.uncapped,
+      forced_helper_timeout: !!values['helper-timeout'],
+      fresh_fixture_inode: !!values['fresh-copy'],
       per_wave_probes: probes,
       probe_interval_ms: spacing,
       verified_uploads: ids.size,

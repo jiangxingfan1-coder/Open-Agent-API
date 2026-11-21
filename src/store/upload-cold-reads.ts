@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { setImmediate as yieldTurn } from 'node:timers/promises';
 import { Worker } from 'node:worker_threads';
 import { Fault } from '../core/util.js';
 import { isWriteUnavailable } from './checkpoint.js';
@@ -8,12 +7,14 @@ import type { Store } from './store.js';
 import { UploadWaitBudget } from './upload-budget.js';
 import {
   acceptColdTotal,
+  changingUploadTotal,
   coldReadRows,
   discardColdTotal,
   needsColdTotal,
   startColdTotal,
-  uploadUsage,
+  UploadRecountRequired,
 } from './upload-usage.js';
+import { UploadRecounts } from './upload-recount.js';
 import {
   databaseIdentity,
   type ReadBinding,
@@ -127,11 +128,11 @@ class ReadThread implements Source {
 /** Only HTTP cold preflight uses this helper. The synchronous writer still proves capacity
  * from its own SQLite snapshot before inserting the reservation. */
 export class ColdUploadReads {
-  private pending = new Map<string, Promise<void>>();
+  private pending = new Map<string, { promise: Promise<void>; waiters: number }>();
   private budget = new UploadWaitBudget();
   private jobs = new UploadWaitBudget();
   private stopped = false;
-  private localLane: Promise<void> = Promise.resolve();
+  private recounts = new UploadRecounts();
   private source?: Source;
   constructor(
     private store: Store,
@@ -174,15 +175,15 @@ export class ColdUploadReads {
       return false;
     }
   }
-  private async fill(owner: string, subject: string) {
-    // Under continuing churn leave the decision to the original, authoritative path.
-    for (let attempt = 0; attempt < 2; attempt++) {
+  private async fill(owner: string, subject: string, wanted: () => boolean) {
+    // If the reader cannot confirm its snapshot, use the serving connection's paged recount.
+    for (let attempt = 0; this.source && attempt < 2; attempt++) {
       const id = randomUUID();
       try {
         startColdTotal(this.store, owner, subject, id);
         let accepted = false;
         try {
-          const used = await this.source!.read({ id, owner, subject });
+          const used = await this.source.read({ id, owner, subject });
           if (this.stopped) throw stopping();
           if (used === undefined) break;
           accepted = acceptColdTotal(this.store, owner, subject, id, used);
@@ -194,17 +195,13 @@ export class ColdUploadReads {
         if (!isWriteUnavailable(error)) throw error;
         return;
       }
-      if (!this.needs(owner, subject)) return;
+      if (!wanted() || !this.needs(owner, subject)) return;
     }
-    // If the optional reader is unavailable, recover the original behavior without
-    // dispatching all fallback scans in one turn. A cached total is always rechecked.
-    const fill = this.localLane.then(async () => {
-      await yieldTurn();
+    await this.recounts.fill(this.store, owner, subject, () => {
       if (this.stopped) throw stopping();
-      uploadUsage(this.store, owner, subject);
+      if (!wanted())
+        throw new Fault('request_cancelled', 'No caller is waiting for this quota check.', 499);
     });
-    this.localLane = fill.catch(() => {});
-    await fill;
   }
   warm(
     owner: string,
@@ -213,27 +210,31 @@ export class ColdUploadReads {
     guard?: Guard,
   ): Promise<void> | undefined {
     if (this.stopped) throw stopping();
-    if (!this.source) return;
     const key = JSON.stringify([owner, subject]);
-    let p = this.pending.get(key);
-    if (!p && !this.needs(owner, subject)) return;
+    let flight = this.pending.get(key);
+    if (!flight && !this.needs(owner, subject)) return;
     guard?.();
     const release = this.budget.take(owner, retainedBytes);
     try {
-      if (!p) {
+      if (!flight) {
         // A disconnected subscriber releases its buffer immediately. Its already-started
         // read still occupies a separate job slot until completion.
         const releaseJob = this.jobs.take(owner, 0);
-        p = this.fill(owner, subject).finally(() => {
-          this.pending.delete(key);
-          releaseJob();
-        });
-        this.pending.set(key, p);
+        const promise = this.fill(owner, subject, () => !!this.pending.get(key)?.waiters).finally(
+          () => {
+            this.pending.delete(key);
+            releaseJob();
+          },
+        );
+        flight = { promise, waiters: 0 };
+        this.pending.set(key, flight);
       }
     } catch (e) {
       release();
       throw e;
     }
+    const joined = flight;
+    joined.waiters++;
     const cancelled = Promise.withResolvers<never>();
     const unsubscribe = guard?.onDisconnect?.(() => {
       try {
@@ -242,19 +243,38 @@ export class ColdUploadReads {
         cancelled.reject(error);
       }
     });
-    return (unsubscribe ? Promise.race([p, cancelled.promise]) : p)
+    return (unsubscribe ? Promise.race([joined.promise, cancelled.promise]) : joined.promise)
       .then(() => {
         if (this.stopped) throw stopping();
         guard?.();
       })
       .finally(() => {
         unsubscribe?.();
+        joined.waiters--;
         release();
       });
   }
   async close() {
     this.stopped = true;
     await this.source?.close();
-    await Promise.allSettled(this.pending.values());
+    await Promise.allSettled([...this.pending.values()].map((job) => job.promise));
+  }
+  /** Only before a reservation: repeat a check whose cache entry went stale after preflight. */
+  async retry<T>(
+    owner: string,
+    subject: string,
+    retainedBytes: number,
+    guard: Guard | undefined,
+    check: () => T,
+  ): Promise<Awaited<T>> {
+    for (let i = 0; i < 2; i++) {
+      await this.warm(owner, subject, retainedBytes, guard);
+      try {
+        return await check();
+      } catch (e) {
+        if (!(e instanceof UploadRecountRequired)) throw e;
+      }
+    }
+    throw changingUploadTotal();
   }
 }

@@ -1,16 +1,20 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { isWriteUnavailable } from './checkpoint.js';
+import { Fault, RetryLaterFault } from '../core/util.js';
 import { withSavepoint } from './savepoint.js';
 import { exactTotal, fileBytes, storedFileTotalSql } from './upload-facts.js';
 
-export type UsageConnection =
-  DatabaseSync | { db: DatabaseSync; prepare(sql: string): StatementSync };
+export type UploadUsageStore = { db: DatabaseSync; prepare(sql: string): StatementSync };
+export type UsageConnection = DatabaseSync | UploadUsageStore;
 const max = Number.MAX_SAFE_INTEGER;
 const pending = `SELECT ${exactTotal("CASE WHEN typeof(bytes)='integer' AND bytes>=0 THEN bytes END")}
   FROM main.oaa_inline_inputs WHERE owner=:owner AND subject=:subject AND phase='writing'`;
 const version = '(SELECT data_version FROM main.pragma_data_version)';
 const scopeLimit = 256;
 export const coldReadRows = 4096;
+export class UploadRecountRequired extends Error {}
+export const changingUploadTotal = () =>
+  new RetryLaterFault('upload_busy', 'File usage kept changing during quota admission.', 503, 1);
 const latestAdmission = '(SELECT coalesce(max(touched),0) FROM temp.oaa_upload_usage)';
 
 // REPLACE may discard a row without invoking DELETE triggers. Invalidate both possible
@@ -42,7 +46,6 @@ const schema = `
     DELETE FROM oaa_upload_usage WHERE owner=OLD.owner AND subject=OLD.subject AND used IS NULL;
   END;`;
 
-type CachedStore = { db: DatabaseSync; prepare(sql: string): StatementSync };
 function ensureCache(store: UsageConnection, db: DatabaseSync) {
   if (
     !store
@@ -54,7 +57,7 @@ function ensureCache(store: UsageConnection, db: DatabaseSync) {
 
 /** A ticket belongs to this connection. Local file edits discard it; external commits
  * invalidate its data_version. Neither reservations nor another owner's append spoil it. */
-export function needsColdTotal(store: CachedStore, owner: string, subject: string) {
+export function needsColdTotal(store: UploadUsageStore, owner: string, subject: string) {
   if (store.db.isTransaction) return false;
   ensureCache(store, store.db);
   const scope = { owner, subject };
@@ -67,13 +70,21 @@ export function needsColdTotal(store: CachedStore, owner: string, subject: strin
   )
     return false;
   // Bound the probe, not the account: small scopes are cheaper to count locally than dispatch.
+  return largeScope(store, owner, subject);
+}
+function largeScope(store: UsageConnection, owner: string, subject: string) {
   return !!store
     .prepare(
       `SELECT 1 FROM main.files INDEXED BY file_owner_subject WHERE owner=:owner AND subject=:subject LIMIT 1 OFFSET ${coldReadRows - 1}`,
     )
-    .get(scope);
+    .get({ owner, subject });
 }
-export function startColdTotal(store: CachedStore, owner: string, subject: string, scan: string) {
+export function startColdTotal(
+  store: UploadUsageStore,
+  owner: string,
+  subject: string,
+  scan: string,
+) {
   store
     .prepare(
       `INSERT OR REPLACE INTO temp.oaa_upload_usage(owner,subject,version,used,touched,scan)
@@ -81,8 +92,23 @@ export function startColdTotal(store: CachedStore, owner: string, subject: strin
     )
     .run({ owner, subject, scan });
 }
+export function currentColdTotal(
+  store: UploadUsageStore,
+  owner: string,
+  subject: string,
+  scan: string,
+) {
+  return (
+    !store.db.isTransaction &&
+    !!store
+      .prepare(
+        `SELECT 1 FROM temp.oaa_upload_usage WHERE owner=? AND subject=? AND scan=? AND version=${version}`,
+      )
+      .get(owner, subject, scan)
+  );
+}
 export function acceptColdTotal(
-  store: CachedStore,
+  store: UploadUsageStore,
   owner: string,
   subject: string,
   scan: string,
@@ -96,7 +122,12 @@ export function acceptColdTotal(
     )
     .run({ owner, subject, scan, used }).changes;
 }
-export function discardColdTotal(store: CachedStore, owner: string, subject: string, scan: string) {
+export function discardColdTotal(
+  store: UploadUsageStore,
+  owner: string,
+  subject: string,
+  scan: string,
+) {
   store
     .prepare('DELETE FROM temp.oaa_upload_usage WHERE owner=? AND subject=? AND scan=?')
     .run(owner, subject, scan);
@@ -104,7 +135,12 @@ export function discardColdTotal(store: CachedStore, owner: string, subject: str
 
 /** Never authoritative: rebuild from canonical files on a miss. Pending reservations are
  * read live in the same main snapshot, including when another connection is the writer. */
-export function uploadUsage(store: UsageConnection, owner: string, subject: string) {
+export function uploadUsage(
+  store: UsageConnection,
+  owner: string,
+  subject: string,
+  deferLarge = false,
+) {
   const db = 'db' in store ? store.db : store;
   const scope = { owner, subject },
     outer = db.isTransaction;
@@ -127,6 +163,7 @@ export function uploadUsage(store: UsageConnection, owner: string, subject: stri
           .run(scope);
       return hit;
     }
+    if (deferLarge && largeScope(store, owner, subject)) throw new UploadRecountRequired();
     // This statement only writes TEMP. Even a permanently over-quota caller can warm the
     // cache without taking the main writer lock. A NULL total means unknown, never zero.
     return store
@@ -139,6 +176,12 @@ export function uploadUsage(store: UsageConnection, owner: string, subject: stri
     // Read-only preflight can still count the original rows. Never continue a reservation
     // if SQLite has rolled back the writer transaction itself.
     if (!isWriteUnavailable(error) || (outer && !db.isTransaction)) throw error;
+    if (deferLarge && largeScope(store, owner, subject))
+      throw new Fault(
+        'persistence_failed',
+        'Cannot verify stored file usage for this caller.',
+        500,
+      );
     return store
       .prepare(`SELECT (${storedFileTotalSql}) AS used,(${pending}) AS reserved`)
       .get(scope)!;

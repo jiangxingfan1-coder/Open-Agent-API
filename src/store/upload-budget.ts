@@ -4,10 +4,23 @@ import { Fault, RetryLaterFault } from '../core/util.js';
 import { bi } from '../core/locale.js';
 import { isWriteContended, isWriteUnavailable } from './checkpoint.js';
 import { tryBeginWrite } from './write-lock.js';
-import { fileBytes } from './upload-facts.js';
+import { fileBytes, fileDigest as digest } from './upload-facts.js';
 import { uploadUsage, type UsageConnection } from './upload-usage.js';
 
-export type UploadPolicy = { kind: 'inline' | 'upload'; limit?: number; guard?: () => void };
+export type UploadPolicy = {
+  kind: 'inline' | 'upload';
+  limit?: number;
+  guard?: () => void;
+  coldReads?: {
+    retry(
+      owner: string,
+      subject: string,
+      retainedBytes: number,
+      guard: (() => void) | undefined,
+      reserve: () => Promise<void>,
+    ): Promise<void>;
+  };
+};
 export class UnconfirmedFileCommit extends Fault {
   constructor(readonly fileId: string) {
     super(
@@ -23,8 +36,6 @@ export class UnconfirmedFileCommit extends Fault {
 }
 type Statements = { prepare(sql: string): StatementSync };
 const size = fileBytes('payload');
-const digest =
-  "CASE WHEN json_valid(payload) THEN CASE WHEN json_extract(payload,'$.runId') IS NULL AND json_extract(payload,'$.allowedNodes') IS NULL AND json_type(payload,'$.sha256')='text' AND length(json_extract(payload,'$.sha256'))=64 THEN json_extract(payload,'$.sha256') END END";
 export function installUploadBudget(db: DatabaseSync) {
   db.exec(`CREATE INDEX IF NOT EXISTS file_upload_facts ON files(owner,subject,${digest},${size});
     CREATE INDEX IF NOT EXISTS oaa_upload_reservations ON oaa_inline_inputs(owner,subject,bytes) WHERE phase='writing';`);
@@ -49,11 +60,12 @@ export function checkUploadRoom(
   subject: string,
   incoming: number,
   limit?: number,
+  deferLarge = false,
 ) {
   if (limit === undefined) return;
   if (!Number.isSafeInteger(limit) || limit < 0 || !Number.isSafeInteger(incoming) || incoming < 0)
     throw new Fault('persistence_failed', 'Cannot verify the requested storage amount.', 500);
-  const { used, reserved } = uploadUsage(store, owner, subject);
+  const { used, reserved } = uploadUsage(store, owner, subject, deferLarge);
   if (
     typeof used !== 'number' ||
     typeof reserved !== 'number' ||
