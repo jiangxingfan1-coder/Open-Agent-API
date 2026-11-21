@@ -339,6 +339,7 @@ test('uploads: malformed sizes fail quota checks closed; digest seeks exclude ot
     await s.store.addFile('owner', 'second regular copy', bytes, undefined, undefined, subject);
     const sql: string[] = [],
       statements = {
+        db: s.store.db,
         prepare: (q: string) => {
           sql.push(q);
           return s.store.prepare(q);
@@ -358,9 +359,19 @@ test('uploads: malformed sizes fail quota checks closed; digest seeks exclude ot
           String(p.detail).includes('file_upload_facts') && String(p.detail).includes('<expr>='),
       ),
     );
-    const usage = s.store.prepare('EXPLAIN QUERY PLAN ' + sql[1]).all({ owner: 'owner', subject });
-    assert.ok(usage.some((p) => String(p.detail).includes('file_upload_facts')));
-    assert.ok(usage.some((p) => String(p.detail).includes('oaa_upload_reservations')));
+    const plan = (prefix: string) =>
+      s.store
+        .prepare('EXPLAIN QUERY PLAN ' + sql.find((q) => q.startsWith(prefix))!)
+        .all({ owner: 'owner', subject })
+        .map((p) => String(p.detail));
+    assert.ok(
+      plan('INSERT OR REPLACE INTO temp.oaa_upload_usage').some((p) =>
+        p.includes('file_upload_facts'),
+      ),
+    );
+    const warm = plan('SELECT used,(');
+    assert.ok(warm.some((p) => p.includes('oaa_upload_reservations')));
+    assert.ok(!warm.some((p) => p.includes('file_upload_facts')));
   } finally {
     await s.cleanup();
   }

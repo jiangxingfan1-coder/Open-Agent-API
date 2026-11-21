@@ -4,6 +4,7 @@ import { Fault, RetryLaterFault } from '../core/util.js';
 import { bi } from '../core/locale.js';
 import { isWriteContended, isWriteUnavailable } from './checkpoint.js';
 import { tryBeginWrite } from './write-lock.js';
+import { fileBytes, uploadUsage, type UsageConnection } from './upload-usage.js';
 
 export type UploadPolicy = { kind: 'inline' | 'upload'; limit?: number; guard?: () => void };
 export class UnconfirmedFileCommit extends Fault {
@@ -20,8 +21,7 @@ export class UnconfirmedFileCommit extends Fault {
   }
 }
 type Statements = { prepare(sql: string): StatementSync };
-const size =
-  "CASE WHEN json_valid(payload) THEN CASE WHEN json_type(payload,'$.bytes')='integer' AND json_extract(payload,'$.bytes')>=0 THEN json_extract(payload,'$.bytes') END END";
+const size = fileBytes('payload');
 const digest =
   "CASE WHEN json_valid(payload) THEN CASE WHEN json_extract(payload,'$.runId') IS NULL AND json_extract(payload,'$.allowedNodes') IS NULL AND json_type(payload,'$.sha256')='text' AND length(json_extract(payload,'$.sha256'))=64 THEN json_extract(payload,'$.sha256') END END";
 export function installUploadBudget(db: DatabaseSync) {
@@ -43,7 +43,7 @@ export function storedUploadCopy(
   return r ? String(r.id) : undefined;
 }
 export function checkUploadRoom(
-  store: Statements,
+  store: UsageConnection,
   owner: string,
   subject: string,
   incoming: number,
@@ -52,17 +52,16 @@ export function checkUploadRoom(
   if (limit === undefined) return;
   if (!Number.isSafeInteger(limit) || limit < 0 || !Number.isSafeInteger(incoming) || incoming < 0)
     throw new Fault('persistence_failed', 'Cannot verify the requested storage amount.', 500);
-  const r = store
-    .prepare(
-      `SELECT total(n) AS used,count(*)-count(n) AS unknown FROM (
-    SELECT ${size} AS n FROM files INDEXED BY file_upload_facts WHERE owner=:owner AND subject=:subject
-    UNION ALL SELECT CASE WHEN typeof(bytes)='integer' AND bytes>=0 THEN bytes END FROM oaa_inline_inputs WHERE owner=:owner AND subject=:subject AND phase='writing')`,
-    )
-    .get({ owner, subject })!;
-  const used = Number(r.used);
-  if (r.unknown || !Number.isSafeInteger(used) || used < 0)
+  const { used, reserved } = uploadUsage(store, owner, subject);
+  if (
+    typeof used !== 'number' ||
+    typeof reserved !== 'number' ||
+    used < 0 ||
+    reserved < 0 ||
+    !Number.isSafeInteger(used + reserved)
+  )
     throw new Fault('persistence_failed', 'Cannot verify stored file usage for this caller.', 500);
-  if (incoming > limit - used)
+  if (incoming > limit - used - reserved)
     throw new Fault(
       'storage_quota_exceeded',
       `This caller may store at most ${limit} bytes of files.`,

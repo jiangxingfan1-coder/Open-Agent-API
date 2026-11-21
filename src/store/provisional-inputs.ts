@@ -105,7 +105,7 @@ export class ProvisionalInputs {
         this.requireWriter();
         await this.writer.run(file.owner, file.bytes, policy.guard, () => {
           checkUploadRoom(
-            { prepare: (sql) => this.q(sql) },
+            { db: this.db, prepare: (sql: string) => this.q(sql) },
             file.owner,
             subject,
             file.bytes,

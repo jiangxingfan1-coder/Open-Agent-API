@@ -23,6 +23,15 @@ submission and signed notification latency with no backlog, a waiting backlog, a
 recovering backlog. The report also measures time to promote the entire backlog; promotion is
 not delivery to the remote receiver. It uses a fixture model, not a production latency target.
 
+To measure upload latency as a caller's file history grows, run
+`npm run bench:upload-quota -- --rows 128000 --samples 512 --clients 6 --out result.json`.
+The fixture compares an empty history with a large one, with and without a storage cap. A separate
+process times real HTTP uploads, another owner's file reads during those uploads, and rejections
+after the cap is full. Historical metadata is synthetic; no user files or model accounts are used.
+With a cap enabled, the gateway keeps recent callers' committed file totals on its SQLite
+connection. External commits invalidate those totals; a cold check rebuilds from the caller's file
+records. In-flight reservations are always read from the database, including on a cache hit.
+
 `bench/soak.ts` is not part of `npm test`. It:
 
 - starts a **real gateway process** (`node dist/src/cli.js serve`) with a temporary `HOME` and data
