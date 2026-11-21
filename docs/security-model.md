@@ -165,9 +165,10 @@ console. The key file `admin.token` stays in the data folder.
 4. Set `nativeEnv` to an allowlist so external agents do not see your provider keys and other
    secrets. With inherited environment, a caller can ask a tool-using agent to print it.
 5. Give every caller key a quota (`rpm`, `maxRuns`, `maxTokens`, `expiresAt`) and set
-   `maxActiveRunsPerSubject` and `maxStoredBytesPerSubject`. Files are never deleted
-   automatically; without `maxStoredBytesPerSubject` a caller with the `files` scope (including
-   every portal account key) can fill the disk.
+   `maxActiveRunsPerSubject` and `maxStoredBytesPerSubject`. Uploads reserve space before
+   writing; the gateway does not evict accepted files to make room. Without a cap a caller
+   with the `files` scope (including every portal account key) can fill the disk. Configured
+   retention and rollback of unaccepted uploads are separate from quota enforcement.
 6. Put a reverse proxy with connection limits and body/header timeouts in front. Under the
    `local` profile the gateway does not limit the time to receive a request (`requestTimeoutMs`
    unset), so slow uploads are only bounded by the proxy. The unauthenticated portal forms

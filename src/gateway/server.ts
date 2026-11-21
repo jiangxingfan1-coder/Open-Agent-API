@@ -532,7 +532,10 @@ export async function createGateway(
     });
     registerWebhookRoutes(app, webhooks, config);
     const admission = new HttpRunAdmission(auth, kernel);
-    app.addHook('preClose', async () => admission.close());
+    app.addHook('preClose', async () => {
+      admission.close();
+      store.provisionalInputs.stopAccepting();
+    });
     registerOwnerRoutes(app, { auth, audit, config, store, kernel, hub, providerKeyOf, admission });
     registerMetricsRoutes(app, {
       auth,

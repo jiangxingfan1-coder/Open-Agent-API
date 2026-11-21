@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Run } from '../core/contracts.js';
-import { canonical, Fault, RetryLaterFault } from '../core/util.js';
+import { Fault, RetryLaterFault } from '../core/util.js';
+import { requestGrant } from './request-grant.js';
 import type { Kernel } from '../kernel/kernel.js';
 import { RunWriteDeferred, type RunWriteMode } from '../store/write-lock.js';
 import type { Auth } from './auth.js';
@@ -59,14 +60,7 @@ export class HttpRunAdmission {
   }
   async run(req: FastifyRequest, reply: FastifyReply, create: Attempt): Promise<Run> {
     if (this.closed) throw stopping();
-    const gone = () => reply.raw.destroyed || req.raw.aborted || req.raw.socket?.destroyed === true;
-    if (gone()) throw disconnected();
-    const grants = canonical(req.principal);
-    const checkGrant = () => {
-      const current = this.auth.revalidate(req.headers.authorization);
-      if (canonical(current) !== grants)
-        throw new Fault('authorization_changed', 'Caller grants changed before run creation.', 403);
-    };
+    const checkGrant = requestGrant(this.auth, req, reply);
     checkGrant();
     let timeout: number, files: readonly string[];
     try {
@@ -107,7 +101,6 @@ export class HttpRunAdmission {
         bytes,
         deadline,
         attempt: () => {
-          if (gone()) throw disconnected();
           checkGrant();
           return create(this.ready);
         },

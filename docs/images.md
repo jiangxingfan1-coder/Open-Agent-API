@@ -70,6 +70,14 @@ including a partial write or a file whose catalog row was removed before its blo
 writer defers cleanup. Explicit uploads and pre-upgrade files without proof are never inferred
 to be temporary, even if their name or contents match. An unexpected replacement is left alone.
 
+With a per-caller storage cap, JSON uploads, multipart uploads and new inline images reserve
+their bytes under the same SQLite writer before storing the payload. Pending writes count
+once, then transfer to the file row on publication. Ordinary uploads become permanent at
+their own metadata commit; they need no run to claim them. Concurrent inline copies of the
+same bytes can share materialization only within the same owner and caller subject. Each
+request still needs its own valid grant and run admission. Artifact output is counted but is
+not refused on account of this limit. Unreadable usage is not treated as empty.
+
 `GET /v1/runs/{id}/state` and `GET /v1/runs/{id}/timeline` list the images of a run
 (`images: [{kind:"file", file_id, name, mime, bytes}]`; for a URL image only its host). The console's
 task inspector shows "This task came with N image(s)" with names, sizes and thumbnails; the

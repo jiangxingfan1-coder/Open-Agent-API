@@ -76,6 +76,8 @@ const ROWS: Row[] = [
   ['rate_limited', 429, 'request', R, '超出该密钥每分钟请求数（默认 600）', '稍后重试，或请 owner 调高该密钥的每分钟请求数'],
   ['concurrency_limit', 429, 'request', R, 'owner 的活跃请求过多', '等待已有请求完成后重试'],
   ['admission_busy', 503, 'request', R, '运行尚未创建，数据库写入准入等待超时或已满', '稍后使用相同的幂等键重试'],
+  ['upload_busy',503,'request',R,'文件尚未发布，上传写锁等待超时或已满','稍后重试上传'],
+  ['file_commit_unconfirmed',409,'request',_,'文件可能已经提交，暂时无法回读确认','先查询返回的文件编号，不要盲目重传'],
   ['subject_concurrency_limit', 429, 'request', R, '同一调用方的未完成请求数已达上限', '等待已有请求完成后重试'],
   ['key_concurrency_limit', 429, 'request', R, '达到该密钥的并发运行上限', '等待已有运行完成后重试'],
   ['run_quota_exceeded', 429, 'request', _, '该密钥的运行次数配额已用完', '请 owner 调高或重置该密钥的配额'],

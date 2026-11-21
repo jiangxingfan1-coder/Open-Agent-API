@@ -1,7 +1,7 @@
 import type { Store } from '../store/store.js';
 import type { GatewayConfig } from '../config/config.js';
 import { principalSubject, type Principal } from '../core/contracts.js';
-import { Fault } from '../core/util.js';
+import { checkUploadRoom } from '../store/upload-budget.js';
 
 /**
  * Optional per-caller cap on stored file bytes (`maxStoredBytesPerSubject`), checked before an
@@ -14,17 +14,5 @@ export function assertUploadRoom(
   p: Principal,
   incoming: number,
 ): void {
-  const limit = config.maxStoredBytesPerSubject;
-  if (limit === undefined) return;
-  const row = store.db
-    .prepare(
-      "SELECT coalesce(sum(json_extract(payload,'$.bytes')),0) AS used FROM files WHERE owner=? AND subject=?",
-    )
-    .get(p.owner, principalSubject(p));
-  if (Number(row?.used ?? 0) + incoming > limit)
-    throw new Fault(
-      'storage_quota_exceeded',
-      `This caller may store at most ${limit} bytes of files.`,
-      413,
-    );
+  checkUploadRoom(store, p.owner, principalSubject(p), incoming, config.maxStoredBytesPerSubject);
 }

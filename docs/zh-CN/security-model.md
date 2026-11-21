@@ -76,7 +76,7 @@ Windows 启动器运行 `oaa quickstart`，它还会创建一个覆盖所有智�
 2. 把 `consoleHosts` 设为一个单独的、不公开的主机名（或仅限 VPN），让管理员密钥和控制台无法从公开域名访问。
 3. 设置 `defaultKeyExecution: workspace`（或 `sandbox`），并且不要把 `host` 级智能体授权给你分发出去的密钥。`host` 级智能体按设计就是以你的操作系统用户身份进行远程代码执行。
 4. 把 `nativeEnv` 设为允许列表，让外部智能体看不到你的模型密钥和其他机密。继承环境时，调用方可以让会用工具的智能体把环境打印出来。
-5. 给每个调用方密钥设置配额（`rpm`、`maxRuns`、`maxTokens`、`expiresAt`），并设置 `maxActiveRunsPerSubject` 和 `maxStoredBytesPerSubject`。文件永远不会自动删除；没有 `maxStoredBytesPerSubject` 时，带 `files` 权限的调用方（包括每个门户账号密钥）可以把磁盘写满。
+5. 给每个调用方密钥设置配额（`rpm`、`maxRuns`、`maxTokens`、`expiresAt`），并设置 `maxActiveRunsPerSubject` 和 `maxStoredBytesPerSubject`。上传先预留空间，不会为腾出配额而删除已接受的文件。没有存储上限时，带 `files` 权限的调用方（包括门户账号密钥）可以把磁盘写满。保留策略和未接受上传的回滚是另外的机制。
 6. 在前面放一个有连接数限制和请求体/请求头超时的反向代理。在 `local` 档位下，网关不限制接收请求的时间（`requestTimeoutMs` 未设置），所以缓慢的上传只能由代理限制。无需认证的门户表单（登录、注册、密码重置）在所有档位下最多接受 64 KiB 的请求体。
 7. 把 `approvals: auto` 当作「没有人在回路里」：该智能体的每次工具调用都不经询问直接运行。它的发布会被审计。
 8. 审查你发布的 MCP 服务器、HTTP/A2A 适配器地址和模型 `baseUrl`：网关会调用它们（不跟随重定向），也不会拦截私网或元数据地址，因为这些是管理员设置的，不是调用方设置的。

@@ -6,7 +6,8 @@ import { createGateway } from '../../src/gateway/server.js';
 import { FixtureModel, token } from '../helpers.js';
 
 const config = gatewaySchema.parse(JSON.parse(await readFile(process.argv[2]!, 'utf8')));
-const mode = process.argv[3];
+const explicit = process.argv[3]?.startsWith('explicit-');
+const mode = process.argv[3]?.replace(/^explicit-/, '');
 const driver = Object.assign(new FixtureModel(), { imageInput: 'url' as const });
 const g = await createGateway(
   config,
@@ -37,19 +38,21 @@ if (mode === 'before-metadata') {
     'CREATE TEMP TRIGGER stop_before_metadata BEFORE INSERT ON files BEGIN SELECT fixture_exit(); END;',
   );
 }
-if (mode === 'before-unlink' || mode === 'before-ack') {
+if (mode === 'before-unlink' || mode === 'before-ack' || mode === 'file-commit') {
   g.store.createRun = () => {
     throw new Fault('invalid_request', 'fixture declined the request', 400);
   };
   const db = g.store.db;
-  if (mode === 'before-unlink') {
+  if (mode !== 'before-ack') {
     let arm = false;
     db.function('fixture_mark', () => {
       arm = true;
       return 1;
     });
     db.exec(
-      "CREATE TEMP TRIGGER stop_at_tombstone AFTER UPDATE OF phase ON oaa_inline_inputs WHEN NEW.phase='unlink' BEGIN SELECT fixture_mark(); END;",
+      mode === 'file-commit'
+        ? 'CREATE TEMP TRIGGER stop_at_publication AFTER INSERT ON files BEGIN SELECT fixture_mark(); END;'
+        : "CREATE TEMP TRIGGER stop_at_tombstone AFTER UPDATE OF phase ON oaa_inline_inputs WHEN NEW.phase='unlink' BEGIN SELECT fixture_mark(); END;",
     );
     const exec = db.exec.bind(db);
     db.exec = (sql: string) => {
@@ -71,16 +74,18 @@ const png =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 const response = await g.app.inject({
   method: 'POST',
-  url: '/v1/chat/completions',
+  url: explicit ? '/v1/files' : '/v1/chat/completions',
   headers: { authorization: 'Bearer ' + token },
-  payload: {
-    model: 'agent/test',
-    messages: [
-      {
-        role: 'user',
-        content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,' + png } }],
+  payload: explicit
+    ? { filename: 'image-1.png', content: png, encoding: 'base64', allowed_nodes: ['local'] }
+    : {
+        model: 'agent/test',
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,' + png } }],
+          },
+        ],
       },
-    ],
-  },
 });
 throw new Error('Did not exit at the expected checkpoint: ' + response.statusCode);

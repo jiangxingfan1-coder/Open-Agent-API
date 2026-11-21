@@ -9,6 +9,7 @@ import { openVerifiedFileStream } from '../store/large-artifacts.js';
 import type { Auth } from './auth.js';
 import { assertUploadRoom } from './upload-quota.js';
 import { artifactOriginAgent } from '../store/artifact-origin.js';
+import { requestGrant } from './request-grant.js';
 
 // 文件上传（multipart 与 JSON 两种）与下载：POST /v1/files、GET /v1/files/:id/content。
 // 从 gateway/server.ts 拆出。
@@ -17,8 +18,13 @@ export type FileRouteDeps = { auth: Auth; config: GatewayConfig; store: Store; k
 
 export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): void {
   const { auth, config, store, kernel } = deps;
-  app.post('/v1/files', async (req) => {
+  app.post('/v1/files', async (req, reply) => {
     auth.require(req.principal, 'files');
+    const policy = {
+      kind: 'upload' as const,
+      limit: config.maxStoredBytesPerSubject,
+      guard: requestGrant(auth, req, reply),
+    };
     if (req.isMultipart()) {
       let uploaded: { name: string; bytes: Buffer } | undefined;
       const parts = req.parts();
@@ -55,6 +61,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
         undefined,
         undefined,
         principalSubject(req.principal),
+        policy,
       );
       return {
         id: f.id,
@@ -84,6 +91,7 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
       b.allowed_nodes,
       undefined,
       principalSubject(req.principal),
+      policy,
     );
     return {
       id: file.id,

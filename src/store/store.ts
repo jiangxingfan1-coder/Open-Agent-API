@@ -53,6 +53,7 @@ import { GatewayLease, hasLiveLease } from './gateway-lease.js';
 import { beginRunWrite, tryBeginWrite, type RunWriteMode } from './write-lock.js';
 import { ProvisionalInputs } from './provisional-inputs.js';
 import { writeFileRecord } from './file-write.js';
+import { installUploadBudget, type UploadPolicy } from './upload-budget.js';
 import { installInputJournal } from './input-journal.js';
 import {
   commitNewRun,
@@ -186,6 +187,7 @@ export class Store {
         CREATE TABLE IF NOT EXISTS memories (${MEMORY_COLUMNS});`);
       this.migrateSubjects();
       const previousInputs = installInputJournal(this.db);
+      installUploadBudget(this.db);
       installArtifactOrigins(this.db);
       installApprovalIndexes(this.db);
       indexRecoveryCandidates(this.db);
@@ -1360,7 +1362,7 @@ export class Store {
     allowedNodes?: string[],
     runId?: string,
     subject?: string,
-    origin?: 'inline',
+    origin?: 'inline' | UploadPolicy,
   ): Promise<FileRecord> {
     const fileSubject = runId
       ? String(

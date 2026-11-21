@@ -37,6 +37,7 @@ import { checkAccessPolicy } from '../kernel/access-policy.js';
 import { parseTraceHeaders } from '../core/trace-context.js';
 import { geminiMethod, registerGeminiModelRoutes } from './gemini.js';
 import type { HttpRunAdmission } from './run-admission.js';
+import { requestGrant } from './request-grant.js';
 
 // 协议入口：OAA Responses / Invoke、OpenAI Chat、Claude Messages、Gemini、UAP 与 /v1/universal 的
 // 调用路由，以及 /v1/compat/models。从 gateway/server.ts 拆出，注册顺序与拆分前一致。
@@ -79,7 +80,15 @@ export function registerProtocolRoutes(app: FastifyInstance, deps: ProtocolRoute
         (publication.engine === 'antigravity' && publication.access)
       )
         await refreshAgentModels(hub, req.principal.owner, publication.engine);
-      invocation = await materializeImages(store, config, req.principal, invocation);
+      if (invocation.images?.length)
+        invocation = await materializeImages(
+          store,
+          config,
+          req.principal,
+          invocation,
+          undefined,
+          requestGrant(auth, req, reply),
+        );
       resumed = resumeBridged(kernel, store, req.principal, invocation);
       const trace = parseTraceHeaders(req.headers as Record<string, unknown>);
       run =

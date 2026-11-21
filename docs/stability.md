@@ -170,7 +170,11 @@ pending request bodies are also budgeted at 32 MiB per owner and 64 MiB per gate
 or expiry the caller gets `503 admission_busy` and `Retry-After: 1`, with no run or usage reservation.
 An already-committed idempotent replay needs no writer. Waiting requests recheck authorization.
 Disconnecting before admission abandons the wait; it does not cancel a run already committed.
-This applies to creating the run, not to every database write or to the transfer of input files.
+This applies to creating the run, not to every database write. File-byte reservation and
+publication have their own cooperative writer wait (at most five seconds). Contended writers
+and followers of an identical in-flight image are separately bounded to eight waiters / 32 MiB
+per owner and 64 waiters / 64 MiB overall. These are buffered byte budgets, not a limit on total
+process memory or the duration of a file transfer.
 If a waiting request abandons an inline image, another waiting request can still use its copy.
 The input journal rolls back abandoned materialization even after restart, independently of
 retention. It records deletion before unlinking and keeps the receipt until absence is confirmed.

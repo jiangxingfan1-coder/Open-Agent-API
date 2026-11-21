@@ -11,6 +11,7 @@ import { makeBundle } from '../src/lang/bundle.js';
 import { Store } from '../src/store/store.js';
 import { TaskWorkflows } from '../src/store/task-workflows.js';
 import { prune } from '../src/store/retention.js';
+import { checkUploadRoom } from '../src/store/upload-budget.js';
 import { FixtureModel, agent, setup, token, waitFor } from './helpers.js';
 
 const png = Buffer.from(
@@ -26,6 +27,9 @@ for (const [mode, phase, fileRow, diskBytes] of [
   ['after-run', null, true, png.length],
   ['before-unlink', 'unlink', false, png.length],
   ['before-ack', 'unlink', false, 0],
+  ['explicit-partial', 'writing', false, 5],
+  ['explicit-before-metadata', 'writing', false, png.length],
+  ['explicit-file-commit', null, true, png.length],
 ] as const)
   test(`inline uploads: exit ${mode} keeps explicit files and reclaims only unclaimed input bytes`, async () => {
     const s = await setup(Object.assign(new FixtureModel(), { imageInput: 'url' as const }));
@@ -72,12 +76,17 @@ for (const [mode, phase, fileRow, diskBytes] of [
           markers.map((m) => m.phase),
           phase ? [phase] : [],
         );
+        const charged = explicit.bytes + (fileRow || phase === 'writing' ? png.length : 0);
+        checkUploadRoom(before, 'owner', subject, 0, charged);
+        assert.throws(() => checkUploadRoom(before, 'owner', subject, 1, charged), {
+          code: 'storage_quota_exceeded',
+        });
         input = String(files[0]?.id ?? markers[0]!.file_id);
         if (diskBytes) assert.deepEqual(await readFile(blob(input)), png.subarray(0, diskBytes));
         else await assert.rejects(readFile(blob(input)), { code: 'ENOENT' });
         assert.equal(
           before.prepare('SELECT count(*) AS n FROM runs').get()!.n,
-          phase === null ? 1 : 0,
+          phase === null && mode !== 'explicit-file-commit' ? 1 : 0,
         );
       } finally {
         before.close();
@@ -96,7 +105,9 @@ for (const [mode, phase, fileRow, diskBytes] of [
           7000,
         );
       } else {
-        assert.deepEqual(again.store.allRuns()[0]!.fileIds, [input]);
+        if (mode === 'explicit-file-commit')
+          assert.deepEqual(again.store.file(input, 'owner', subject).allowedNodes, ['local']);
+        else assert.deepEqual(again.store.allRuns()[0]!.fileIds, [input]);
         assert.deepEqual(await readFile(blob(input)), png);
       }
       assert.equal(again.store.file(explicit.id, 'owner', subject).name, 'image-1.png');

@@ -18,6 +18,8 @@ export const ERROR_EN: Readonly<Record<string, readonly [string, string?]>> = {
   rate_limited: ['This key exceeded its requests-per-minute limit (600 by default).', 'Retry later, or ask the owner to raise this key\'s per-minute limit.'],
   concurrency_limit: ['The owner has too many active requests.', 'Retry after some in-flight requests finish.'],
   admission_busy: ['The gateway could not acquire the run admission writer in time or the wait queue is full.', 'Retry later with the same idempotency key.'],
+  upload_busy:['File publication did not obtain the database writer within its wait budget.','Retry the upload later.'],
+  file_commit_unconfirmed:['The file publication outcome is unconfirmed.','Inspect the returned file ID before uploading again.'],
   subject_concurrency_limit: ['This caller has reached its limit of unfinished requests.', 'Retry after some in-flight requests finish.'],
   key_concurrency_limit: ['This key has reached its concurrent run limit.', 'Retry after some running tasks finish.'],
   run_quota_exceeded: ['This key has used up its run quota.', 'Ask the owner to raise or reset this key\'s quota.'],

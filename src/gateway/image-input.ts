@@ -17,6 +17,8 @@ import { checkImageUrl, fetchImage, type ImageTransport } from './image-fetch.js
 import { imageFault } from './image-parts.js';
 import { IMAGE_EXT, normalizeImageType, sniffImage, type ImageType } from './image-sniff.js';
 import { assertUploadRoom } from './upload-quota.js';
+import { storedUploadCopy, type UploadPolicy } from '../store/upload-budget.js';
+import { stageImage, stagingCopy } from './image-staging.js';
 export { acceptsImages } from './image-catalog.js';
 
 const heldBy = new WeakMap<Invocation, string[]>();
@@ -73,16 +75,6 @@ export function decodeImageData(
   return { bytes, mime, param };
 }
 
-/** An earlier stored copy of these exact bytes by the same caller (not an artifact). */
-function storedCopy(store: Store, p: Principal, digest: string): string | undefined {
-  const row = store.db
-    .prepare(
-      "SELECT id FROM files WHERE owner=? AND subject=? AND json_extract(payload,'$.sha256')=? AND json_extract(payload,'$.runId') IS NULL AND json_extract(payload,'$.allowedNodes') IS NULL LIMIT 1",
-    )
-    .get(p.owner, principalSubject(p), digest) as { id?: string } | undefined;
-  return typeof row?.id === 'string' ? row.id : undefined;
-}
-
 type InputConfig = Pick<GatewayConfig, 'images' | 'maxStoredBytesPerSubject' | 'security'>;
 export async function materializeImages(
   store: Store,
@@ -90,12 +82,13 @@ export async function materializeImages(
   principal: Principal,
   invocation: Invocation,
   transport?: ImageTransport,
+  guard?: () => void,
 ): Promise<Invocation> {
   const images = invocation.images;
   if (!images?.length) return invocation;
   const held: string[] = [];
   try {
-    const result = await prepareImages(store, config, principal, images, held, transport);
+    const result = await prepareImages(store, config, principal, images, held, transport, guard);
     const materialized = { ...invocation, images: result };
     if (held.length) heldBy.set(materialized, held);
     return materialized;
@@ -111,6 +104,7 @@ async function prepareImages(
   images: ImageInput[],
   held: string[],
   transport?: ImageTransport,
+  guard?: () => void,
 ) {
   const limits = config.images;
   const paramOf = (image: ImageInput, i: number) => image.param ?? `images.${i}`;
@@ -168,17 +162,29 @@ async function prepareImages(
       );
   }
   // Quota for the bytes that will be newly written, checked once before anything is stored.
-  const fresh = new Map<string, Decoded>();
+  const subject = principalSubject(principal),
+    owner = principal.owner;
+  const policy: UploadPolicy = { kind: 'inline', limit: config.maxStoredBytesPerSubject, guard };
+  const costs = new Map<string, number>(),
+    digests = new Map<Decoded, string>();
   for (const item of out)
     if ('bytes' in item) {
       const digest = sha(item.bytes);
-      if (!fresh.has(digest) && !storedCopy(store, principal, digest)) fresh.set(digest, item);
+      digests.set(item, digest);
+      if (!costs.has(digest))
+        costs.set(
+          digest,
+          stagingCopy(store, owner, subject, digest) ||
+            storedUploadCopy(store, owner, subject, digest, item.bytes.length)
+            ? 0
+            : item.bytes.length,
+        );
     }
   assertUploadRoom(
     store,
     config,
     principal,
-    [...fresh.values()].reduce((sum, d) => sum + d.bytes.length, 0),
+    [...costs.values()].reduce((sum, n) => sum + n, 0),
   );
   const ids = new Map<string, string>();
   const result: StoredImage[] = [];
@@ -187,21 +193,21 @@ async function prepareImages(
       result.push(item);
       continue;
     }
-    const digest = sha(item.bytes);
-    let fileId = ids.get(digest) ?? storedCopy(store, principal, digest);
+    const digest = digests.get(item)!;
+    let fileId =
+      ids.get(digest) ?? storedUploadCopy(store, owner, subject, digest, item.bytes.length);
     if (!fileId) {
-      const file = await store.addFile(
-        principal.owner,
+      fileId = await stageImage(
+        store,
+        owner,
+        subject,
+        digest,
         `image-${i + 1}.${IMAGE_EXT[item.mime]}`,
         item.bytes,
-        undefined,
-        undefined,
-        principalSubject(principal),
-        'inline',
+        policy,
+        held,
       );
-      fileId = file.id;
-    }
-    held.push(...store.provisionalInputs.hold(principal.owner, [fileId]));
+    } else held.push(...store.provisionalInputs.hold(owner, [fileId]));
     ids.set(digest, fileId);
     result.push({ file_id: fileId, mime: item.mime, param: item.param });
   }

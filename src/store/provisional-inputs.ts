@@ -8,6 +8,12 @@ import { hashFileStreaming } from './large-artifacts.js';
 import { isWriteUnavailable } from './checkpoint.js';
 import { tryBeginWrite } from './write-lock.js';
 import { withSavepoint } from './savepoint.js';
+import {
+  checkUploadRoom,
+  UploadWriter,
+  UnconfirmedFileCommit,
+  type UploadPolicy,
+} from './upload-budget.js';
 
 type Input = {
   id: string;
@@ -47,10 +53,13 @@ export class ProvisionalInputs {
   private closed = false;
   private delay = 10;
   private warnedAt = -Infinity;
+  private writer: UploadWriter;
   constructor(
     private db: DatabaseSync,
     private root: string,
-  ) {}
+  ) {
+    this.writer = new UploadWriter(db);
+  }
   private q(sql: string) {
     let s = this.statements.get(sql);
     if (!s) {
@@ -70,10 +79,16 @@ export class ProvisionalInputs {
     subject: string,
     bytes: Buffer,
     publish: () => { changes: number | bigint },
+    policy: UploadPolicy,
   ) {
-    if (!validId(file.id) || file.runId !== undefined || file.allowedNodes !== undefined)
-      throw new Fault('invalid_file', 'Only a new implicit input can be staged.', 400);
+    if (
+      !validId(file.id) ||
+      file.runId !== undefined ||
+      (policy.kind === 'inline' && file.allowedNodes !== undefined)
+    )
+      throw new Fault('invalid_file', 'Only a new input upload can be staged.', 400);
     this.requireWriter();
+    policy.guard?.();
     const dir = path.join(this.root, 'files');
     const parent = await lstat(dir).catch((error) => {
       if (!missing(error)) throw error;
@@ -82,31 +97,67 @@ export class ProvisionalInputs {
     if (parent && !parent.isDirectory())
       throw new Fault('invalid_path', 'Input storage must be a directory.', 400);
     let bound: string | undefined,
-      registered = false;
+      registered = false,
+      attempted = false;
     try {
       await writePrivate(dir, file.id, bytes, true, async (handle) => {
         bound = identity(await handle.stat({ bigint: true }));
         this.requireWriter();
-        const r = this.q(
-          `INSERT INTO oaa_inline_inputs(file_id,owner,subject,digest,bytes,identity,phase)
+        await this.writer.run(file.owner, file.bytes, policy.guard, () => {
+          checkUploadRoom(
+            { prepare: (sql) => this.q(sql) },
+            file.owner,
+            subject,
+            file.bytes,
+            policy.limit,
+          );
+          attempted = true;
+          const r = this.q(
+            `INSERT INTO oaa_inline_inputs(file_id,owner,subject,digest,bytes,identity,phase)
           SELECT ?,?,?,?,?,?,'writing' WHERE NOT EXISTS(SELECT 1 FROM files WHERE id=?)`,
-        ).run(file.id, file.owner, subject, file.sha256, file.bytes, bound, file.id);
-        if (!r.changes)
-          throw new Fault('persistence_failed', 'Could not reserve the inline input.', 500);
+          ).run(file.id, file.owner, subject, file.sha256, file.bytes, bound!, file.id);
+          if (!r.changes)
+            throw new Fault('persistence_failed', 'Could not reserve the inline input.', 500);
+        });
         registered = true;
       });
       this.requireWriter();
-      // The AFTER INSERT trigger promotes the journal entry in the metadata transaction.
-      withSavepoint(this.db, () => {
-        if (
-          !publish().changes ||
-          !this.q("SELECT 1 FROM oaa_inline_inputs WHERE file_id=? AND phase='ready'").get(file.id)
-        )
-          throw new Fault('persistence_failed', 'Could not publish the inline input.', 500);
-      });
-      this.files.set(file.id, { owner: file.owner, holders: 0 });
+      // Explicit upload acceptance is the claim. Inline inputs keep their receipt until run admission.
+      const published = () =>
+        !!this.q(
+          "SELECT 1 FROM files WHERE id=? AND owner=? AND subject=? AND json_extract(payload,'$.sha256')=? AND json_extract(payload,'$.bytes')=?",
+        ).get(file.id, file.owner, subject, file.sha256, file.bytes);
+      await this.writer.run(
+        file.owner,
+        file.bytes,
+        policy.guard,
+        () => {
+          if (
+            policy.kind === 'upload' &&
+            !this.q(
+              "DELETE FROM oaa_inline_inputs WHERE file_id=? AND owner=? AND subject=? AND phase='writing'",
+            ).run(file.id, file.owner, subject).changes
+          )
+            throw new Fault('persistence_failed', 'Could not claim the explicit upload.', 500);
+          if (
+            !publish().changes ||
+            !published() ||
+            this.q('SELECT phase FROM oaa_inline_inputs WHERE file_id=?').get(file.id)?.phase !==
+              (policy.kind === 'inline' ? 'ready' : undefined)
+          )
+            throw new Fault('persistence_failed', 'Could not publish the uploaded file.', 500);
+        },
+        () => {
+          try {
+            return published();
+          } catch {
+            throw new UnconfirmedFileCommit(file.id);
+          }
+        },
+      );
+      if (policy.kind === 'inline') this.files.set(file.id, { owner: file.owner, holders: 0 });
     } catch (error) {
-      if (bound && !this.closed) {
+      if (attempted && !this.closed) {
         this.released.add(file.id);
         this.schedule(Date.now());
       }
@@ -117,6 +168,8 @@ export class ProvisionalInputs {
         if (s?.isFile() && s.size === 0n && identity(s) === bound)
           await unlink(target).catch(() => {});
       }
+      if (error instanceof Error && 'code' in error && error.code === 'ERR_SQLITE_ERROR')
+        throw new Fault('persistence_failed', 'Could not persist the uploaded file.', 500);
       throw error;
     }
   }
@@ -130,16 +183,15 @@ export class ProvisionalInputs {
       );
   }
   hold(owner: string, ids: readonly string[]): string[] {
-    if (!this.files.size && !this.upper) return [];
     const held: string[] = [];
     for (const id of new Set(ids)) {
       let slot = this.files.get(id);
       if (
         !slot &&
-        this.upper &&
-        this.q(
-          "SELECT 1 FROM oaa_inline_inputs WHERE file_id=? AND owner=? AND phase='ready' AND seq<=?",
-        ).get(id, owner, this.upper)
+        this.q("SELECT 1 FROM oaa_inline_inputs WHERE file_id=? AND owner=? AND phase='ready'").get(
+          id,
+          owner,
+        )
       ) {
         slot = { owner, holders: 0 };
         this.files.set(id, slot);
@@ -290,6 +342,7 @@ export class ProvisionalInputs {
     }
     if (observed === 'retry') {
       this.defer(r, now);
+      this.warn('Upload cleanup is waiting for filesystem access; its receipt was retained.');
       return false;
     }
     const file = this.q('SELECT owner,subject,payload FROM files WHERE id=?').get(id);
@@ -398,8 +451,12 @@ export class ProvisionalInputs {
               r,
               Date.now(),
               () => {
-                if (outcomes[i] === 'retry') this.defer(r, Date.now());
-                else {
+                if (outcomes[i] === 'retry') {
+                  this.defer(r, Date.now());
+                  this.warn(
+                    'Upload cleanup is waiting to unlink a blob; its receipt was retained.',
+                  );
+                } else {
                   if (outcomes[i] === 'foreign')
                     this.warn('A replacement blob was retained during inline input cleanup.');
                   this.disarm(r);
@@ -451,11 +508,15 @@ export class ProvisionalInputs {
     return work;
   }
   close() {
+    this.stopAccepting();
     this.closed = true;
     clearTimeout(this.timer);
     this.timer = undefined;
     this.files.clear();
     this.released.clear();
     this.statements.clear();
+  }
+  stopAccepting() {
+    this.writer.close();
   }
 }

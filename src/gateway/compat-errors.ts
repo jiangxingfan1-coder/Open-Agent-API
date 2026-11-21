@@ -19,6 +19,7 @@ import { processLocale, requestLocale, type Locale, type LocalText } from '../co
 import { Fault, RetryLaterFault } from '../core/util.js';
 import { ParamFault } from '../core/param-fault.js';
 import { UnconfirmedRunCommit } from '../store/run-creation.js';
+import { UnconfirmedFileCommit } from '../store/upload-budget.js';
 import { fromGoogleClient, isGeminiPath } from './gemini.js';
 
 /** 带参数名或运行 ID 的错误：`param` 进 OpenAI 的 `error.param`，`runId` 说明运行已经创建。 */
@@ -106,7 +107,11 @@ export function errorBody(
   const message = faultMessage(fault, locale);
   const extra =
     fault instanceof CompatFault || fault instanceof UnconfirmedRunCommit ? fault : undefined;
-  const runId = extra?.runId ? { run_id: extra.runId } : {};
+  const runId = extra?.runId
+    ? { run_id: extra.runId }
+    : fault instanceof UnconfirmedFileCommit
+      ? { file_id: fault.fileId }
+      : {};
   // 类别按错误码的语义选（服务一侧的运行错误码为 500 一类），HTTP 状态与重试头不受影响。
   const kind = errorClassStatus(fault.code, status);
   if (dialect === 'claude')
@@ -125,7 +130,7 @@ export function errorBody(
             '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
             reason: fault.code,
             domain: 'open-agent-api',
-            ...(extra?.runId ? { metadata: { run_id: extra.runId } } : {}),
+            ...(extra?.runId || fault instanceof UnconfirmedFileCommit ? { metadata: runId } : {}),
           },
         ],
       },
