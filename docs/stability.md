@@ -49,9 +49,18 @@ their authorization or reservation. A changed or unavailable snapshot is never u
 of room: the serving connection can count again, and still checks outstanding reservations inside
 the write transaction. Uncapped gateways start no helper. The thread retires when idle.
 
-When the helper times out, the serving connection counts from the existing file index in small
-pages. Different callers take turns; no writer lock or cursor is held between pages.
-If the last waiting upload disconnects, no further pages are read for that request. An edit
+After five seconds without a completed page, the gateway asks the helper to relinquish that
+caller's scan. Advancing row counts can keep it running up to a 15-second handoff deadline;
+timer ticks and other callers' progress do not extend it. A released, complete-page prefix
+can be resumed on the serving connection only under the original, still-current scan ticket.
+If a native read cannot acknowledge release and its thread has not actually exited, affected
+uploads get `503 upload_busy` and `Retry-After`, not a competing scan. No file is accepted on
+this response. Other scopes may still use their own totals or the paged fallback.
+Graceful shutdown retains the data-directory lease until the helper actually exits.
+
+On fallback, different callers take turns scanning the existing index; no writer lock or cursor
+is held between pages. If the last waiter disconnects the gateway asks the helper to stop, and no
+further local pages are read for that request. An edit
 that invalidates a partial count restarts that count. If even the reservation's final check
 goes stale, the gateway releases the writer before recounting. Continued changes can return
 `503 upload_busy` with `Retry-After`; no new file is accepted on that response. A single
@@ -64,6 +73,12 @@ On a filesystem supporting clones, `--fresh-copy` puts the closed fixture catalo
 before each start. To measure rather than assume whether its OS pages are cold on macOS/Linux,
 compile `bench/file-residency.c` with `cc -O2` and pass the executable via `--page-probe PATH`.
 The probe reads page-residency metadata only. Neither option flushes host or device caches.
+
+To exercise an active reader rather than a lost message, run
+`npm run bench:upload-reader-handoff -- --scenario progress`. Use `blocked` to hold a native SQLite
+operation on a separate disposable database, or `ceiling` to observe a cooperative deadline
+handoff. The fixture records rows visited, overlap with a local recount, and accepted bytes.
+The pacing and lock are injected; these results are not measurements of a failing physical drive.
 
 `bench/soak.ts` is not part of `npm test`. It:
 

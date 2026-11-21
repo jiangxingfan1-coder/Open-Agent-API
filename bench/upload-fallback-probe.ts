@@ -17,6 +17,10 @@ export function withholdReader() {
     stop = Worker.prototype.terminate;
   Worker.prototype.postMessage = function (...args: Parameters<typeof post>) {
     const req = args[0];
+    if (typeof req?.cancel === 'string' && held.has(this)) {
+      process.send!({ type: 'reader-timeout', withheld: held.get(this) });
+      held.delete(this);
+    }
     if (
       typeof req?.id === 'string' &&
       typeof req.owner === 'string' &&

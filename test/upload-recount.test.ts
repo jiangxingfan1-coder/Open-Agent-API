@@ -8,7 +8,8 @@ import test, { type TestContext } from 'node:test';
 import { Store } from '../src/store/store.js';
 import { checkUploadRoom } from '../src/store/upload-budget.js';
 import { ColdUploadReads } from '../src/store/upload-cold-reads.js';
-import { readUsagePage, UploadRecounts } from '../src/store/upload-recount.js';
+import { UploadRecounts } from '../src/store/upload-recount.js';
+import { readUsagePage } from '../src/store/upload-usage-page.js';
 import { coldReadRows, UploadRecountRequired } from '../src/store/upload-usage.js';
 import { principalSubject } from '../src/core/contracts.js';
 import { setup, token, waitFor } from './helpers.js';
@@ -306,7 +307,10 @@ test('quota HTTP: a changing degraded catalog returns Retry-After without accept
       'postMessage',
       function (this: Worker, ...args: Parameters<typeof post>) {
         if (args[0]?.subject === subject) {
-          setImmediate(() => this.emit('message', { id: args[0].id }));
+          setImmediate(() => {
+            this.emit('message', { ready: 2 });
+            this.emit('message', { kind: 'done', id: args[0].id });
+          });
           return;
         }
         return post.apply(this, args);

@@ -697,7 +697,7 @@ Error codes and response shapes do not depend on language; only the text of `mes
 | `rate_limited` | 429 | The key exceeded its requests per minute (600 by default) |
 | `concurrency_limit` | 429 | The owner has too many active requests |
 | `admission_busy` | 503 | No run was created: the database writer wait expired or the admission queue was full. Respect `Retry-After` and reuse the same idempotency key. |
-| `upload_busy` | 503 | The upload exhausted its wait budget or repeated changes prevented a consistent quota check. No new file was accepted; respect `Retry-After`. |
+| `upload_busy` | 503 | The upload exhausted its wait budget, its previous quota reader has not released the scan, or repeated changes prevented a consistent count. No new file was accepted; respect `Retry-After`. |
 | `file_commit_unconfirmed` | 409 | The file metadata commit could not be confirmed or read back. Inspect the supplied `file_id` before uploading again; do not assume that no file exists. |
 | `subject_concurrency_limit` | 429 | The same caller (subject) reached `maxActiveRunsPerSubject` unfinished requests |
 | `key_concurrency_limit` | 429 | The key reached its concurrent run limit |

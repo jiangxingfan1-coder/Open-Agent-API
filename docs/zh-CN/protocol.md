@@ -721,7 +721,7 @@ HTTP 错误响应默认使用形状 `{"error":{"code":"…","message":"…","typ
 | `rate_limited` | 429 | 超出该密钥每分钟请求数（默认 600） |
 | `concurrency_limit` | 429 | owner 的活跃请求过多 |
 | `admission_busy` | 503 | 尚未创建运行：数据库写锁等待超时或准入等待队列已满。请遵守 `Retry-After` 并沿用同一幂等键。 |
-| `upload_busy` | 503 | 上传等待超出预算，或文件记录持续变化、无法确认配额。未接受新的文件；请遵守 `Retry-After`。 |
+| `upload_busy` | 503 | 上传等待超出预算、原读取尚未交回，或文件记录持续变化而无法确认配额。未接受新的文件；请遵守 `Retry-After`。 |
 | `file_commit_unconfirmed` | 409 | 文件提交应答丢失且无法回读。按返回的 `file_id` 查询，不要假定文件未保存而自动重传。 |
 | `subject_concurrency_limit` | 429 | 同一调用方（subject）的未完成请求达到 `maxActiveRunsPerSubject` |
 | `key_concurrency_limit` | 429 | 达到该密钥的并发运行上限 |
