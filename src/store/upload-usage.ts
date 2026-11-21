@@ -2,7 +2,8 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { isWriteUnavailable } from './checkpoint.js';
 import { Fault, RetryLaterFault } from '../core/util.js';
 import { withSavepoint } from './savepoint.js';
-import { exactTotal, fileBytes, storedFileTotalSql } from './upload-facts.js';
+import { exactTotal, fileBytes } from './upload-facts.js';
+import { indexedFileTotal, scopeProbeIndex } from './file-scope-index.js';
 
 export type UploadUsageStore = { db: DatabaseSync; prepare(sql: string): StatementSync };
 export type UsageConnection = DatabaseSync | UploadUsageStore;
@@ -75,7 +76,7 @@ export function needsColdTotal(store: UploadUsageStore, owner: string, subject: 
 function largeScope(store: UsageConnection, owner: string, subject: string) {
   return !!store
     .prepare(
-      `SELECT 1 FROM main.files INDEXED BY file_owner_subject WHERE owner=:owner AND subject=:subject LIMIT 1 OFFSET ${coldReadRows - 1}`,
+      `SELECT 1 FROM main.files INDEXED BY ${scopeProbeIndex(store)} WHERE owner=:owner AND subject=:subject LIMIT 1 OFFSET ${coldReadRows - 1}`,
     )
     .get({ owner, subject });
 }
@@ -169,7 +170,7 @@ export function uploadUsage(
     return store
       .prepare(
         `INSERT OR REPLACE INTO temp.oaa_upload_usage(owner,subject,version,used,touched)
-      VALUES(:owner,:subject,${version},(${storedFileTotalSql}),${latestAdmission}+1) RETURNING used,(${pending}) AS reserved`,
+      VALUES(:owner,:subject,${version},(${indexedFileTotal(store)}),${latestAdmission}+1) RETURNING used,(${pending}) AS reserved`,
       )
       .get(scope)!;
   } catch (error) {
@@ -183,7 +184,7 @@ export function uploadUsage(
         500,
       );
     return store
-      .prepare(`SELECT (${storedFileTotalSql}) AS used,(${pending}) AS reserved`)
+      .prepare(`SELECT (${indexedFileTotal(store)}) AS used,(${pending}) AS reserved`)
       .get(scope)!;
   }
 }

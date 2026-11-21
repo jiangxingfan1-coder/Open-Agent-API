@@ -22,6 +22,7 @@ export function observeReader(gate: string, scenario: ReaderScenario, workerUrl?
     exited = 0,
     progressReports = 0,
     checkpointRows = 0,
+    checkpointOrder: string | null = null,
     releasedRows = 0,
     terminationAt: number | undefined;
   class Observed extends original {
@@ -49,7 +50,10 @@ export function observeReader(gate: string, scenario: ReaderScenario, workerUrl?
         this.on('message', (m) => {
           if (m.kind === 'progress') {
             progressReports++;
-            if (m.prefix) checkpointRows = m.prefix.rows;
+            if (m.prefix) {
+              checkpointRows = m.prefix.rows;
+              checkpointOrder = m.prefix.next.from;
+            }
             if (scenario === 'exit' && progressReports === 1)
               setImmediate(() => void this.terminate());
           }
@@ -76,6 +80,7 @@ export function observeReader(gate: string, scenario: ReaderScenario, workerUrl?
     terminationAt: () => terminationAt,
     reports: () => progressReports,
     checkpointRows: () => checkpointRows,
+    checkpointOrder: () => checkpointOrder,
     releasedRows: () => releasedRows,
     restore: () => {
       builtin.Worker = original;
@@ -91,10 +96,10 @@ if (!isMainThread && workerData?.probe && workerData?.role === 'oaa.upload-usage
     seen = new Set<bigint>(),
     installed = new WeakSet<DatabaseSync>();
   const source =
-    'FROM main.files INDEXED BY file_upload_facts WHERE owner=:owner AND subject=:subject';
+    /FROM main\.files INDEXED BY file_(?:upload_facts|owner_subject) WHERE owner=:owner AND subject=:subject/g;
   let firstVisit: number | undefined;
   DatabaseSync.prototype.prepare = function (sql: string) {
-    if (!sql.includes(source)) return prepare.call(this, sql);
+    if (!sql.includes('FROM main.files INDEXED BY file_')) return prepare.call(this, sql);
     if (!installed.has(this)) {
       this.function('oaa_probe_visit', { useBigIntArguments: true }, (owner, row) => {
         if (owner !== 'owner' || typeof row !== 'bigint' || seen.has(row)) return 1;
@@ -129,10 +134,7 @@ if (!isMainThread && workerData?.probe && workerData?.role === 'oaa.upload-usage
       });
       installed.add(this);
     }
-    return prepare.call(
-      this,
-      sql.replaceAll(source, source + ' AND oaa_probe_visit(:owner,rowid)=1'),
-    );
+    return prepare.call(this, sql.replaceAll(source, '$& AND oaa_probe_visit(:owner,rowid)=1'));
   };
   await import(p.origin);
 }

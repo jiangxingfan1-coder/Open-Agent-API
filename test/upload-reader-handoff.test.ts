@@ -12,6 +12,7 @@ import test, { type TestContext } from 'node:test';
 import { Store } from '../src/store/store.js';
 import { ColdUploadReads } from '../src/store/upload-cold-reads.js';
 import { checkUploadRoom } from '../src/store/upload-budget.js';
+import { databaseIdentity, readerProtocol } from '../src/store/upload-read-worker.js';
 import { observeReader } from './fixtures/upload-reader-probe.js';
 import { setup, waitFor } from './helpers.js';
 import { readUsagePage, type UsagePrefix } from '../src/store/upload-usage-page.js';
@@ -33,7 +34,7 @@ test('reader handoff: older gateways receive a terminal legacy reply, never an i
 });
 function fixture(t: TestContext) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'oaa-prefix-')),
-    s = new Store(root),
+    s = new Store(root, { cappedUploads: true }),
     other = new DatabaseSync(path.join(root, 'state.sqlite'));
   s.prepare(
     `WITH RECURSIVE nums(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM nums WHERE i<?)
@@ -46,6 +47,39 @@ function fixture(t: TestContext) {
   });
   return { s, other };
 }
+for (const chargePages of [false, true])
+  test(
+    'reader handoff: byte-order checkpoints require explicit wire capability (' + chargePages + ')',
+    async (t) => {
+      const { s } = fixture(t);
+      s.db.exec("UPDATE files SET owner='owner'");
+      const file = path.join(s.root, 'state.sqlite'),
+        probe = observeReader(path.join(s.root, 'unused-gate'), 'exit');
+      const worker = new Worker(new URL('../src/store/upload-read-worker.js', import.meta.url), {
+        workerData: {
+          role: 'oaa.upload-usage',
+          protocol: readerProtocol,
+          ...(chargePages && { chargePages: true }),
+          binding: {
+            file,
+            identity: databaseIdentity(file),
+            lease: s.prepare('SELECT lease_id FROM gateway_owner WHERE slot=1').get()!.lease_id,
+          },
+        },
+        execArgv: [],
+      });
+      try {
+        const done = once(worker, 'exit', { signal: AbortSignal.timeout(15000) });
+        worker.postMessage({ id: 'negotiated-prefix', owner: 'owner', subject: 's' });
+        await done;
+        assert.ok(probe.checkpointRows() > 0);
+        assert.equal(probe.checkpointOrder(), chargePages ? 'charge-ties' : 'ties');
+      } finally {
+        await worker.terminate();
+        probe.restore();
+      }
+    },
+  );
 for (const mode of ['current', 'local-edit', 'external-edit', 'evicted', 'invalid-prefix'] as const)
   test(
     'reader handoff: resume only under the originating scope ticket (' + mode + ')',
@@ -54,7 +88,8 @@ for (const mode of ['current', 'local-edit', 'external-edit', 'evicted', 'invali
         firstPages: boolean[] = [],
         prepare = s.prepare.bind(s);
       t.mock.method(s, 'prepare', (sql: string) => {
-        if (sql.startsWith('SELECT count(*) AS rows,')) firstPages.push(!sql.includes(':hash'));
+        if (sql.startsWith('SELECT count(*) AS rows,'))
+          firstPages.push(!sql.includes(':hash') && !sql.includes(':size'));
         return prepare(sql);
       });
       const readers = new ColdUploadReads(s, {

@@ -65,11 +65,11 @@ class BoundReader {
 }
 type Job = { req: ReadRequest; width: number; reportedAt: number; prefix?: UsagePrefix };
 const jobFor = (req: ReadRequest): Job => ({ req, width: 1024, reportedAt: performance.now() });
-function advance(reader: BoundReader, job: Job): ReadResult | undefined {
+function advance(reader: BoundReader, job: Job, allowCharge: boolean): ReadResult | undefined {
   const { owner, subject } = job.req,
     start = performance.now(),
     old = job.prefix,
-    page = readUsagePage(reader, { owner, subject }, job.width, old?.next, 'reader');
+    page = readUsagePage(reader, { owner, subject }, job.width, old?.next, 'reader', allowCharge);
   const bytes = page.bytes === null ? null : (old?.bytes ?? 0) + page.bytes;
   if (bytes === null || !Number.isSafeInteger(bytes) || !page.next)
     return { id: job.req.id, used: Number.isSafeInteger(bytes) ? bytes : null };
@@ -94,7 +94,7 @@ export function readCommittedBatch(
         reader.read(() => {
           const job = jobFor(req);
           for (;;) {
-            const done = advance(reader, job);
+            const done = advance(reader, job, true);
             if (done) return done;
           }
         }) ?? { id: req.id },
@@ -120,7 +120,9 @@ if (port && workerData?.role === 'oaa.upload-usage' && workerData.protocol !== r
     const job = queue.shift();
     const until = performance.now() + 64;
     while (job) {
-      const step = reader.read(() => ({ done: advance(reader, job) }));
+      const step = reader.read(() => ({
+        done: advance(reader, job, workerData.chargePages === true),
+      }));
       if (!step || step.done) {
         jobs.delete(job.req.id);
         if (!queue.length) reader.close();

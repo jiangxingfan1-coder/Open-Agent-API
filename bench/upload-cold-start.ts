@@ -2,13 +2,14 @@
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
+import { uploadPhaseProfile } from './upload-phase-profile.js';
 import {
   cloneCatalog,
   fileResidency,
@@ -26,6 +27,9 @@ const { values } = parseArgs({
     'helper-timeout': { type: 'boolean' },
     'fresh-copy': { type: 'boolean' },
     'page-probe': { type: 'string' },
+    'profile-reader': { type: 'boolean' },
+    'seed-layout': { type: 'string', default: 'fresh' },
+    'mixed-history': { type: 'boolean' },
     out: { type: 'string' },
     root: { type: 'string' },
     round: { type: 'string' },
@@ -37,16 +41,27 @@ const accounts = Number(values.accounts),
 assert.ok(Number.isInteger(accounts) && accounts >= 2 && accounts <= 32);
 assert.ok(Number.isInteger(rows) && rows >= 0 && rows * accounts <= 4_194_304);
 assert.ok(Number.isInteger(restarts) && restarts >= 1 && restarts <= 64);
+assert.ok(['fresh', 'legacy', 'upgraded'].includes(values['seed-layout']));
+if (values['seed-layout'] !== 'fresh' && !process.send)
+  assert.ok(values.compare, 'legacy and upgraded fixtures need a prior compiled build');
 if (values['helper-timeout']) assert.ok(!values.uncapped && rows >= 4096);
+if (values['profile-reader'])
+  assert.ok(!values.uncapped && !values['helper-timeout'] && rows >= 4096);
 const owner = (i: number) => 'cold-fixture-' + i;
 const token = (i: number) => 'test-cold-quota-local-fixture-only-' + i;
-const bytes = 77,
-  content = 'x'.repeat(128),
+const sizes = values['mixed-history'] ? [0, 77, 77, 2048, 13, 65536, 311, 1024] : [77];
+const historyBytes =
+  Math.floor(rows / sizes.length) * sizes.reduce((a, b) => a + b, 0) +
+  sizes.slice(0, rows % sizes.length).reduce((a, b) => a + b, 0);
+const content = 'x'.repeat(128),
   probes = 20,
   spacing = 2;
 async function seed(root: string) {
-  const { Store } = await import('../src/store/store.js');
-  const s = new Store(root);
+  const { Store }: typeof import('../src/store/store.js') =
+    values['seed-layout'] === 'fresh'
+      ? await import('../src/store/store.js')
+      : await import(pathToFileURL(path.resolve(values.compare!, 'src/store/store.js')).href);
+  const s = new Store(root, { cappedUploads: !values.uncapped });
   try {
     const quiet = await s.addFile(
       owner(accounts),
@@ -71,8 +86,9 @@ async function seed(root: string) {
             id,
             owner: o,
             name: 'history',
-            bytes,
-            sha256: hex.padStart(64, '0'),
+            bytes: sizes[i % sizes.length],
+            sha256: values['mixed-history'] && i % 3 === 0 ? 'e'.repeat(64) : hex.padStart(64, '0'),
+            ...(values['mixed-history'] && i % 4 === 0 && { allowedNodes: ['fixture'] }),
             createdAt: 1,
           }),
         );
@@ -98,18 +114,30 @@ async function gateway() {
   });
   const start = performance.now();
   const restore = values['helper-timeout'] ? withholdReader() : undefined;
+  const profile = values['profile-reader']
+    ? uploadPhaseProfile(
+        accounts,
+        new Map(Array.from({ length: accounts }, (_, i) => ['Bearer ' + token(i), i])),
+      )
+    : undefined;
   const s = await setup(undefined, {
     dataDir: values.root,
     keys,
     ...(!values.uncapped && {
-      maxStoredBytesPerSubject: rows * bytes + (round + 1) * 2 * content.length,
+      maxStoredBytesPerSubject: historyBytes + (round + 1) * 2 * content.length,
     }),
   });
   try {
     const disconnected = once(process, 'disconnect');
+    profile?.attach(s.store, s.app.server);
+    if (profile)
+      process.on('message', (m) => {
+        if (m === 'quota-phase-profile') process.send!({ phases: profile.snapshot() });
+      });
     process.send!({ base: await s.listen(), ready: performance.now() - start });
     await disconnected;
   } finally {
+    profile?.close();
     restore?.();
     await s.cleanup();
   }
@@ -123,12 +151,15 @@ const stats = (times: number[]) => {
 const sample = () => ({
   uploads: [] as number[],
   quiet: [] as number[],
+  fixedQuiet: [] as number[],
+  fixedWaveP95: [] as number[],
   lag: [] as number[],
   wave: [] as number[],
   quietGaps: [] as number[],
   lateProbes: 0,
 });
 const measurements = () => ({
+  phases: [] as ReturnType<ReturnType<typeof uploadPhaseProfile>['snapshot']>[],
   cold: sample(),
   warm: sample(),
   startup: [] as number[],
@@ -145,6 +176,23 @@ async function measure() {
       current = measurements(),
       prior = measurements(),
       ids = new Set<string>();
+    const { fileIndexCommand } = await import('../src/client/file-index.js'),
+      initial = fileIndexCommand(root),
+      initialBytes = (await stat(path.join(root, 'state.sqlite'))).size;
+    assert.equal(
+      initial.layout,
+      values['seed-layout'] === 'fresh' && !values.uncapped ? 'scope-bytes' : 'scope-only',
+    );
+    const maintenanceAt = performance.now(),
+      prepared = values['seed-layout'] === 'upgraded' ? fileIndexCommand(root, true) : undefined;
+    const index = {
+      initial: initial.layout,
+      served: prepared?.layout ?? initial.layout,
+      rebuilt: prepared?.changed ?? false,
+      maintenance_ms: prepared ? +(performance.now() - maintenanceAt).toFixed(2) : 0,
+      initial_db_bytes: initialBytes,
+      prepared_db_bytes: (await stat(path.join(root, 'state.sqlite'))).size,
+    };
     const processes = restarts * (values.compare ? 2 : 1);
     for (let round = 0; round < processes; round++) {
       // AB, BA: each version sees the first and second position equally often.
@@ -175,6 +223,8 @@ async function measure() {
         root,
       ];
       if (values.uncapped) args.push('--uncapped');
+      if (values['mixed-history']) args.push('--mixed-history');
+      if (values['profile-reader']) args.push('--profile-reader');
       if (values['helper-timeout']) args.push('--helper-timeout');
       if (before) args.push('--compare', values.compare!);
       const child = fork(import.meta.filename, args, {
@@ -211,13 +261,15 @@ async function measure() {
         if (probePages) residency.push(await probePages());
         for (const phase of [cold, warm]) {
           const start = performance.now();
+          const fixedFrom = phase.fixedQuiet.length;
           let finished = Infinity;
           const arrivals: number[] = [];
-          const probe = async () => {
+          const probe = async (fixed = false) => {
             const at = performance.now();
             await read();
             const end = performance.now();
             phase.quiet.push(end - at);
+            if (fixed) phase.fixedQuiet.push(end - at);
             arrivals.push(end);
           };
           await Promise.all([
@@ -253,7 +305,7 @@ async function measure() {
                 await delay(Math.max(0, target - performance.now()));
                 const t = performance.now();
                 phase.lag.push(Math.max(0, t - target));
-                await probe();
+                await probe(true);
               }),
             ),
             (async () => {
@@ -274,6 +326,7 @@ async function measure() {
             finished,
           ];
           phase.quietGaps.push(Math.max(...points.slice(1).map((n, i) => n - points[i]!)));
+          phase.fixedWaveP95.push(stats(phase.fixedQuiet.slice(fixedFrom)).p95!);
         }
         if (!values.uncapped) {
           for (let i = 0; i < accounts; i++) {
@@ -281,6 +334,13 @@ async function measure() {
             assert.equal(r.status, 413);
             assert.equal((await r.json()).error.code, 'storage_quota_exceeded');
           }
+        }
+        if (values['profile-reader']) {
+          const reply = once(child, 'message', { signal: AbortSignal.timeout(10000) });
+          child.send('quota-phase-profile');
+          const [m] = await reply;
+          assert.equal(m.phases.length, accounts);
+          (before ? prior : current).phases.push(m.phases);
         }
       } finally {
         if (child.connected) child.disconnect();
@@ -295,7 +355,7 @@ async function measure() {
       for (let i = 0; i < accounts; i++) {
         const r = all.get(owner(i), 'config:' + owner(i))!;
         assert.equal(r.n, rows + processes * 2);
-        assert.equal(r.bytes, rows * bytes + processes * 2 * content.length);
+        assert.equal(r.bytes, historyBytes + processes * 2 * content.length);
       }
       assert.equal(db.prepare('SELECT count(*) AS n FROM oaa_inline_inputs').get()!.n, 0);
     } finally {
@@ -304,6 +364,8 @@ async function measure() {
     const describe = (p: ReturnType<typeof sample>) => ({
       upload_ms: stats(p.uploads),
       other_owner_read_ms: stats(p.quiet),
+      fixed_other_owner_read_ms: stats(p.fixedQuiet),
+      fixed_other_owner_p95_per_wave_ms: p.fixedWaveP95,
       wave_ms: stats(p.wave),
       client_timer_lag_ms: stats(p.lag),
       max_quiet_response_gap_per_wave_ms: stats(p.quietGaps),
@@ -311,6 +373,7 @@ async function measure() {
       wave_samples_ms: p.wave.map((n) => +n.toFixed(2)),
     });
     const summarize = (x: ReturnType<typeof measurements>) => ({
+      ...(x.phases.length ? { cold_request_phases: x.phases } : {}),
       ready_ms: stats(x.startup),
       cold: describe(x.cold),
       warm: describe(x.warm),
@@ -350,6 +413,8 @@ async function measure() {
       rows_per_account: rows,
       restarts,
       quota: !values.uncapped,
+      mixed_history: !!values['mixed-history'],
+      index,
       forced_helper_timeout: !!values['helper-timeout'],
       fresh_fixture_inode: !!values['fresh-copy'],
       per_wave_probes: probes,

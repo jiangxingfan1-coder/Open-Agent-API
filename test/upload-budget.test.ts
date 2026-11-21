@@ -366,12 +366,14 @@ test('uploads: malformed sizes fail quota checks closed; digest seeks exclude ot
         .map((p) => String(p.detail));
     assert.ok(
       plan('INSERT OR REPLACE INTO temp.oaa_upload_usage').some((p) =>
-        p.includes('file_upload_facts'),
+        p.includes('COVERING INDEX file_owner_subject'),
       ),
     );
     const warm = plan('SELECT used,(');
     assert.ok(warm.some((p) => p.includes('oaa_upload_reservations')));
-    assert.ok(!warm.some((p) => p.includes('file_upload_facts')));
+    assert.ok(
+      !warm.some((p) => p.includes('file_upload_facts') || p.includes('file_owner_subject')),
+    );
   } finally {
     await s.cleanup();
   }

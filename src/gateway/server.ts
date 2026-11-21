@@ -58,7 +58,9 @@ export async function createGateway(
   /** `configFile`：网关配置文件路径。提供后，控制台里「启用已安装的智能体」会把新条目写回该文件。 */
   options: { configFile?: string; dshHome?: string; localTargets?: LocalTargetOptions } = {},
 ) {
-  const store = new Store(config.dataDir);
+  const store = new Store(config.dataDir, {
+    cappedUploads: config.maxStoredBytesPerSubject !== undefined,
+  });
   setArtifactByteLimit(store, config.maxArtifactBytes);
   let cleanupHub = async () => {};
   let cleanupCatalog = () => {};

@@ -10,6 +10,7 @@ import { checkUploadRoom } from '../src/store/upload-budget.js';
 import { ColdUploadReads } from '../src/store/upload-cold-reads.js';
 import { UploadRecounts } from '../src/store/upload-recount.js';
 import { readUsagePage } from '../src/store/upload-usage-page.js';
+import { legacyFileScopeIndex } from '../src/store/file-scope-index.js';
 import { coldReadRows, UploadRecountRequired } from '../src/store/upload-usage.js';
 import { principalSubject } from '../src/core/contracts.js';
 import { setup, token, waitFor } from './helpers.js';
@@ -17,7 +18,7 @@ import { setup, token, waitFor } from './helpers.js';
 const scope = { owner: 'o', subject: 's' };
 function fixture(t: TestContext) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'oaa-quota-slice-')),
-    s = new Store(root),
+    s = new Store(root, { cappedUploads: true }),
     other = new DatabaseSync(path.join(root, 'state.sqlite'));
   t.after(() => {
     other.close();
@@ -40,85 +41,99 @@ function exact(s: Store, owner: string, subject: string, n: number) {
   });
 }
 
-test('quota slices: all continuations seek the existing index and partition nullable, repeated and binary keys exactly', (t) => {
-  const { s } = fixture(t),
-    ins = s.prepare(
-      'INSERT INTO files(rowid,id,owner,subject,payload) VALUES(?,?,?,?,CAST(? AS TEXT))',
-    );
-  ins.setReadBigInts(true);
-  let expected = 0;
-  for (let i = 0; i < 139; i++) {
-    const rowid = i === 0 ? -(2n ** 63n) : i === 1 ? 2n ** 63n - 1n : 2n ** 53n + BigInt(i);
-    const bytes = i % 5,
-      sha256 = ['a'.repeat(64), 'x'.repeat(64) + '\u0000tail', 'é'.repeat(64)][i % 3];
-    const payload = JSON.stringify({
-      bytes,
-      sha256,
-      ...(i % 6 === 0 ? { allowedNodes: ['local'] } : i % 7 === 0 ? { runId: 'kept' } : {}),
-    });
-    ins.run(rowid, 'f' + i, 'o', 's', payload);
-    expected += bytes;
-  }
-  // Historical TEXT may contain non-UTF-8 bytes. A resume key must not be normalized by JS.
-  for (let i = 0; i < 8; i++) {
-    const p = Buffer.concat([
-      Buffer.from('{"bytes":7,"sha256":"' + 'z'.repeat(63)),
-      Buffer.from([0x90 + i]),
-      Buffer.from('"}'),
-    ]);
-    ins.run(-10 - i, 'b' + i, 'o', 's', p);
-    expected += 7;
-  }
-  ins.run(0, 'foreign', 'o', 'other', '{"bytes":999}');
-  ins.run(1, 'foreign2', 'other', 's', 'bad');
-  const variants = new Set<string>(),
-    prepare = s.prepare.bind(s);
-  t.mock.method(s, 'prepare', (sql: string) => {
-    if (!variants.has(sql)) {
-      variants.add(sql);
-      const args = {
-        ...scope,
-        take: 3,
-        ...(sql.includes(':hash') && { hash: null }),
-        ...(sql.includes(':size') && { size: 1 }),
-        ...(sql.includes(':rid') && { rid: '0' }),
-      };
-      const plan = prepare('EXPLAIN QUERY PLAN ' + sql)
-        .all(args)
-        .map((r) => String(r.detail));
-      const seeks = plan.filter((d) => d.includes('SEARCH main.files'));
-      assert.ok(
-        seeks.length > 0 && seeks.every((d) => d.includes('COVERING INDEX file_upload_facts')),
-        plan.join('\n'),
-      );
-      assert.ok(
-        !plan.some(
-          (d) =>
-            (d.includes('TEMP B-TREE') && !d.includes('json_group_array(ORDER BY)')) ||
-            d.includes('SCAN main.files'),
-        ),
-        plan.join('\n'),
-      );
-      if (sql.includes(':rid')) assert.ok(seeks.every((d) => d.includes('rowid>?')));
-      else if (sql.includes(':hash')) assert.ok(seeks.every((d) => d.includes('<expr>>?')));
-    }
-    return prepare(sql);
-  });
-  for (const limit of [1, 2, 5, 13, 41, 147, 512]) {
-    let after: ReturnType<typeof readUsagePage>['next'],
-      sum = 0,
-      pages = 0;
-    do {
-      const page = readUsagePage(s, scope, limit, after);
-      assert.notEqual(page.bytes, null);
-      sum += page.bytes!;
-      after = page.next;
-      assert.ok(++pages <= 148, 'a page must advance');
-    } while (after);
-    assert.equal(sum, expected);
-  }
-  assert.equal(variants.size, 4);
-});
+for (const compact of [false, true])
+  test(
+    'quota slices: exact indexed continuations for nullable, repeated and binary keys (' +
+      (compact ? 'bytes' : 'digest') +
+      ')',
+    (t) => {
+      const { s } = fixture(t),
+        ins = s.prepare(
+          'INSERT INTO files(rowid,id,owner,subject,payload) VALUES(?,?,?,?,CAST(? AS TEXT))',
+        );
+      ins.setReadBigInts(true);
+      if (!compact) s.db.exec('DROP INDEX file_owner_subject;' + legacyFileScopeIndex);
+      let expected = 0;
+      for (let i = 0; i < 139; i++) {
+        const rowid = i === 0 ? -(2n ** 63n) : i === 1 ? 2n ** 63n - 1n : 2n ** 53n + BigInt(i);
+        const bytes = i % 5,
+          sha256 = ['a'.repeat(64), 'x'.repeat(64) + '\u0000tail', 'é'.repeat(64)][i % 3];
+        const payload = JSON.stringify({
+          bytes,
+          sha256,
+          ...(i % 6 === 0 ? { allowedNodes: ['local'] } : i % 7 === 0 ? { runId: 'kept' } : {}),
+        });
+        ins.run(rowid, 'f' + i, 'o', 's', payload);
+        expected += bytes;
+      }
+      // Historical TEXT may contain non-UTF-8 bytes. A resume key must not be normalized by JS.
+      for (let i = 0; i < 8; i++) {
+        const p = Buffer.concat([
+          Buffer.from('{"bytes":7,"sha256":"' + 'z'.repeat(63)),
+          Buffer.from([0x90 + i]),
+          Buffer.from('"}'),
+        ]);
+        ins.run(-10 - i, 'b' + i, 'o', 's', p);
+        expected += 7;
+      }
+      ins.run(0, 'foreign', 'o', 'other', '{"bytes":999}');
+      ins.run(1, 'foreign2', 'other', 's', 'bad');
+      const variants = new Set<string>(),
+        prepare = s.prepare.bind(s);
+      t.mock.method(s, 'prepare', (sql: string) => {
+        if (!sql.startsWith('SELECT count(*) AS rows,')) return prepare(sql);
+        if (!variants.has(sql)) {
+          variants.add(sql);
+          const args = {
+            ...scope,
+            take: 3,
+            ...(sql.includes(':hash') && { hash: null }),
+            ...(sql.includes(':size') && { size: 1 }),
+            ...(sql.includes(':rid') && { rid: '0' }),
+          };
+          const plan = prepare('EXPLAIN QUERY PLAN ' + sql)
+            .all(args)
+            .map((r) => String(r.detail));
+          const seeks = plan.filter((d) => d.includes('SEARCH main.files'));
+          assert.ok(
+            seeks.length > 0 &&
+              seeks.every((d) =>
+                d.includes(
+                  'COVERING INDEX ' + (compact ? 'file_owner_subject' : 'file_upload_facts'),
+                ),
+              ),
+            plan.join('\n'),
+          );
+          assert.ok(
+            !plan.some(
+              (d) =>
+                (d.includes('TEMP B-TREE') && !d.includes('json_group_array(ORDER BY)')) ||
+                d.includes('SCAN main.files'),
+            ),
+            plan.join('\n'),
+          );
+          if (sql.includes(':rid')) assert.ok(seeks.every((d) => d.includes('rowid>?')));
+          else if (sql.includes(':hash') || sql.includes(':size'))
+            assert.ok(seeks.every((d) => d.includes('<expr>>?')));
+        }
+        return prepare(sql);
+      });
+      for (const limit of [1, 2, 5, 13, 41, 147, 512]) {
+        let after: ReturnType<typeof readUsagePage>['next'],
+          sum = 0,
+          pages = 0;
+        do {
+          const page = readUsagePage(s, scope, limit, after);
+          assert.notEqual(page.bytes, null);
+          sum += page.bytes!;
+          after = page.next;
+          assert.ok(++pages <= 148, 'a page must advance');
+        } while (after);
+        assert.equal(sum, expected);
+      }
+      assert.equal(variants.size, compact ? 3 : 4);
+    },
+  );
 
 test('quota slices: competing cold callers take turns without holding the writer or exposing partial sums', async (t) => {
   const { s, other } = fixture(t),
@@ -151,33 +166,39 @@ for (const writer of ['same connection', 'external'] as const)
     exact(s, 'o', 's', n + 71);
   });
 
-for (const problem of ['unknown size', 'overflow'] as const)
-  test(
-    'quota slices: ' +
-      problem +
-      ' in a later page stays unknown rather than wrapping or granting room',
-    async (t) => {
-      const { s } = fixture(t);
-      history(s);
-      s.prepare('INSERT INTO files VALUES(?,?,?,?)').run(
-        'bad-tail',
-        'o',
-        JSON.stringify({
-          sha256: 'f'.repeat(64),
-          bytes: problem === 'overflow' ? Number.MAX_SAFE_INTEGER : '1',
-        }),
-        's',
-      );
-      let slices = 0;
-      await new UploadRecounts().fill(s, 'o', 's', () => {
-        slices++;
-      });
-      assert.ok(slices > 1);
-      assert.throws(() => checkUploadRoom(s, 'o', 's', 0, Number.MAX_SAFE_INTEGER, true), {
-        code: 'persistence_failed',
-      });
-    },
-  );
+for (const compact of [false, true])
+  for (const problem of ['unknown size', 'overflow'] as const)
+    test(
+      'quota slices: ' +
+        problem +
+        ' stays unknown rather than wrapping or granting room (' +
+        (compact ? 'bytes' : 'digest') +
+        ')',
+      async (t) => {
+        const { s } = fixture(t);
+        if (!compact) s.db.exec('DROP INDEX file_owner_subject;' + legacyFileScopeIndex);
+        history(s);
+        s.prepare('INSERT INTO files VALUES(?,?,?,?)').run(
+          'bad-tail',
+          'o',
+          JSON.stringify({
+            sha256: 'f'.repeat(64),
+            bytes: problem === 'overflow' ? Number.MAX_SAFE_INTEGER : '1',
+          }),
+          's',
+        );
+        let slices = 0;
+        await new UploadRecounts().fill(s, 'o', 's', () => {
+          slices++;
+        });
+        // In the byte index, unknown sizes sort first; overflow still spans pages.
+        if (compact && problem === 'unknown size') assert.equal(slices, 1);
+        else assert.ok(slices > 1);
+        assert.throws(() => checkUploadRoom(s, 'o', 's', 0, Number.MAX_SAFE_INTEGER, true), {
+          code: 'persistence_failed',
+        });
+      },
+    );
 
 test('quota slices: closing the gateway during fallback discards its unfinished ticket before another slice', async (t) => {
   const { s } = fixture(t);

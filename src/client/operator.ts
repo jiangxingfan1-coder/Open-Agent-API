@@ -1,6 +1,6 @@
 /**
  * Dispatch for the operator commands: `approvals`, `approve`, `deny`, `status`, `verify`, `webhook`,
- * `prune`.
+ * `prune`, `file-index`.
  * cli.ts only hands over the parsed flags; everything else lives in the modules imported here.
  */
 import { Fault } from '../core/util.js';
@@ -11,6 +11,7 @@ import { showStatus } from './status.js';
 import { runVerifyCommand, type VerifyFlags } from './verify.js';
 import { runWebhookCommand, type WebhookFlags } from './webhook-cli.js';
 import { pruneCommand } from './prune.js';
+import { fileIndexCommand } from './file-index.js';
 import { loadConfig } from '../config/config.js';
 import path from 'node:path';
 
@@ -22,6 +23,7 @@ export const OPERATOR_COMMANDS = [
   'verify',
   'webhook',
   'prune',
+  'file-index',
 ] as const;
 
 export const isOperatorCommand = (command: string): command is (typeof OPERATOR_COMMANDS)[number] =>
@@ -40,6 +42,7 @@ export type OperatorFlags = ConnectionFlags &
     'older-than'?: string;
     'dry-run'?: boolean;
     vacuum?: boolean;
+    write?: boolean;
   };
 
 /** Run `fn` with an AbortSignal that fires on Ctrl+C or SIGTERM, then remove the handlers. */
@@ -105,6 +108,35 @@ export async function runOperatorCommand(
   if (command === 'status') {
     // Read-only; exits 1 when the gateway is not running so scripts can test it.
     if (!(await showStatus(flags, { json: flags.json, prefix: ctx.prefix }))) process.exitCode = 1;
+    return;
+  }
+  if (command === 'file-index') {
+    const target = args[0] ?? 'scope-bytes';
+    if (
+      args.length > 1 ||
+      (target !== 'scope-only' && target !== 'scope-bytes') ||
+      Object.keys(flags).some((k) => !['config', 'dir', 'write', 'dry-run', 'json'].includes(k)) ||
+      (flags.config && flags.dir) ||
+      (flags.write && flags['dry-run'])
+    )
+      throw new Fault(
+        'arguments',
+        'Use file-index [scope-bytes | scope-only] [--write | --dry-run] [--config FILE | --dir DIR].',
+      );
+    const file = path.resolve(
+      flags.config ?? (flags.dir ? path.join(flags.dir, 'config.json') : '.oaa/config.json'),
+    );
+    const config = await loadConfig(file);
+    process.stdout.write(
+      JSON.stringify(
+        {
+          ...fileIndexCommand(config.dataDir, !!flags.write, target),
+          storage_cap_configured: config.maxStoredBytesPerSubject !== undefined,
+        },
+        null,
+        2,
+      ) + '\n',
+    );
     return;
   }
   if (command === 'prune') {

@@ -68,7 +68,7 @@ type Row = Record<string, unknown>;
  * v4 partitions caller data by `subject` (normally the API key ID): runs, summaries, files,
  * memories and idempotency keys. Older gateways refuse a v4 database instead of ignoring it.
  */
-const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 4;
 const MEMORY_COLUMNS =
   "owner TEXT NOT NULL,namespace TEXT NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,updated_at INTEGER NOT NULL,run_id TEXT,subject TEXT NOT NULL DEFAULT 'legacy',PRIMARY KEY(owner,subject,namespace,key)";
 /** Event types a run timeline needs; output deltas and content parts are never read. */
@@ -144,7 +144,10 @@ export class Store {
     }
     return stmt;
   }
-  constructor(readonly root: string) {
+  constructor(
+    readonly root: string,
+    options: { cappedUploads?: boolean } = {},
+  ) {
     mkdirSync(root, { recursive: true, mode: 0o700 });
     const file = path.join(root, 'state.sqlite');
     this.db = new DatabaseSync(file);
@@ -187,7 +190,7 @@ export class Store {
         CREATE TABLE IF NOT EXISTS memories (${MEMORY_COLUMNS});`);
       this.migrateSubjects();
       const previousInputs = installInputJournal(this.db);
-      installUploadBudget(this.db);
+      installUploadBudget(this.db, !!options.cappedUploads);
       installArtifactOrigins(this.db);
       installApprovalIndexes(this.db);
       indexRecoveryCandidates(this.db);
@@ -276,7 +279,6 @@ export class Store {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS summary_owner_subject_order ON run_summaries(owner,subject,ordinal);
       CREATE INDEX IF NOT EXISTS run_owner_subject_status ON runs(owner,subject,status);
-      CREATE INDEX IF NOT EXISTS file_owner_subject ON files(owner,subject);
       CREATE INDEX IF NOT EXISTS memory_scope_ns ON memories(owner,subject,namespace,updated_at DESC);`);
   }
   private snapshot(run: Run): string {

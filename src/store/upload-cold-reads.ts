@@ -16,6 +16,7 @@ import {
 } from './upload-usage.js';
 import { UploadRecounts } from './upload-recount.js';
 import { databaseIdentity } from './upload-read-worker.js';
+import { scopeProbeIndex } from './file-scope-index.js';
 import { ReadThread, type ReadSource } from './upload-read-thread.js';
 import { transferablePrefix } from './upload-usage-page.js';
 
@@ -58,7 +59,7 @@ export class ColdUploadReads {
     if (
       store
         .prepare(
-          `SELECT 1 FROM main.files INDEXED BY file_owner_subject LIMIT 1 OFFSET ${coldReadRows - 1}`,
+          `SELECT 1 FROM main.files INDEXED BY ${scopeProbeIndex(store)} LIMIT 1 OFFSET ${coldReadRows - 1}`,
         )
         .get()
     )

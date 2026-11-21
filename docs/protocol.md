@@ -733,7 +733,7 @@ Error codes and response shapes do not depend on language; only the text of `mes
 | `wait_timeout` | 408 | The wait deadline has passed (the task may still be running) |
 | `wait_cancelled` | 499 | The wait was cancelled |
 | `shutting_down` | 503 | The gateway is shutting down |
-| `gateway_already_running` | 409 | Another gateway process is using the same data directory (at startup) |
+| `gateway_already_running` | 409 | A gateway owns the data directory; another gateway or offline maintenance cannot start. |
 | `schema_too_new` | 409 | The data directory comes from a newer gateway version (at startup) |
 
 ### Agents, models and catalog
@@ -1023,6 +1023,11 @@ Returned by the `/v1/webhooks` endpoints ([webhooks.md](webhooks.md)).
 These appear in the `reasons` of agent availability and route checks and explain why a node or route is currently unavailable; they are not HTTP errors: `agent_scope`, `agent_node_restriction`, `session_node_affinity`, `file_node_restriction`, `provider_unavailable`, `tool_selection_unreported`, `capability_scope`, `native_disabled`, `native_model_unsupported`, `native_model_unreported`, `host_binding`, `result_export_denied`, `builtin_unreported`, `script_runtime_disabled`, `capability_unavailable`, `capability_mismatch`, `byok_unsupported` (this node's provider does not accept a caller key), `provider_state_unsupported` (the worker cannot keep the provider's native turn state), `sandbox_unavailable` (the node has no script sandbox that passed its self-check), `no_online_nodes`, `node_busy`, `node_draining`, `node_revoked`, `target_cooling_down`, `required_tool_unavailable`.
 
 ### CLI and client-local only
+
+Local `oaa file-index` maintenance reports `invalid_file_catalog` for a missing or replaced file,
+`unsupported_file_catalog` for a schema mismatch, and `unrecognized_file_index` for an index it
+will not replace. `maintenance_busy` means the writer was unavailable. After
+`file_index_commit_unconfirmed`, inspect the layout without `--write` before retrying.
 
 Exception: local model management also returns `provider_conflict` (409) when a provider name is already configured differently, and `provider_unreachable` (503) when the selected local server cannot be reached. These two are shared with the CLI; the remaining codes below are client-local.
 

@@ -5,6 +5,7 @@ import { bi } from '../core/locale.js';
 import { isWriteContended, isWriteUnavailable } from './checkpoint.js';
 import { tryBeginWrite } from './write-lock.js';
 import { fileBytes, fileDigest as digest } from './upload-facts.js';
+import { fileScopeIndexSpec, fileScopeLayout, scopeOnlyIndexSpec } from './file-scope-index.js';
 import { uploadUsage, type UsageConnection } from './upload-usage.js';
 
 export type UploadPolicy = {
@@ -36,7 +37,13 @@ export class UnconfirmedFileCommit extends Fault {
 }
 type Statements = { prepare(sql: string): StatementSync };
 const size = fileBytes('payload');
-export function installUploadBudget(db: DatabaseSync) {
+export function installUploadBudget(db: DatabaseSync, cappedUploads = false) {
+  // Never rebuild an existing index on startup or charge uncapped stores an extra
+  // expression evaluation on every write. A new empty capped catalog needs no backfill.
+  if (fileScopeLayout(db) === 'missing') {
+    const charge = cappedUploads && !db.prepare('SELECT 1 FROM main.files LIMIT 1').get();
+    db.exec(`CREATE INDEX IF NOT EXISTS ${charge ? fileScopeIndexSpec : scopeOnlyIndexSpec}`);
+  }
   db.exec(`CREATE INDEX IF NOT EXISTS file_upload_facts ON files(owner,subject,${digest},${size});
     CREATE INDEX IF NOT EXISTS oaa_upload_reservations ON oaa_inline_inputs(owner,subject,bytes) WHERE phase='writing';`);
 }
@@ -49,7 +56,7 @@ export function storedUploadCopy(
 ) {
   const r = store
     .prepare(
-      `SELECT id FROM files WHERE owner=? AND subject=? AND ${digest}=? AND ${size}=? ORDER BY rowid LIMIT 1`,
+      `SELECT id FROM files INDEXED BY file_upload_facts WHERE owner=? AND subject=? AND ${digest}=? AND ${size}=? ORDER BY rowid LIMIT 1`,
     )
     .get(owner, subject, hash, bytes);
   return r ? String(r.id) : undefined;

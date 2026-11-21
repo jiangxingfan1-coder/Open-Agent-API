@@ -112,7 +112,7 @@ const ROWS: Row[] = [
   ['wait_timeout', 408, 'request', R, '等待截止时间已到（任务可能仍在运行）', '用运行 ID 继续查询或等待结果'],
   ['wait_cancelled', 499, 'request', _, '等待被取消'],
   ['shutting_down', 503, 'request', R, '网关正在关闭', '等网关重启后重试'],
-  ['gateway_already_running', 409, 'request', _, '另一个网关进程占用了同一数据目录（启动时）'],
+  ['gateway_already_running', 409, 'request', _, '网关已占用此数据目录，不能重复启动或进行离线维护'],
   ['schema_too_new', 409, 'request', _, '数据目录来自更新版本的网关（启动时）'],
   // agent
   ['agent_not_found', 404, 'agent', _, '智能体或指定版本不存在'],
@@ -327,6 +327,11 @@ const ROWS: Row[] = [
   ['invalid_config', 400, 'node', _, 'worker 侧：配置无效（如缺少 gatewayUrl）'],
   // client
   ['arguments', 400, 'client', _, '命令行参数无效或缺失'],
+  ['invalid_file_catalog', 409, 'client', _, '本地网关数据库不存在、不是普通文件或已被替换', '核对配置所指的数据目录'],
+  ['unsupported_file_catalog', 409, 'client', _, '本地数据库与当前网关的存储结构不匹配', '核对网关版本和数据目录'],
+  ['unrecognized_file_index', 409, 'client', _, '文件索引缺失或定义不受支持，未替换', '检查数据库，不要盲目删除索引'],
+  ['maintenance_busy', 409, 'client', R, '离线维护无法取得数据库写锁', '等待写入结束后重试'],
+  ['file_index_commit_unconfirmed', 409, 'client', _, '无法确认文件索引切换的提交结果', '先用不带 --write 的 file-index 核对实际布局'],
   ['unknown_command', 400, 'client', _, '未知的命令'],
   ['dsh_overlay_required', 400, 'client', _, 'DSH 需先以默认方式暴露，再在 worker 配置中设置模型覆盖参数'],
   ['exposure_conflict', 400, 'client', _, '该目录属于另一个暴露配置'],

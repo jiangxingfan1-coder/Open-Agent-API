@@ -158,7 +158,12 @@ export class ReadThread implements ReadSource {
     let w: Worker;
     try {
       w = new Worker(new URL('./upload-read-worker.js', import.meta.url), {
-        workerData: { role: 'oaa.upload-usage', protocol: readerProtocol, binding: this.binding },
+        workerData: {
+          role: 'oaa.upload-usage',
+          protocol: readerProtocol,
+          chargePages: true,
+          binding: this.binding,
+        },
         execArgv: [],
       });
     } catch {

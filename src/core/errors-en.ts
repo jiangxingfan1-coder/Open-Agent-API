@@ -53,7 +53,7 @@ export const ERROR_EN: Readonly<Record<string, readonly [string, string?]>> = {
   wait_timeout: ['The wait deadline passed (the task may still be running).', 'Keep polling or waiting with the run ID.'],
   wait_cancelled: ['The wait was cancelled.'],
   shutting_down: ['The gateway is shutting down.', 'Retry after the gateway restarts.'],
-  gateway_already_running: ['Another gateway process is using the same data directory (at startup).'],
+  gateway_already_running: ['A gateway already owns this data directory; another gateway or offline maintenance cannot start.'],
   schema_too_new: ['The data directory was written by a newer gateway version (at startup).'],
   // agent
   agent_not_found: ['The agent or the requested version does not exist.'],
@@ -269,6 +269,11 @@ export const ERROR_EN: Readonly<Record<string, readonly [string, string?]>> = {
   invalid_config: ['Worker side: invalid configuration (for example, missing gatewayUrl).'],
   // client
   arguments: ['Command-line arguments are invalid or missing.'],
+  invalid_file_catalog:['The local gateway database is missing, not a regular file, or has been replaced.','Check the configured data directory.'],
+  unsupported_file_catalog:['The local catalog does not match the current gateway schema.','Check the gateway version and data directory.'],
+  unrecognized_file_index:['The file index is missing or unrecognized; it was not replaced.','Inspect the catalog rather than dropping an index.'],
+  maintenance_busy:['Offline maintenance could not acquire the database writer.','Retry when the writer is free.'],
+  file_index_commit_unconfirmed:['The file index commit could not be confirmed.','Inspect the layout with file-index without --write before retrying.'],
   unknown_command: ['Unknown command.'],
   dsh_overlay_required: ['Expose DSH with the defaults first, then set model override arguments in the worker configuration.'],
   exposure_conflict: ['This directory belongs to another exposure configuration.'],

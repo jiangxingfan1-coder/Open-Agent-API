@@ -9,4 +9,7 @@ export const exactTotal = (value: string) => {
   const sum = `total(coalesce(${value},${Number.MAX_SAFE_INTEGER + 1}))`;
   return `CASE WHEN ${sum}<=${Number.MAX_SAFE_INTEGER} THEN CAST(${sum} AS INTEGER) END`;
 };
-export const storedFileTotalSql = `SELECT ${exactTotal(fileBytes('payload'))} FROM main.files INDEXED BY file_upload_facts WHERE owner=:owner AND subject=:subject`;
+const fileTotal = (index: 'file_owner_subject' | 'file_upload_facts') =>
+  `SELECT ${exactTotal(fileBytes('payload'))} FROM main.files INDEXED BY ${index} WHERE owner=:owner AND subject=:subject`;
+export const storedFileTotalSql = fileTotal('file_upload_facts');
+export const chargeFileTotalSql = fileTotal('file_owner_subject');

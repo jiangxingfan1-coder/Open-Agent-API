@@ -42,6 +42,26 @@ different caller reads a real file. The report includes upload and reader latenc
 response gaps through the whole burst, and one-byte over-limit rejections. The OS disk cache is
 not cleared. Add `--compare PATH_TO_PRIOR_DIST` to alternate two local builds in AB/BA order.
 
+New catalogs created with a storage cap store the chargeable byte count in the existing
+owner/subject index. Fresh uncapped catalogs keep the cheaper, scope-only write path. Quota reads on the new layout
+no longer need the wider digest index; duplicate-file lookup still uses it. Existing
+`scope-only` catalogs keep working and are **not rebuilt during startup**. Inspect one with
+`oaa file-index --config PATH` (read-only, including on a live gateway). To upgrade, stop the
+gateway normally and run `oaa file-index --config PATH --write`. A `scope-bytes` result needs
+no further action. Changing a cap does not rebuild an existing index in either direction.
+To return to the lighter write layout, use `oaa file-index scope-only --config PATH --write` offline.
+The byte key costs space and work on inserts. This command replaces just one recognized index in a transaction; it neither deletes
+files or runs nor changes their rowids. Allow disk space for building the index and its WAL.
+It does not compact or shrink the whole database. If a commit cannot be confirmed, inspect
+the layout without `--write` before trying again.
+
+Add `--profile-reader` to the capped cold-start benchmark to record the first successful request
+per account: preflight, initial wait, indexed SQL, time between queries (including service of
+other accounts), handing the result back, and writing. These spans are measured inside the
+fixture; the HTTP clock stays in the separate client. `--mixed-history` includes varied sizes,
+duplicate digests and restricted inputs. With `--compare`, `--seed-layout legacy` keeps the old
+layout and `--seed-layout upgraded` applies the offline operation to the **private fixture only**.
+
 A capped gateway can prepare one read-only helper when the catalog has at least 4,096 files;
 it does not rebuild every caller's total at startup. Only a cold caller with at least that many
 files is sent to it. Concurrent requests for the same owner and subject share the count, not

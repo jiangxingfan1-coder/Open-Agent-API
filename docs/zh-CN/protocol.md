@@ -757,7 +757,7 @@ HTTP 错误响应默认使用形状 `{"error":{"code":"…","message":"…","typ
 | `wait_timeout` | 408 | 等待截止时间已到（任务可能仍在运行） |
 | `wait_cancelled` | 499 | 等待被取消 |
 | `shutting_down` | 503 | 网关正在关闭 |
-| `gateway_already_running` | 409 | 另一个网关进程占用了同一数据目录（启动时） |
+| `gateway_already_running` | 409 | 网关已占用此数据目录，不能重复启动或进行离线维护。 |
 | `schema_too_new` | 409 | 数据目录来自更新版本的网关（启动时） |
 
 ### 智能体、模型与目录
@@ -1047,6 +1047,10 @@ HTTP 错误响应默认使用形状 `{"error":{"code":"…","message":"…","typ
 出现在智能体可用性/路由检查的 `reasons` 中，说明为什么某个节点或路由当前不可用，不是 HTTP 错误：`agent_scope`、`agent_node_restriction`、`session_node_affinity`、`file_node_restriction`、`provider_unavailable`、`tool_selection_unreported`、`capability_scope`、`native_disabled`、`native_model_unsupported`、`native_model_unreported`、`host_binding`、`result_export_denied`、`builtin_unreported`、`script_runtime_disabled`、`capability_unavailable`、`capability_mismatch`、`byok_unsupported`（节点的这个提供方不接受调用方密钥）、`provider_state_unsupported`（worker 无法保留该提供方的原生轮次状态）、`sandbox_unavailable`（节点没有通过自检的脚本沙箱）、`no_online_nodes`、`node_busy`、`node_draining`、`node_revoked`、`target_cooling_down`、`required_tool_unavailable`。
 
 ### 仅 CLI / 客户端本地
+
+本地 `oaa file-index` 维护：`invalid_file_catalog` 表示数据库文件不存在、不合规或已被替换；
+`unsupported_file_catalog` 表示存储结构不匹配；`unrecognized_file_index` 表示索引缺失或不被识别，未替换。
+`maintenance_busy` 表示写锁不可用。遇到 `file_index_commit_unconfirmed`，先用不带 `--write` 的命令核对实际布局。
 
 例外：本地模型管理也会返回 `provider_conflict`（409，同名提供方配置不同）与 `provider_unreachable`（503，本机模型服务不可达）。这两项与 CLI 共用；下方其余错误仍仅来自客户端本地。
 

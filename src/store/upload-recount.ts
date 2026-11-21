@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { setImmediate as yieldTurn } from 'node:timers/promises';
-import { readUsagePage, type UsageResume, type UsagePrefix } from './upload-usage-page.js';
+import {
+  chargeCursor,
+  readUsagePage,
+  type UsageResume,
+  type UsagePrefix,
+} from './upload-usage-page.js';
+import { withSavepoint } from './savepoint.js';
+import { FileScopeLayoutChanged } from './file-scope-index.js';
 export { readUsagePage } from './upload-usage-page.js';
 import {
   acceptColdTotal,
@@ -53,10 +60,25 @@ export class UploadRecounts {
               startColdTotal(store, owner, subject, id);
               registered = true;
             } else if (!currentColdTotal(store, owner, subject, id)) return 'changed';
-            const at = performance.now(),
-              page = readUsagePage(store, scope, width, cursor);
+            const at = performance.now();
+            // Keep the schema check and index seek in one snapshot, never across a yield.
+            let page: ReturnType<typeof readUsagePage>;
+            try {
+              page = withSavepoint(store.db, () => readUsagePage(store, scope, width, cursor));
+            } catch (error) {
+              if (error instanceof FileScopeLayoutChanged) return 'changed';
+              throw error;
+            }
             const ms = performance.now() - at;
-            width = ms > 2 ? Math.max(32, width / 2) : ms < 1 ? Math.min(4096, width * 2) : width;
+            // Spend part of the narrower index's throughput on more frequent yields
+            // when a degraded recount has to share the gateway's event loop.
+            const budget = page.next && chargeCursor(page.next) ? 1 : 2;
+            width =
+              ms > budget
+                ? Math.max(32, width / 2)
+                : ms < budget / 2
+                  ? Math.min(4096, width * 2)
+                  : width;
             const total = page.bytes === null ? null : grand + page.bytes;
             if (total === null || !Number.isSafeInteger(total) || !page.next) {
               accepted = acceptColdTotal(

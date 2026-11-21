@@ -13,6 +13,7 @@ const { values } = parseArgs({
     scenario: { type: 'string', default: 'progress' },
     dist: { type: 'string' },
     'worker-dist': { type: 'string' },
+    'prepared-catalog': { type: 'boolean' },
     out: { type: 'string' },
   },
 });
@@ -34,7 +35,16 @@ try {
   const { setup, token, secondToken, waitFor }: typeof import('../test/helpers.js') = values.dist
     ? await import(pathToFileURL(path.resolve(values.dist, 'test/helpers.js')).href)
     : await import('../test/helpers.js');
-  const s = await setup(undefined, { maxStoredBytesPerSubject: n + 1 });
+  const dataDir = path.join(root, 'catalog');
+  if (values['prepared-catalog']) {
+    const { Store } = await import('../src/store/store.js');
+    const seed = new Store(dataDir, { cappedUploads: true });
+    seed.close();
+  }
+  const s = await setup(undefined, {
+    maxStoredBytesPerSubject: n + 1,
+    ...(values['prepared-catalog'] && { dataDir }),
+  });
   let locked = false;
   try {
     let separateKey: string | undefined;
@@ -58,6 +68,7 @@ try {
       prepare = s.store.prepare.bind(s.store);
     let localQueries = 0,
       firstLocalRowid: string | null = null,
+      firstLocalIndex: string | null = null,
       checkpointAtFirstLocal = 0,
       exitedAtFirstLocal = 0,
       completedDuringNative = 0,
@@ -72,6 +83,9 @@ try {
             if (args[0]?.subject !== 'config:test') return Reflect.apply(get, receiver, args);
             if (!localQueries) {
               firstLocalRowid = args[0]?.rid ?? null;
+              firstLocalIndex = sql.includes('INDEXED BY file_owner_subject')
+                ? 'file_owner_subject'
+                : 'file_upload_facts';
               checkpointAtFirstLocal = observe.checkpointRows();
               exitedAtFirstLocal = observe.exited();
             }
@@ -177,6 +191,7 @@ try {
       rows_near_5_65s: later,
       native_gate_entries: observe.entries(),
       progress_reports: observe.reports(),
+      checkpoint_order: observe.checkpointOrder(),
       acknowledged_release_rows: observe.releasedRows(),
       checkpoint_at_first_local: checkpointAtFirstLocal,
       exited_at_first_local: exitedAtFirstLocal,
@@ -187,6 +202,7 @@ try {
           ? Number(firstLocalRowid)
           : 0,
       first_local_after_rowid: firstLocalRowid,
+      first_local_index: firstLocalIndex,
       local_queries: localQueries,
       rows_at_first_local_query: rowsAtFirstLocal,
       local_queries_completed_while_native_read_blocked: completedDuringNative,

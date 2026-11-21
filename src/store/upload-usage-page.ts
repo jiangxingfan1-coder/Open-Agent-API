@@ -1,11 +1,16 @@
 import type { StatementSync } from 'node:sqlite';
 import { exactTotal, fileBytes, fileDigest as digest } from './upload-facts.js';
+import { FileScopeLayoutChanged, fileScopeLayout } from './file-scope-index.js';
 
 const size = fileBytes('payload'),
   order = `${digest},${size},rowid`;
 type Edge = [digestHex: string | null, bytes: number, rowid: string];
 type Scope = { owner: string; subject: string };
-export type UsageResume = { key: Edge; from: 'ties' | 'sizes' | 'hashes' };
+export type UsageResume = {
+  key: Edge;
+  from: 'ties' | 'sizes' | 'hashes' | 'charge-ties' | 'charges';
+};
+export const chargeCursor = (r: UsageResume) => r.from === 'charge-ties' || r.from === 'charges';
 export type UsagePrefix = { rows: number; bytes: number; next: UsageResume };
 /** A handoff is optional. Unusually large historical keys stay inside the reader. */
 export function transferablePrefix(p: UsagePrefix | undefined): p is UsagePrefix {
@@ -21,7 +26,9 @@ export function transferablePrefix(p: UsagePrefix | undefined): p is UsagePrefix
     key = cursor?.key;
   return (
     !!cursor &&
-    ['ties', 'sizes', 'hashes'].includes(cursor.from) &&
+    (chargeCursor(cursor)
+      ? key?.[0] === null
+      : ['ties', 'sizes', 'hashes'].includes(cursor.from)) &&
     Array.isArray(key) &&
     key.length === 3 &&
     (key[0] === null ||
@@ -36,14 +43,14 @@ export function transferablePrefix(p: UsagePrefix | undefined): p is UsagePrefix
 }
 type Page = { bytes: number | null; next?: UsageResume };
 
-function pageQuery(filter: string, sort: string) {
-  const from = `FROM main.files INDEXED BY file_upload_facts WHERE owner=:owner AND subject=:subject ${filter} ORDER BY ${sort}`;
+function pageQuery(filter: string, sort: string, charge = false) {
+  const from = `FROM main.files INDEXED BY ${charge ? 'file_owner_subject' : 'file_upload_facts'} WHERE owner=:owner AND subject=:subject ${filter} ORDER BY ${sort}`;
   // Both branches use the same snapshot. OFFSET only looks within the current bounded
   // page, never through the history already counted. Keep the signed 64-bit rowid exact.
   return `SELECT count(*) AS rows,${exactTotal('n')} AS bytes,
     CASE WHEN count(*)=:take THEN (SELECT json_group_array(
       json_array(nullif(hex(d),''),n,CAST(rid AS TEXT)) ORDER BY d COLLATE BINARY,n,rid) FROM
-      (SELECT ${digest} AS d,${size} AS n,rowid AS rid ${from} LIMIT 2 OFFSET (:take-1))) END AS edge
+      (SELECT ${charge ? 'NULL' : digest} AS d,${size} AS n,rowid AS rid ${from} LIMIT 2 OFFSET (:take-1))) END AS edge
     FROM (SELECT ${size} AS n ${from} LIMIT :take)`;
 }
 // Bind the exact stored bytes as TEXT. Unary + preserves the value but removes the
@@ -56,6 +63,10 @@ const first = pageQuery('', order),
   ),
   sizes = pageQuery(`AND ${digest} IS ${boundHash} AND ${size}>:size`, `${size},rowid`),
   hashes = pageQuery(`AND ${digest}>${boundHash}`, order);
+const byCharge = `${size},rowid`,
+  firstCharge = pageQuery('', byCharge, true),
+  chargeTies = pageQuery(`AND ${size}=:size AND rowid>CAST(:rid AS INTEGER)`, 'rowid', true),
+  charges = pageQuery(`AND ${size}>:size`, byCharge, true);
 
 // Scalar seeks keep all three continuation ranges indexable, including NULL digests,
 // restricted artifacts, and arbitrarily many equal digest/size pairs.
@@ -65,13 +76,24 @@ export function readUsagePage(
   take: number,
   after?: UsageResume,
   lane: 'gateway' | 'reader' = 'gateway',
+  allowCharge = true,
 ): Page {
   if (!Number.isInteger(take) || take < 1 || take > (lane === 'reader' ? 131072 : 4096))
     throw new RangeError('Invalid file usage page size.');
-  const hash = after?.key[0] ? Buffer.from(after.key[0], 'hex') : null;
   const ranges: [string, Record<string, string | number | Uint8Array | null>][] = [];
-  if (!after) ranges.push([first, {}]);
-  else {
+  // Never reinterpret a handed-off digest cursor as a byte cursor, even if the
+  // current catalog supports both indexes.
+  const wantsCharge = after ? chargeCursor(after) : allowCharge;
+  const compact = wantsCharge && fileScopeLayout(store) === 'scope-bytes';
+  if (after && wantsCharge && !compact)
+    throw new FileScopeLayoutChanged('The file index layout changed during a recount.');
+  if (!after) ranges.push([compact ? firstCharge : first, {}]);
+  else if (compact) {
+    if (after.from === 'charge-ties')
+      ranges.push([chargeTies, { size: after.key[1], rid: after.key[2] }]);
+    ranges.push([charges, { size: after.key[1] }]);
+  } else {
+    const hash = after.key[0] ? Buffer.from(after.key[0], 'hex') : null;
     if (after.from === 'ties') ranges.push([ties, { hash, size: after.key[1], rid: after.key[2] }]);
     if (after.from !== 'hashes') ranges.push([sizes, { hash, size: after.key[1] }]);
     ranges.push([hashes, { hash: hash ?? '' }]);
@@ -86,6 +108,14 @@ export function readUsagePage(
     if (!take) {
       if (typeof r.edge !== 'string') return { bytes: null };
       const [key, peek] = JSON.parse(r.edge) as [Edge, Edge?];
+      if (!key) return { bytes: null };
+      if (compact) {
+        if (!peek && sql !== chargeTies) return { bytes };
+        return {
+          bytes,
+          next: { key, from: peek && key[1] === peek[1] ? 'charge-ties' : 'charges' },
+        };
+      }
       // A lookahead avoids seeking both exhausted prefixes for every page of unique hashes.
       // Recompute from the last counted row, never count the lookahead itself.
       if (!peek && (sql === first || sql === hashes)) return { bytes };
