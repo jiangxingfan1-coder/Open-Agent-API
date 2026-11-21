@@ -10,7 +10,7 @@ export type ReadCommand = ReadRequest | { cancel: string };
 export type ReadResult = { id: string; used?: number | null };
 export type ReadMessage =
   | (ReadResult & { kind: 'done' })
-  | { id: string; kind: 'progress'; rows: number }
+  | { id: string; kind: 'progress'; rows: number; prefix?: UsagePrefix }
   | { id: string; kind: 'released'; prefix?: UsagePrefix };
 export function databaseIdentity(file: string) {
   const s = statSync(file, { bigint: true });
@@ -130,7 +130,12 @@ if (port && workerData?.role === 'oaa.upload-usage' && workerData.protocol !== r
         const now = performance.now();
         if (now - job.reportedAt >= 250) {
           job.reportedAt = now;
-          send({ id: job.req.id, kind: 'progress', rows: job.prefix!.rows });
+          send({
+            id: job.req.id,
+            kind: 'progress',
+            rows: job.prefix!.rows,
+            ...(transferablePrefix(job.prefix) && { prefix: job.prefix }),
+          });
         }
         // Keep nearby index pages together on cold storage, then yield to the port
         // and to other callers. No read transaction spans this scheduling boundary.

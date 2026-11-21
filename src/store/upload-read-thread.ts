@@ -33,6 +33,7 @@ type Call = {
   abandonOnReady?: boolean;
   request: ReadRequest;
   current?: () => boolean;
+  checkpoint?: UsagePrefix;
   rows: number;
   last: number;
   deadline: number;
@@ -94,7 +95,7 @@ export class ReadThread implements ReadSource {
     void g.worker.terminate().catch(() => {}); // Only the exit event above releases ownership.
     void ready.promise.then((clear) => {
       for (const c of calls.splice(0))
-        c.finish(this.stopped ? stopping() : clear ? undefined : busy());
+        c.finish(this.stopped ? stopping() : clear ? c.checkpoint : busy());
     });
   }
   private message(g: Generation, m: ReadMessage | ReadResult | { ready: number }) {
@@ -124,11 +125,13 @@ export class ReadThread implements ReadSource {
             /* An unreadable ticket cannot validate a prefix. */
           }
           if (!valid) {
+            c.checkpoint = undefined;
             this.release(g, c, inactiveMs);
             return;
           }
         }
         c.rows = m.rows;
+        if (transferablePrefix(m.prefix) && m.prefix.rows === m.rows) c.checkpoint = m.prefix;
         c.last = performance.now();
       }
       return;
@@ -136,13 +139,14 @@ export class ReadThread implements ReadSource {
     let value: ReadOutcome;
     if (m.kind === 'released') {
       if (!c.cancelling) return;
-      if (transferablePrefix(m.prefix) && m.prefix.rows >= c.rows) value = m.prefix;
+      value = transferablePrefix(m.prefix) && m.prefix.rows >= c.rows ? m.prefix : c.checkpoint;
     } else if (m.kind === 'done') {
       if (
         m.used === null ||
         (typeof m.used === 'number' && Number.isSafeInteger(m.used) && m.used >= 0)
       )
         value = m.used;
+      else value = c.checkpoint;
     } else return;
     g.calls.delete(m.id);
     clearTimeout(c.timer);

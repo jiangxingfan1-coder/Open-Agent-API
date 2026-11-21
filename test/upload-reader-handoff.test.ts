@@ -235,10 +235,16 @@ test(
     });
     const r = JSON.parse(stdout);
     assert.equal(r.native_gate_entries, 1);
+    assert.ok(r.progress_reports > 0);
     assert.deepEqual(r.first, { status: 503, code: 'upload_busy', retry_after: '1' });
     assert.deepEqual(r.drain_retry, r.first);
     assert.equal(r.files_before_drain_retry, r.history_rows);
     assert.equal(r.local_queries_completed_while_native_read_blocked, 0);
+    assert.equal(
+      r.first_local_after_rowid,
+      null,
+      'after a busy response a new request must not reuse the old ticket',
+    );
     assert.equal(r.quiet_upload_during_drain, 200);
     assert.equal(r.unrelated_cold_upload_during_drain, 200);
     assert.equal(r.retry_after_release_status, 200);
@@ -258,7 +264,27 @@ test(
     assert.ok(r.observed_finish_ms >= 15000);
     assert.ok(r.handed_off_rows > 0 && r.handed_off_rows < r.history_rows);
     assert.equal(r.first_local_after_rowid, String(r.handed_off_rows));
+    const proven =
+      r.acknowledged_release_rows || (r.exited_at_first_local ? r.checkpoint_at_first_local : 0);
+    assert.equal(r.handed_off_rows, proven);
     assert.ok(r.local_queries > 0);
+    assert.equal(r.one_byte_over, 413);
+    assert.equal(r.open_reservations, 0);
+  },
+);
+test(
+  'reader handoff: an actual thread exit can release its last acknowledged checkpoint without a cancel reply',
+  { timeout: 20000 },
+  async () => {
+    const { stdout } = await run(process.execPath, [bench, '--scenario', 'exit'], {
+      timeout: 15000,
+    });
+    const r = JSON.parse(stdout);
+    assert.equal(r.first.status, 200);
+    assert.equal(r.acknowledged_release_rows, 0);
+    assert.equal(r.exited_at_first_local, 1);
+    assert.ok(r.checkpoint_at_first_local > 0 && r.checkpoint_at_first_local < r.history_rows);
+    assert.equal(r.first_local_after_rowid, String(r.checkpoint_at_first_local));
     assert.equal(r.one_byte_over, 413);
     assert.equal(r.open_reservations, 0);
   },

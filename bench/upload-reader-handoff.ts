@@ -16,7 +16,7 @@ const { values } = parseArgs({
     out: { type: 'string' },
   },
 });
-assert.ok(['progress', 'blocked', 'ceiling', 'steady'].includes(values.scenario!));
+assert.ok(['progress', 'blocked', 'ceiling', 'exit', 'steady'].includes(values.scenario!));
 const scenario = values.scenario as ReaderScenario,
   n = 16384;
 const root = await mkdtemp(path.join(os.tmpdir(), 'oaa-reader-handoff-')),
@@ -58,6 +58,8 @@ try {
       prepare = s.store.prepare.bind(s.store);
     let localQueries = 0,
       firstLocalRowid: string | null = null,
+      checkpointAtFirstLocal = 0,
+      exitedAtFirstLocal = 0,
       completedDuringNative = 0,
       rowsAtFirstLocal: number | null = null;
     const seen = new WeakSet<object>();
@@ -68,7 +70,11 @@ try {
         stmt.get = new Proxy(stmt.get, {
           apply(get, receiver, args) {
             if (args[0]?.subject !== 'config:test') return Reflect.apply(get, receiver, args);
-            if (!localQueries) firstLocalRowid = args[0]?.rid ?? null;
+            if (!localQueries) {
+              firstLocalRowid = args[0]?.rid ?? null;
+              checkpointAtFirstLocal = observe.checkpointRows();
+              exitedAtFirstLocal = observe.exited();
+            }
             localQueries++;
             rowsAtFirstLocal ??= observe.rows();
             const overlap = locked && observe.inNative(),
@@ -111,7 +117,7 @@ try {
     }));
     let atDeadline: number | null = null,
       later: number | null = null;
-    if (scenario !== 'steady') {
+    if (scenario !== 'steady' && scenario !== 'exit') {
       await delay(Math.max(0, start + 4800 - performance.now()));
       atDeadline = observe.rows();
       await delay(Math.max(0, start + 5650 - performance.now()));
@@ -171,7 +177,15 @@ try {
       rows_near_5_65s: later,
       native_gate_entries: observe.entries(),
       progress_reports: observe.reports(),
-      handed_off_rows: observe.releasedRows(),
+      acknowledged_release_rows: observe.releasedRows(),
+      checkpoint_at_first_local: checkpointAtFirstLocal,
+      exited_at_first_local: exitedAtFirstLocal,
+      handed_off_rows:
+        firstLocalRowid !== null &&
+        firstLocalRowid ===
+          String(observe.releasedRows() || (exitedAtFirstLocal ? checkpointAtFirstLocal : 0))
+          ? Number(firstLocalRowid)
+          : 0,
       first_local_after_rowid: firstLocalRowid,
       local_queries: localQueries,
       rows_at_first_local_query: rowsAtFirstLocal,

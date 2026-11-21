@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { isMainThread, workerData } from 'node:worker_threads';
 import type { WorkerOptions } from 'node:worker_threads';
 
-export type ReaderScenario = 'progress' | 'blocked' | 'ceiling' | 'steady';
+export type ReaderScenario = 'progress' | 'blocked' | 'ceiling' | 'exit' | 'steady';
 type Probe = { origin: string; gate: string; state: SharedArrayBuffer; scenario: ReaderScenario };
 const rows = 0,
   entered = 1,
@@ -21,6 +21,7 @@ export function observeReader(gate: string, scenario: ReaderScenario, workerUrl?
   let opened = 0,
     exited = 0,
     progressReports = 0,
+    checkpointRows = 0,
     releasedRows = 0,
     terminationAt: number | undefined;
   class Observed extends original {
@@ -46,7 +47,12 @@ export function observeReader(gate: string, scenario: ReaderScenario, workerUrl?
       if (watching) {
         opened++;
         this.on('message', (m) => {
-          if (m.kind === 'progress') progressReports++;
+          if (m.kind === 'progress') {
+            progressReports++;
+            if (m.prefix) checkpointRows = m.prefix.rows;
+            if (scenario === 'exit' && progressReports === 1)
+              setImmediate(() => void this.terminate());
+          }
           if (m.kind === 'released') releasedRows = m.prefix?.rows ?? 0;
         });
         this.once('exit', () => {
@@ -69,6 +75,7 @@ export function observeReader(gate: string, scenario: ReaderScenario, workerUrl?
     opened: () => opened,
     terminationAt: () => terminationAt,
     reports: () => progressReports,
+    checkpointRows: () => checkpointRows,
     releasedRows: () => releasedRows,
     restore: () => {
       builtin.Worker = original;
@@ -85,6 +92,7 @@ if (!isMainThread && workerData?.probe && workerData?.role === 'oaa.upload-usage
     installed = new WeakSet<DatabaseSync>();
   const source =
     'FROM main.files INDEXED BY file_upload_facts WHERE owner=:owner AND subject=:subject';
+  let firstVisit: number | undefined;
   DatabaseSync.prototype.prepare = function (sql: string) {
     if (!sql.includes(source)) return prepare.call(this, sql);
     if (!installed.has(this)) {
@@ -92,9 +100,21 @@ if (!isMainThread && workerData?.probe && workerData?.role === 'oaa.upload-usage
         if (owner !== 'owner' || typeof row !== 'bigint' || seen.has(row)) return 1;
         seen.add(row);
         const n = Atomics.add(state, rows, 1) + 1;
-        if ((p.scenario === 'progress' || p.scenario === 'ceiling') && n % 64 === 0)
-          Atomics.wait(state, sleepSlot, 0, p.scenario === 'ceiling' ? 80 : 24);
-        if (p.scenario === 'blocked' && n === 128) {
+        firstVisit ??= performance.now();
+        if (
+          (p.scenario === 'progress' ||
+            p.scenario === 'ceiling' ||
+            p.scenario === 'exit' ||
+            (p.scenario === 'blocked' && n <= 1024)) &&
+          n % 64 === 0
+        ) {
+          // Pace actual visited rows on one monotonic timeline. A late OS wake-up
+          // must not turn the slow-progress fixture into the absolute-deadline case.
+          const due = firstVisit + (n / 64) * (p.scenario === 'ceiling' ? 80 : 24);
+          const remaining = due - performance.now();
+          if (remaining > 0) Atomics.wait(state, sleepSlot, 0, remaining);
+        }
+        if (p.scenario === 'blocked' && n === 2048) {
           const gate = new DatabaseSync(p.gate, { readOnly: true });
           try {
             gate.exec('PRAGMA busy_timeout=30000');

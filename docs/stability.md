@@ -53,6 +53,8 @@ After five seconds without a completed page, the gateway asks the helper to reli
 caller's scan. Advancing row counts can keep it running up to a 15-second handoff deadline;
 timer ticks and other callers' progress do not extend it. A released, complete-page prefix
 can be resumed on the serving connection only under the original, still-current scan ticket.
+The last reported checkpoint can also be used after a confirmed thread exit, but never while
+the old read is still running or under a later upload's ticket.
 If a native read cannot acknowledge release and its thread has not actually exited, affected
 uploads get `503 upload_busy` and `Retry-After`, not a competing scan. No file is accepted on
 this response. Other scopes may still use their own totals or the paged fallback.
@@ -77,7 +79,8 @@ The probe reads page-residency metadata only. Neither option flushes host or dev
 To exercise an active reader rather than a lost message, run
 `npm run bench:upload-reader-handoff -- --scenario progress`. Use `blocked` to hold a native SQLite
 operation on a separate disposable database, or `ceiling` to observe a cooperative deadline
-handoff. The fixture records rows visited, overlap with a local recount, and accepted bytes.
+handoff. Use `exit` to stop the private fixture worker after its first completed-page report.
+The fixture records rows visited, overlap with a local recount, and accepted bytes.
 The pacing and lock are injected; these results are not measurements of a failing physical drive.
 
 `bench/soak.ts` is not part of `npm test`. It:
